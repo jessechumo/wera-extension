@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, type WeraApi, type WeraJob } from '../shared/api';
 import type { PageInfo } from '../shared/types';
+import { rememberTabJob, tabJob } from '../shared/storage';
 import { activeTab, NeedsPermission, readPage } from './page';
 
 export interface PageState {
@@ -32,6 +33,14 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
       if (!tab) throw new Error('No active tab.');
       page = await readPage(tab);
       job = (await api.lookup(page.url)).job;
+      const origin = new URL(page.url).origin;
+      if (job && tab.id != null) {
+        await rememberTabJob(tab.id, origin, job.id);
+      } else if (!job && tab.id != null) {
+        // Same site, same tab as a job the user just looked at: probably its form.
+        const remembered = await tabJob(tab.id, origin);
+        if (remembered) job = await api.job(remembered).catch(() => null);
+      }
       if (mine === run.current) setState({ tab, page, job, loading: false, needsPermission: null, error: '' });
     } catch (e) {
       if (mine !== run.current) return;
@@ -64,6 +73,11 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
     };
   }, [refresh]);
 
-  const setJob = (job: WeraJob | null) => setState((s) => ({ ...s, job }));
+  const setJob = (job: WeraJob | null) => {
+    setState((s) => {
+      if (job && s.tab?.id != null && s.page) void rememberTabJob(s.tab.id, new URL(s.page.url).origin, job.id);
+      return { ...s, job };
+    });
+  };
   return { ...state, refresh, setJob };
 }

@@ -3,6 +3,14 @@ import type { Applicant, ContentRequest, FillResult, PageInfo } from '../shared/
 /** The tab the side panel is working with. */
 export async function activeTab(): Promise<chrome.tabs.Tab | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // Opened as a tab of its own (not as the side panel): work on the page
+  // the user was on before.
+  if (tab?.url?.startsWith(location.origin)) {
+    const others = (await chrome.tabs.query({ currentWindow: true }))
+      .filter((t) => !t.url?.startsWith(location.origin))
+      .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+    return others[0] ?? null;
+  }
   return tab ?? null;
 }
 
