@@ -59,11 +59,12 @@ export function JobTab({ api, page }: { api: WeraApi; page: Page }) {
   const [showDesc, setShowDesc] = useState(false);
 
   // New page: start from its job data (or an empty form for its URL).
-  useEffect(() => {
-    if (!page.page) return;
+  const [draftFor, setDraftFor] = useState(page.page);
+  if (page.page && page.page !== draftFor) {
+    setDraftFor(page.page);
     setDraft(page.page.draft ?? { ...EMPTY, url: page.page.url });
     setError('');
-  }, [page.page]);
+  }
 
   // Poll an unscored job until its AI score arrives (it is scored right after saving).
   const job = page.job;

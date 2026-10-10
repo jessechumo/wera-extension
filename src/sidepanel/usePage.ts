@@ -23,8 +23,9 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
 
   const refresh = useCallback(async () => {
     const mine = ++run.current;
-    setState((s) => ({ ...s, loading: true, error: '', needsPermission: null }));
     const tab = await activeTab();
+    if (mine !== run.current) return;
+    setState((s) => ({ ...s, tab, loading: true, error: '', needsPermission: null }));
     let page: PageInfo | null = null;
     let job: WeraJob | null = null;
     try {
@@ -47,6 +48,9 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
   }, [api, onUnauthorized]);
 
   useEffect(() => {
+    // Syncing with the browser's tabs (an external system): refresh sets
+    // state only after awaiting the tabs API, never synchronously here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
     const onActivated = () => void refresh();
     const onUpdated = (_id: number, info: { status?: string }, tab: chrome.tabs.Tab) => {

@@ -17,8 +17,7 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
   const [msg, setMsg] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null);
 
   useEffect(() => {
-    if (!job) return;
-    setLetter(undefined);
+    if (!job) return; // the tab is keyed by job, so state starts fresh per job
     void api.coverLetter(job.id).then((l) => {
       setLetter(l);
       setText(l?.body ?? '');

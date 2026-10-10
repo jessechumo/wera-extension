@@ -40,9 +40,12 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
   const [tab, setTab] = useState<Tab>('job');
 
   // An application page opens on Apply; a posting on Job.
-  useEffect(() => {
+  const pageKey = page.page ? `${page.page.url}|${page.page.hasForm}` : '';
+  const [seenPage, setSeenPage] = useState(pageKey);
+  if (pageKey !== seenPage) {
+    setSeenPage(pageKey);
     if (page.page?.hasForm) setTab('apply');
-  }, [page.page?.url, page.page?.hasForm]);
+  }
 
   const signOut = async () => {
     await api.disconnect().catch(() => {});
@@ -83,7 +86,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
         {tab === 'apply' && <ApplyTab api={api} page={page} />}
-        {tab === 'letter' && <LetterTab api={api} page={page} onNeedJob={() => setTab('job')} />}
+        {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'resume' && <ResumeTab api={api} page={page} userName={session.user.name} onNeedJob={() => setTab('job')} />}
       </main>
     </div>

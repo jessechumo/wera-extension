@@ -34,7 +34,7 @@ export function blockText(root: Element): string {
   walk(root);
   return out
     .join('')
-    .replace(/[ \t ]+/g, ' ')
+    .replace(/[ \t\u00a0]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
