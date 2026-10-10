@@ -79,7 +79,7 @@ jobs:
           ref: ${{ github.base_ref == 'main' && 'main' || 'dev' }}
           path: api
           token: ${{ secrets.WERA_API_REPO_TOKEN || github.token }}
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: api/go.mod
           cache-dependency-path: api/go.sum
