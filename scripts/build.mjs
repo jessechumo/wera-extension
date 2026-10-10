@@ -15,6 +15,9 @@ for (const target of ['sidepanel', 'background', 'content']) {
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
 manifest.version = pkg.version;
+// End-to-end tests cannot click permission prompts: their build has the
+// local test servers granted up front. Never set this for a release.
+if (process.env.WERA_E2E) manifest.host_permissions = ['http://127.0.0.1/*', 'http://localhost/*'];
 writeFileSync('dist/manifest.json', JSON.stringify(manifest, null, 2));
 cpSync('public', 'dist', { recursive: true });
 console.log(`built wera-extension ${pkg.version} into dist/`);
