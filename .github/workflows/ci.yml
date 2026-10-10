@@ -40,7 +40,7 @@ jobs:
       - run: npm run package
       - name: The release build never grants sites up front
         run: node -e "const m=require('./dist/manifest.json'); if (m.host_permissions) { console.error('host_permissions in a release build'); process.exit(1) }"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wera-extension
           path: release/*.zip
@@ -100,7 +100,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
