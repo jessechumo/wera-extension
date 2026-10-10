@@ -93,4 +93,5 @@ export type ContentRequest =
   | { type: 'wera:read-page' }
   | { type: 'wera:fill'; applicant: Applicant; resume?: { name: string; base64: string }; coverLetter?: string }
   | { type: 'wera:insert'; id: string; text: string }
-  | { type: 'wera:questions' };
+  | { type: 'wera:questions' }
+  | { type: 'wera:insert-cover-letter'; text: string };

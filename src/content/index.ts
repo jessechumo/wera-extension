@@ -44,6 +44,11 @@ if (!window.__weraContent) {
       case 'wera:insert':
         reply({ ok: insertText(byId(document, msg.id), msg.text) });
         return false;
+      case 'wera:insert-cover-letter': {
+        const box = collectFields(document).find((f) => f.kind === 'textarea' && classify(f) === 'cover_letter');
+        reply({ ok: insertText(box?.el ?? null, msg.text) });
+        return false;
+      }
       case 'wera:fill':
         fillForm(document, msg.applicant, { resume: msg.resume, coverLetter: msg.coverLetter }).then(reply);
         return true; // async reply
