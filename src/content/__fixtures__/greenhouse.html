@@ -1,0 +1,20 @@
+<form id="application_form">
+  <div class="field"><label for="first_name">First Name *</label><input id="first_name" name="job_application[first_name]" type="text" autocomplete="given-name" aria-required="true"></div>
+  <div class="field"><label for="last_name">Last Name *</label><input id="last_name" name="job_application[last_name]" type="text" autocomplete="family-name" aria-required="true"></div>
+  <div class="field"><label for="email">Email *</label><input id="email" name="job_application[email]" type="text"></div>
+  <div class="field"><label for="phone">Phone</label><input id="phone" name="job_application[phone]" type="tel"></div>
+  <div class="field"><label for="loc">Location (City) *</label><input id="loc" name="job_application[location]" type="text" role="combobox" aria-controls="loc-list" aria-required="true"><ul id="loc-list" role="listbox"></ul></div>
+  <div class="field"><label for="resume">Resume/CV *</label><input id="resume" type="file" name="job_application[resume]" hidden></div>
+  <div class="field"><label for="q1">Are you legally authorized to work in the United States? *</label>
+    <select id="q1" name="job_application[answers_attributes][0][boolean_value]"><option value="">--</option><option value="1">Yes</option><option value="0">No</option></select></div>
+  <div class="field"><label for="q2">Are you authorized to work in the US without the need for employer sponsorship? *</label>
+    <select id="q2" name="job_application[answers_attributes][1][boolean_value]"><option value="">--</option><option value="1">Yes</option><option value="0">No</option></select></div>
+  <div class="field"><label for="q3">What are your salary expectations?</label><input id="q3" type="text" name="job_application[answers_attributes][2][text_value]"></div>
+  <div class="field"><label for="q4">State</label><select id="q4" name="state"><option value="">Select</option><option value="CA">California</option><option value="TX">Texas</option></select></div>
+  <fieldset><legend>Are you Hispanic/Latino?</legend>
+    <label><input type="radio" name="hispanic" value="yes"> Yes</label>
+    <label><input type="radio" name="hispanic" value="no"> No</label>
+    <label><input type="radio" name="hispanic" value="decline"> Decline To Self Identify</label>
+  </fieldset>
+  <div style="display:none"><input id="honeypot" name="website_hp" type="text"></div>
+</form>
