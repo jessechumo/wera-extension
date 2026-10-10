@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="640" viewBox="0 0 1240 640" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Wera for Chrome: architecture</title>
+<defs>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#1F2328" flood-opacity=".07"/></filter>
+<marker id="arrow-1A7F37" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1A7F37"/></marker><marker id="arrow-2F6FEB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2F6FEB"/></marker><marker id="arrow-57606A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57606A"/></marker><marker id="arrow-7C3AED" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7C3AED"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#FBFAF7"/>
+<text x="32" y="44" font-size="20" font-weight="700" fill="#1F2328">Wera for Chrome: architecture</text>
+<text x="32" y="66" font-size="12.5" fill="#57606A">The side panel talks to your Wera server with its own token, and to the page only when you use it. It never submits.</text>
+<rect x="28" y="108" width="700" height="460" rx="16" fill="#2F6FEB08" stroke="#2F6FEB8C" stroke-width="1.3" stroke-dasharray="6 5"/>
+<rect x="44" y="97" width="122.80000000000001" height="22" rx="11" fill="#FBFAF7" stroke="#2F6FEB8C" stroke-width="1"/>
+<text x="54" y="112" font-size="11.5" font-weight="600" letter-spacing=".04em" fill="#2F6FEB">YOUR BROWSER</text>
+<rect x="760" y="108" width="452" height="460" rx="16" fill="#1A7F3708" stroke="#1A7F378C" stroke-width="1.3" stroke-dasharray="6 5"/>
+<rect x="776" y="97" width="156.4" height="22" rx="11" fill="#FBFAF7" stroke="#1A7F378C" stroke-width="1"/>
+<text x="786" y="112" font-size="11.5" font-weight="600" letter-spacing=".04em" fill="#1A7F37">YOUR WERA SERVER</text>
+<g filter="url(#shadow)"><rect x="52" y="134" width="300" height="196" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="52" y="134" width="4" height="196" rx="2" fill="#57606A"/>
+<rect x="66" y="147" width="32" height="32" rx="8" fill="#57606A19"/>
+<g transform="translate(70 151) scale(1)" fill="none" stroke="#57606A" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><circle cx="6.5" cy="6.5" r=".6"/><circle cx="9" cy="6.5" r=".6"/></g>
+<text x="108" y="161" font-size="14" font-weight="650" fill="#1F2328">Job site tab</text>
+<text x="68" y="192" font-size="11.5" fill="#57606A">Greenhouse, Lever, Ashby, Workday,</text>
+<text x="68" y="208" font-size="11.5" fill="#57606A">any career page</text>
+<text x="68" y="224" font-size="11.5" fill="#57606A"></text>
+<text x="68" y="240" font-size="11.5" fill="#57606A">content script, injected on demand:</text>
+<text x="68" y="256" font-size="11.5" fill="#57606A">reads JobPosting data and text,</text>
+<text x="68" y="272" font-size="11.5" fill="#57606A">finds, labels and fills fields</text>
+<g filter="url(#shadow)"><rect x="434" y="134" width="270" height="196" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="434" y="134" width="4" height="196" rx="2" fill="#2F6FEB"/>
+<rect x="448" y="147" width="32" height="32" rx="8" fill="#2F6FEB19"/>
+<g transform="translate(452 151) scale(1)" fill="none" stroke="#2F6FEB" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></g>
+<text x="490" y="161" font-size="14" font-weight="650" fill="#1F2328">Side panel</text>
+<text x="450" y="192" font-size="11.5" fill="#57606A">React: Job, Apply, Letter, Resume</text>
+<text x="450" y="208" font-size="11.5" fill="#57606A">token in chrome.storage.local</text>
+<text x="450" y="224" font-size="11.5" fill="#57606A">remembers each tab's job</text>
+<text x="450" y="240" font-size="11.5" fill="#57606A">site access asked per site</text>
+<text x="450" y="256" font-size="11.5" fill="#57606A">highlights fields to check</text>
+<g filter="url(#shadow)"><rect x="434" y="350" width="270" height="110" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="434" y="350" width="4" height="110" rx="2" fill="#57606A"/>
+<rect x="448" y="363" width="32" height="32" rx="8" fill="#57606A19"/>
+<g transform="translate(452 367) scale(1)" fill="none" stroke="#57606A" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></g>
+<text x="490" y="377" font-size="14" font-weight="650" fill="#1F2328">Service worker</text>
+<text x="450" y="408" font-size="11.5" fill="#57606A">opens the panel from the toolbar</text>
+<text x="450" y="424" font-size="11.5" fill="#57606A">and the page's right-click menu</text>
+<g filter="url(#shadow)"><rect x="52" y="350" width="300" height="196" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="52" y="350" width="4" height="196" rx="2" fill="#D9572B"/>
+<rect x="66" y="363" width="32" height="32" rx="8" fill="#D9572B19"/>
+<g transform="translate(70 367) scale(1)" fill="none" stroke="#D9572B" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></g>
+<text x="108" y="377" font-size="14" font-weight="650" fill="#1F2328">Safety rails</text>
+<text x="68" y="408" font-size="11.5" fill="#57606A">never clicks Submit</text>
+<text x="68" y="424" font-size="11.5" fill="#57606A">never ticks consent boxes</text>
+<text x="68" y="440" font-size="11.5" fill="#57606A">never overwrites what you typed</text>
+<text x="68" y="456" font-size="11.5" fill="#57606A">skips hidden honeypot fields</text>
+<text x="68" y="472" font-size="11.5" fill="#57606A">release builds request no sites</text>
+<text x="68" y="488" font-size="11.5" fill="#57606A">until you allow one</text>
+<g filter="url(#shadow)"><rect x="784" y="134" width="404" height="196" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="784" y="134" width="4" height="196" rx="2" fill="#1A7F37"/>
+<rect x="798" y="147" width="32" height="32" rx="8" fill="#1A7F3719"/>
+<g transform="translate(802 151) scale(1)" fill="none" stroke="#1A7F37" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></g>
+<text x="840" y="161" font-size="14" font-weight="650" fill="#1F2328">wera-api</text>
+<text x="840" y="176" font-size="10.5" font-family="'SFMono-Regular', Menlo, Consolas, monospace" fill="#1A7F37">Go · bearer tokens</text>
+<text x="800" y="196" font-size="11.5" fill="#57606A">/api/ext/tokens  connect, list, revoke</text>
+<text x="800" y="212" font-size="11.5" fill="#57606A">/api/ext/jobs  add (private), lookup</text>
+<text x="800" y="228" font-size="11.5" fill="#57606A">/api/ext/extract  page text to fields</text>
+<text x="800" y="244" font-size="11.5" fill="#57606A">/api/ext/answer  draft one answer</text>
+<text x="800" y="260" font-size="11.5" fill="#57606A">/api/jobs/{id}/cover-letter, tailored-resume</text>
+<text x="800" y="276" font-size="11.5" fill="#57606A">/api/applicant  application details</text>
+<g filter="url(#shadow)"><rect x="784" y="350" width="190" height="196" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="784" y="350" width="4" height="196" rx="2" fill="#1A7F37"/>
+<rect x="798" y="363" width="32" height="32" rx="8" fill="#1A7F3719"/>
+<g transform="translate(802 367) scale(1)" fill="none" stroke="#1A7F37" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8v-13"/><path d="M4.5 12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8"/></g>
+<text x="840" y="377" font-size="14" font-weight="650" fill="#1F2328">PostgreSQL</text>
+<text x="800" y="408" font-size="11.5" fill="#57606A">api_tokens (hashed)</text>
+<text x="800" y="424" font-size="11.5" fill="#57606A">user_applicant</text>
+<text x="800" y="440" font-size="11.5" fill="#57606A">jobs.added_by</text>
+<text x="800" y="456" font-size="11.5" fill="#57606A">cover letters</text>
+<g filter="url(#shadow)"><rect x="998" y="350" width="190" height="196" rx="12" fill="#FFFFFF" stroke="#D8DEE4"/></g>
+<rect x="998" y="350" width="4" height="196" rx="2" fill="#7C3AED"/>
+<rect x="1012" y="363" width="32" height="32" rx="8" fill="#7C3AED19"/>
+<g transform="translate(1016 367) scale(1)" fill="none" stroke="#7C3AED" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4.5a3 3 0 0 0-3 3v.2A3 3 0 0 0 4.5 13a3 3 0 0 0 2 4.6A3 3 0 0 0 12 18V6a2.5 2.5 0 0 0-3-1.5z"/><path d="M15 4.5a3 3 0 0 1 3 3v.2A3 3 0 0 1 19.5 13a3 3 0 0 1-2 4.6A3 3 0 0 1 12 18"/></g>
+<text x="1054" y="377" font-size="14" font-weight="650" fill="#1F2328">Inference API</text>
+<text x="1014" y="408" font-size="11.5" fill="#57606A">extract, answers,</text>
+<text x="1014" y="424" font-size="11.5" fill="#57606A">letters, tailoring;</text>
+<text x="1014" y="440" font-size="11.5" fill="#57606A">untrusted page text</text>
+<text x="1014" y="456" font-size="11.5" fill="#57606A">is fenced</text>
+<path d="M434 232 L352 232" fill="none" stroke="#2F6FEB" stroke-width="1.6" marker-end="url(#arrow-2F6FEB)"/>
+<rect x="362.6" y="200" width="60.8" height="15" rx="4" fill="#FBFAF7" opacity=".92"/>
+<text x="393.0" y="212" font-size="10.5" fill="#2F6FEB" text-anchor="middle">inject +</text>
+<rect x="362.6" y="215" width="60.8" height="15" rx="4" fill="#FBFAF7" opacity=".92"/>
+<text x="393.0" y="227" font-size="10.5" fill="#2F6FEB" text-anchor="middle">messages</text>
+<path d="M704 200 L784 200" fill="none" stroke="#2F6FEB" stroke-width="1.6" marker-end="url(#arrow-2F6FEB)"/>
+<rect x="695.3" y="178" width="97.39999999999999" height="15" rx="4" fill="#FBFAF7" opacity=".92"/>
+<text x="744.0" y="190" font-size="10.5" fill="#2F6FEB" text-anchor="middle">HTTPS + Bearer</text>
+<path d="M569 350 L569 330" fill="none" stroke="#57606A" stroke-width="1.6" marker-end="url(#arrow-57606A)"/>
+<path d="M880 330 L880 350" fill="none" stroke="#1A7F37" stroke-width="1.6" marker-end="url(#arrow-1A7F37)"/>
+<path d="M1092 330 L1092 350" fill="none" stroke="#7C3AED" stroke-width="1.6" marker-end="url(#arrow-7C3AED)"/>
+<text x="36" y="604" font-size="11.5" font-weight="400" fill="#57606A" text-anchor="start">Data flow: page -&gt; side panel (you review) -&gt; your server. The extension talks only to your server, which sends AI requests to the inference API.</text>
+<text x="1212" y="628" font-size="11" font-weight="400" fill="#8C959F" text-anchor="end">Costs measured: read a page $0.0006, answer $0.0006, tailor $0.0013</text>
+</svg>
