@@ -12,9 +12,9 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
 ## What it does
 
 - **Job:** reads the posting from the page's schema.org `JobPosting` data (Greenhouse, Lever, Ashby, Workday and most career sites publish it) or, failing that, with the AI from the page text. You review the form and save; the job joins your Jobs and Tracker and gets a fit score. A job already in Wera shows its score, reasons and missing skills.
-- **Apply:** finds the form's fields, works out what each asks (name, contact, links, work authorization and sponsorship, relocation, education, experience, salary, start date, voluntary self-identification) and fills them from your application details. It attaches your resume PDF, picks options by meaning ("USA" for United States, "TX" for Texas, "Prefer not to say"), and handles custom dropdowns. Open questions ("Why do you want to work here?") get an AI draft you edit and insert.
+- **Apply:** finds the form's fields, works out what each asks (name, contact, links, work authorization and sponsorship, relocation, education, experience, salary, start date, voluntary self-identification) and fills them from your application details. It attaches the best resume PDF (the copy tailored to this job, else your main Wera resume, else your uploaded file), picks options by meaning ("USA" for United States, "TX" for Texas, "Prefer not to say"), and handles custom dropdowns. Open questions ("Why do you want to work here?") get an AI draft you edit and insert.
 - **Letter:** writes a cover letter with Wera's letter writer (your profile and resume, this posting, no clichés, no dashes), which you can edit, copy or insert into the page.
-- **Resume:** rewrites your resume toward the posting from your real experience only; lines citing numbers that are not in your resume are removed, and missing requirements are listed instead of invented. Print it to PDF or copy it.
+- **Resume:** shows which of the posting's keywords your Wera resume covers and tailors a one-page copy for this job (skills reordered, bullets reworded from your real experience only; missing requirements are listed, never invented). It is the same document as in the dashboard: preview it here, edit it in Wera, or download the PDF.
 
 ## Architecture
 
