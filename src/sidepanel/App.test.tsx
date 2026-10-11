@@ -122,15 +122,20 @@ describe('side panel', () => {
     const { chrome } = fakeChrome({ page });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'Ada', is_admin: false } } });
     let body = '';
+    let tailored: unknown = null;
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
       'GET /api/jobs/9/cover-letter': () => (body ? { body, edited: false } : new Response('{"error":"none"}', { status: 404 })),
       'POST /api/jobs/9/cover-letter': () => ((body = 'Dear Hiring Team,\n\nHello.'), { body, edited: false }),
       'PUT /api/jobs/9/cover-letter': (init) => ((body = JSON.parse(String(init.body)).body), { body, edited: true }),
-      'POST /api/jobs/9/tailored-resume': () => ({
-        headline: 'SRE', summary: 'Keeps systems up.', skills: [], experience: [{ title: 'Intern', company: 'Acme', dates: '2024', bullets: ['Shipped it'] }],
-        projects: [], education: [], changes: ['Led with reliability'], missing_keywords: ['Terraform'], dropped: ['Saved $1M'],
-      }),
+      'GET /api/jobs/9/keywords': () => ({ keywords: ['Go', 'Terraform'], coverage: tailored ? { matched: ['Go', 'Terraform'], missing: [], percent: 100 } : { matched: ['Go'], missing: ['Terraform'], percent: 50 }, resume_id: 1 }),
+      'GET /api/jobs/9/resume': () => tailored ?? new Response('{"error":"none"}', { status: 404 }),
+      'POST /api/jobs/9/resume': () => {
+        tailored = { id: 7, title: 'SRE, Acme', job_id: 9, data: {}, layout: {}, fit: { one_page: true, summary: '' }, notes: ['Led with reliability'] };
+        return { resume: tailored, coverage_before: { matched: ['Go'], missing: ['Terraform'], percent: 50 } };
+      },
+      'POST /api/resumes/preview': () => ({ pages: ['<svg xmlns="http://www.w3.org/2000/svg"/>'], measure: { pages: 1, fill: 0.9 } }),
+      'GET /api/resumes/7/pdf': () => new Response('%PDF', { status: 200, headers: { 'Content-Disposition': 'attachment; filename="Ada.pdf"' } }),
     });
     render(<App />);
     await screen.findByText('In your Wera lists');
@@ -146,12 +151,14 @@ describe('side panel', () => {
     expect(await screen.findByText('Inserted into the cover letter box.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: /Resume/ }));
+    expect(await screen.findByText('50%')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Tailor my resume/ }));
-    expect(await screen.findByText(/doesn't show: Terraform/)).toBeInTheDocument();
-    expect(screen.getByText('Shipped it')).toBeInTheDocument();
-    expect(screen.getByText(/Removed 1 line/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Print \/ PDF/ }));
-    expect(chrome.tabs.create).toHaveBeenCalled();
+    expect(await screen.findByText('Led with reliability')).toBeInTheDocument();
+    expect(await screen.findByText('100%')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Edit in Wera/ })).toHaveAttribute('href', `${API}/resume/7`);
+    expect(await screen.findByAltText('Resume preview')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /PDF/ }));
+    await waitFor(() => expect(chrome.tabs.create).toHaveBeenCalled());
     expect(within(document.body).queryByText('no route')).toBeNull();
   });
 });

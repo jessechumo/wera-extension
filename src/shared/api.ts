@@ -32,16 +32,37 @@ export interface CoverLetter {
   edited: boolean;
 }
 
-export interface TailoredResume {
-  headline: string;
-  summary: string;
-  skills: { group: string; items: string[] }[];
-  experience: { title: string; company: string; dates: string; bullets: string[] }[];
-  projects: { name: string; bullets: string[] }[];
-  education: string[];
-  changes: string[];
-  missing_keywords: string[];
-  dropped: string[];
+export interface Coverage {
+  matched: string[];
+  missing: string[];
+  percent: number;
+}
+
+/** A resume document (the fields the extension uses; data stays opaque). */
+export interface ResumeDoc {
+  id: number;
+  title: string;
+  job_id: number | null;
+  data: unknown;
+  layout: unknown;
+  fit: { one_page: boolean; summary: string } | null;
+  notes: string[];
+  coverage?: Coverage;
+}
+
+export interface JobKeywords {
+  keywords: string[];
+  coverage: Coverage | null;
+  /** The base resume, or null when the user has not set one up. */
+  resume_id: number | null;
+}
+
+/** A file to attach to an application form. */
+export interface ResumeFile {
+  name: string;
+  base64: string;
+  /** Which resume it is: tailored to this job, the main one, or the uploaded file. */
+  kind: 'tailored' | 'base' | 'upload';
 }
 
 export class ApiError extends Error {
@@ -142,8 +163,30 @@ export class WeraApi {
     });
   }
 
+  jobKeywords(jobId: number) {
+    return this.call<JobKeywords>(`/api/jobs/${jobId}/keywords`);
+  }
+
+  /** The resume tailored to this job, or null if there is none yet. */
+  async jobResume(jobId: number): Promise<ResumeDoc | null> {
+    try {
+      return await this.call<ResumeDoc>(`/api/jobs/${jobId}/resume`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
   tailorResume(jobId: number) {
-    return this.call<TailoredResume>(`/api/jobs/${jobId}/tailored-resume`, { method: 'POST' });
+    return this.call<{ resume: ResumeDoc; coverage_before: Coverage }>(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+  }
+
+  /** Renders a resume document to SVG pages. */
+  previewResume(doc: ResumeDoc) {
+    return this.call<{ pages: string[]; measure: { pages: number; fill: number } }>('/api/resumes/preview', {
+      method: 'POST',
+      body: JSON.stringify({ data: doc.data, layout: doc.layout }),
+    });
   }
 
   answer(question: string, jobId: number | null, maxWords = 150) {
@@ -153,9 +196,8 @@ export class WeraApi {
     });
   }
 
-  /** The user's resume PDF as base64 (for attaching), or null if none. */
-  async resumePdf(): Promise<{ name: string; base64: string } | null> {
-    const res = await this.fetcher(`${this.server}/api/profile/resume/file?download=1`, {
+  private async download(path: string): Promise<{ name: string; base64: string } | null> {
+    const res = await this.fetcher(`${this.server}${path}`, {
       headers: { Authorization: `Bearer ${this.token}` },
       credentials: 'omit',
     });
@@ -166,6 +208,26 @@ export class WeraApi {
     let bin = '';
     for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     return { name, base64: btoa(bin) };
+  }
+
+  /** A resume PDF by document id. */
+  async resumeDocPdf(id: number) {
+    return this.download(`/api/resumes/${id}/pdf?download=1`);
+  }
+
+  /**
+   * The best resume to attach for a job: the copy tailored to it, else
+   * the main resume, else the uploaded file; null if there is none.
+   */
+  async resumeFile(jobId: number | null): Promise<ResumeFile | null> {
+    const { resumes } = await this.call<{ resumes: { id: number; job_id: number | null }[] }>('/api/resumes').catch(() => ({ resumes: [] }));
+    const doc = (jobId != null && resumes.find((r) => r.job_id === jobId)) || resumes.find((r) => r.job_id == null);
+    if (doc) {
+      const f = await this.resumeDocPdf(doc.id).catch(() => null);
+      if (f) return { ...f, kind: doc.job_id == null ? 'base' : 'tailored' };
+    }
+    const up = await this.download('/api/profile/resume/file?download=1');
+    return up && { ...up, kind: 'upload' };
   }
 
   dashboardUrl(path = '/') {

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { AlertTriangle, CheckCircle2, ChevronDown, MessageSquareText, Sparkles, Wand2 } from 'lucide-react';
-import { ApiError, type WeraApi } from '../shared/api';
+import { ApiError, type ResumeFile, type WeraApi } from '../shared/api';
 import type { FillResult } from '../shared/types';
 import { fill, insert } from './page';
 import { Button, Card, INPUT, Notice, errorText } from './ui';
@@ -58,14 +58,16 @@ export function ApplyTab({ api, page }: { api: WeraApi; page: Page }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showSkipped, setShowSkipped] = useState(false);
+  const [attached, setAttached] = useState<ResumeFile['kind'] | null>(null);
 
   const run = async () => {
     if (!page.tab) return;
     setBusy(true);
     setError('');
     try {
-      const [{ applicant }, resume] = await Promise.all([api.applicant(), api.resumePdf().catch(() => null)]);
+      const [{ applicant }, resume] = await Promise.all([api.applicant(), api.resumeFile(page.job?.id ?? null).catch(() => null)]);
       setResults(await fill(page.tab, applicant, resume ?? undefined));
+      setAttached(resume?.kind ?? null);
     } catch (e) {
       setError(e instanceof ApiError && e.status === 401 ? 'Your Wera connection ended; sign in again.' : errorText(e));
     } finally {
@@ -105,6 +107,11 @@ export function ApplyTab({ api, page }: { api: WeraApi; page: Page }) {
             {review.length ? `; ${review.length} to check (outlined in amber)` : ''}
             {questions.length ? `; ${questions.length} question${questions.length === 1 ? '' : 's'} for you` : ''}.
           </Notice>
+          {attached && (
+            <p className="text-[11px] text-muted">
+              Resume offered for upload: {attached === 'tailored' ? `your copy tailored for ${page.job?.company ?? 'this job'}` : attached === 'base' ? 'your main resume (tailor one in the Resume tab)' : 'your uploaded file'}.
+            </p>
+          )}
           {review.length > 0 && (
             <Section icon={<AlertTriangle className="size-3.5 text-warn" />} title="Check these">
               {review.map((r) => <Row key={r.id} r={r} />)}

@@ -98,7 +98,10 @@ test('sign in, save a job from its page, and fill its application', async () => 
   await expect(job.locator('#fn')).not.toHaveValue('');
   await expect(job.locator('#em')).toHaveValue(/@/);
   await expect(job.locator('#sp')).not.toHaveValue('');
-  expect(await job.locator('#re').evaluate((i: HTMLInputElement) => i.files?.[0]?.name)).toBe('Alex_Resume.pdf');
+  // The best resume Wera has is attached: a tailored copy, the main
+  // resume, or the uploaded file, and the panel says which.
+  expect(await job.locator('#re').evaluate((i: HTMLInputElement) => i.files?.[0]?.name)).toMatch(/\.pdf$/);
+  await expect(panel.getByText(/Resume offered for upload/)).toBeVisible();
   // Never ticks consent, never submits.
   await expect(job.locator('#agree')).not.toBeChecked();
   expect(await job.title()).not.toBe('SUBMITTED');
@@ -137,6 +140,7 @@ test('AI: draft an answer, write a cover letter, tailor the resume', async () =>
 
   await panel.getByRole('tab', { name: 'Resume' }).click();
   await panel.getByRole('button', { name: /Tailor my resume/ }).click();
-  await expect(panel.getByRole('button', { name: /Print \/ PDF/ })).toBeVisible({ timeout: 45_000 });
+  await expect(panel.getByRole('link', { name: /Edit in Wera/ })).toBeVisible({ timeout: 45_000 });
+  await expect(panel.getByAltText('Resume preview')).toBeVisible({ timeout: 15_000 });
   await shot(panel, 'ai-resume');
 });

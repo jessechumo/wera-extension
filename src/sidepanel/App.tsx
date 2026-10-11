@@ -87,7 +87,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
         {tab === 'job' && <JobTab api={api} page={page} />}
         {tab === 'apply' && <ApplyTab api={api} page={page} />}
         {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
-        {tab === 'resume' && <ResumeTab api={api} page={page} userName={session.user.name} onNeedJob={() => setTab('job')} />}
+        {tab === 'resume' && <ResumeTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
       </main>
     </div>
   );
