@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Apply - Fixture Robotics (step 1 of 2)</title></head>
+<body><main><h1>Apply: Site Reliability Engineer</h1>
+<!-- Like Workday: each step replaces the form without a page load. -->
+<div id="step">
+  <h2>My information</h2>
+  <div class="field"><label for="fn">First name *</label><input id="fn" name="first_name" required></div>
+  <div class="field"><label for="ln">Last name *</label><input id="ln" name="last_name" required></div>
+  <div class="field"><label for="em">Email *</label><input id="em" type="email" name="email" required></div>
+  <button type="button" id="next">Save and continue</button>
+</div>
+<script>
+  const step = document.getElementById('step');
+  document.getElementById('next').addEventListener('click', () => {
+    document.title = 'Apply - Fixture Robotics (step 2 of 2)';
+    step.innerHTML = `
+      <h2>Application questions</h2>
+      <div class="field"><label for="ph">Phone</label><input id="ph" name="phone"></div>
+      <div class="field"><label for="li">LinkedIn profile</label><input id="li" name="linkedin"></div>
+      <div class="field"><label for="sp">Will you now or in the future require visa sponsorship? *</label>
+        <select id="sp" name="sponsor"><option value="">Select</option><option>Yes</option><option>No</option></select></div>
+      <div class="field"><label for="why">Why do you want to join Fixture Robotics?</label><textarea id="why" name="why"></textarea></div>
+      <button type="button" id="submit">Submit</button>`;
+    document.getElementById('submit').addEventListener('click', () => {
+      step.innerHTML = '<h2>Thank you for applying!</h2><p>We have received your application.</p>';
+    });
+  });
+</script>
+</main></body></html>

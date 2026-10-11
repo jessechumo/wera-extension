@@ -16,7 +16,7 @@ let extId = '';
 const run = Date.now().toString(36);
 test.beforeAll(async () => {
   server = createServer((req, res) => {
-    const file = req.url?.endsWith('/apply') ? 'apply.html' : 'job.html';
+    const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : 'job.html';
     res.setHeader('Content-Type', 'text/html');
     res.end(readFileSync(join(import.meta.dirname, 'pages', file)));
   });
@@ -110,6 +110,29 @@ test('sign in, save a job from its page, and fill its application', async () => 
   await expect(panel.getByRole('button', { name: /Draft an answer/ })).toBeVisible();
   await shot(panel, 'apply-panel');
   await shot(job, 'apply-form');
+});
+
+test('fill a multi-step application, then mark it applied', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre`); // the posting saved above
+  await job.goto(`${site}/jobs/${run}/sre/steps`); // its application, same tab
+  const panel = await openPanel();
+  await panel.getByRole('button', { name: /Fill the form|Fill again/ }).click();
+  await expect(panel.getByText(/^Filled \d+ field/)).toBeVisible();
+  await expect(job.locator('#fn')).not.toHaveValue('');
+
+  // The page moves to step 2 on its own; Wera notices.
+  await job.locator('#next').click();
+  await panel.getByRole('button', { name: 'Fill this step' }).click({ timeout: 10_000 });
+  await expect(job.locator('#sp')).not.toHaveValue('');
+  await shot(panel, 'steps-panel');
+
+  // Submitting shows a thank-you; Wera offers to update the tracker.
+  await job.locator('#submit').click();
+  await expect(panel.getByText(/Looks like you submitted it/)).toBeVisible({ timeout: 10_000 });
+  await panel.getByRole('button', { name: 'Mark as applied' }).first().click();
+  await expect(panel.getByText(/Marked as applied in your Wera tracker/)).toBeVisible();
+  await shot(panel, 'applied');
 });
 
 // Uses the live AI (a fraction of a cent): run with WERA_E2E_AI=1.
