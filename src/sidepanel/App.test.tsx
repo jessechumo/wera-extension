@@ -155,7 +155,7 @@ describe('side panel', () => {
     await userEvent.click(screen.getByRole('button', { name: /Tailor my resume/ }));
     expect(await screen.findByText('Led with reliability')).toBeInTheDocument();
     expect(await screen.findByText('100%')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Edit in Wera/ })).toHaveAttribute('href', `${API}/resume/7`);
+    expect(screen.getByRole('link', { name: /Edit in Wera/ })).toHaveAttribute('href', `${API}/profile/resume/7`);
     expect(await screen.findByAltText('Resume preview')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /PDF/ }));
     await waitFor(() => expect(chrome.tabs.create).toHaveBeenCalled());

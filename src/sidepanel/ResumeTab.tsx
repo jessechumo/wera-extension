@@ -76,7 +76,7 @@ export function ResumeTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
         <FileText className="mx-auto size-5 text-accent" />
         <h2 className="mt-2 text-sm font-semibold">Set up your resume in Wera</h2>
         <p className="mt-1 text-xs text-muted">Import your LaTeX or uploaded resume once. Then every job gets a tailored, one-page copy here, and Apply attaches it.</p>
-        <a href={api.dashboardUrl('/resume')} target="_blank" rel="noreferrer"
+        <a href={api.dashboardUrl('/profile/resume')} target="_blank" rel="noreferrer"
           className="mt-3 inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg hover:bg-accent/85">
           Open Resume in Wera <ExternalLink className="size-3" />
         </a>
@@ -129,7 +129,7 @@ export function ResumeTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5">
-            <a href={api.dashboardUrl(`/resume/${doc.id}`)} target="_blank" rel="noreferrer"
+            <a href={api.dashboardUrl(`/profile/resume/${doc.id}`)} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg hover:bg-accent/85">
               Edit in Wera <ExternalLink className="size-3" />
             </a>
