@@ -65,6 +65,20 @@ export interface ResumeFile {
   kind: 'tailored' | 'base' | 'upload';
 }
 
+/** A company's H-1B filings and what it offered for titles like a job's. */
+export interface JobH1B {
+  matched: boolean;
+  filings: number;
+  new_hires: number;
+  wage_median: number | null;
+  similar: { title: string; wage_from: number | null; wage_to: number | null; level: string; place: string }[];
+  similar_low: number | null;
+  similar_high: number | null;
+  level: string;
+}
+
+export type ApplicationStatus = 'saved' | 'applied' | 'interviewing' | 'offer' | 'rejected' | 'not_interested';
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -161,6 +175,15 @@ export class WeraApi {
       method: body == null ? 'POST' : 'PUT',
       body: body == null ? undefined : JSON.stringify({ body }),
     });
+  }
+
+  /** Sets the job's status in the tracker (notes stay as they are). */
+  setStatus(jobId: number, status: ApplicationStatus) {
+    return this.call<WeraJob>(`/api/jobs/${jobId}/application`, { method: 'PUT', body: JSON.stringify({ status }) });
+  }
+
+  h1b(jobId: number) {
+    return this.call<JobH1B>(`/api/jobs/${jobId}/h1b`);
   }
 
   jobKeywords(jobId: number) {
