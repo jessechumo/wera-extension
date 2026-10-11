@@ -86,6 +86,8 @@ export interface PageInfo {
   text: string;
   draft: JobDraft | null;
   hasForm: boolean;
+  /** The page says the application went through ("Thank you for applying"). */
+  submitted?: boolean;
 }
 
 // Messages from the side panel to the content script.
@@ -95,3 +97,8 @@ export type ContentRequest =
   | { type: 'wera:insert'; id: string; text: string }
   | { type: 'wera:questions' }
   | { type: 'wera:insert-cover-letter'; text: string };
+
+/** Sent by the page script to the side panel when the page changes on its own. */
+export type ContentEvent =
+  | { type: 'wera:form-changed'; fields: number }
+  | { type: 'wera:submitted' };
