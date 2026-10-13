@@ -79,6 +79,9 @@ export interface JobH1B {
 
 export type ApplicationStatus = 'saved' | 'applied' | 'interviewing' | 'offer' | 'rejected' | 'not_interested';
 
+/** POSTs that only compute something (nothing in Wera changes). */
+const READ_ONLY = /^\/api\/(ext\/(extract|answer|tokens)|resumes\/preview)/;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -98,6 +101,8 @@ export class WeraApi {
     readonly server: string,
     private token = '',
     private readonly fetcher: typeof fetch = (...a) => fetch(...a),
+    /** Called after a request that changed the user's data (the panel tells the dashboard). */
+    private readonly onChange?: (path: string) => void,
   ) {}
 
   private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -119,6 +124,7 @@ export class WeraApi {
       }
       throw new ApiError(res.status, msg);
     }
+    if (init.method && init.method !== 'GET' && !READ_ONLY.test(path)) this.onChange?.(path);
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }

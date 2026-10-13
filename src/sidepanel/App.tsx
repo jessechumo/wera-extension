@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { Briefcase, ExternalLink, FileText, LogOut, PenLine, Wand2 } from 'lucide-react';
 import { WeraApi } from '../shared/api';
+import { notifyDashboard } from '../shared/bridge';
 import { loadSession, saveSession, type Session } from '../shared/storage';
 import { ApplyTab } from './ApplyTab';
 import { JobTab } from './JobTab';
@@ -72,7 +73,10 @@ function usePendingFill(tabId: number | undefined, onFill: () => void): FillRequ
 }
 
 function Main({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const api = useMemo(() => new WeraApi(session.server, session.token), [session]);
+  const api = useMemo(
+    () => new WeraApi(session.server, session.token, undefined, (path) => void notifyDashboard(session.server, path)),
+    [session],
+  );
   const signOutLocal = useCallback(() => {
     void saveSession(null).then(onSignOut);
   }, [onSignOut]);

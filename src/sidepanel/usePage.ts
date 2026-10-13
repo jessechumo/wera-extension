@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, type WeraApi, type WeraJob } from '../shared/api';
 import type { ContentEvent, PageInfo } from '../shared/types';
+import { bindTab, sameRole, tabHandoff } from '../shared/bridge';
 import { rememberTabJob, tabJob } from '../shared/storage';
 import { activeTab, NeedsPermission, readPage } from './page';
 
@@ -8,6 +9,8 @@ export interface PageState {
   tab: chrome.tabs.Tab | null;
   page: PageInfo | null;
   job: WeraJob | null;
+  /** The job came from the dashboard ("Apply on Acme's site"), not from this page's address. */
+  fromDashboard: boolean;
   loading: boolean;
   needsPermission: string | null;
   error: string;
@@ -34,7 +37,7 @@ export function setBadge(tabId: number | undefined, job: WeraJob | null) {
  * switches tabs or a page finishes loading.
  */
 export function usePage(api: WeraApi, onUnauthorized: () => void) {
-  const [state, setState] = useState<PageState>({ tab: null, page: null, job: null, loading: true, needsPermission: null, error: '', newStep: 0, submitted: false });
+  const [state, setState] = useState<PageState>({ tab: null, page: null, job: null, fromDashboard: false, loading: true, needsPermission: null, error: '', newStep: 0, submitted: false });
   const run = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -44,11 +47,23 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
     setState((s) => ({ ...s, tab, loading: true, error: '', needsPermission: null }));
     let page: PageInfo | null = null;
     let job: WeraJob | null = null;
+    let fromDashboard = false;
     try {
       if (!tab) throw new Error('No active tab.');
       page = await readPage(tab);
       job = (await api.lookup(page.url)).job;
       const origin = new URL(page.url).origin;
+      if (!job && tab.id != null) {
+        // Opened from the dashboard for a job: the career site's address
+        // often differs from the one Wera has (redirects, its own domain).
+        const h = await tabHandoff(tab.id);
+        const handed = h ? await api.job(h.jobId).catch(() => null) : null;
+        // Unless the tab has since moved on to a different posting.
+        if (handed && (!page.draft || sameRole(page.draft.title, handed.title))) {
+          job = handed;
+          fromDashboard = true;
+        }
+      }
       if (job && tab.id != null) {
         await rememberTabJob(tab.id, origin, job.id);
       } else if (!job && tab.id != null) {
@@ -57,7 +72,7 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
         if (remembered) job = await api.job(remembered).catch(() => null);
       }
       setBadge(tab.id, job);
-      if (mine === run.current) setState({ tab, page, job, loading: false, needsPermission: null, error: '', newStep: 0, submitted: !!page.submitted });
+      if (mine === run.current) setState({ tab, page, job, fromDashboard, loading: false, needsPermission: null, error: '', newStep: 0, submitted: !!page.submitted });
     } catch (e) {
       if (mine !== run.current) return;
       if (e instanceof ApiError && e.status === 401) {
@@ -65,7 +80,7 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
         return;
       }
       setState({
-        tab, page, job, loading: false, newStep: 0, submitted: false,
+        tab, page, job, fromDashboard, loading: false, newStep: 0, submitted: false,
         needsPermission: e instanceof NeedsPermission ? e.origin : null,
         error: e instanceof NeedsPermission ? '' : e instanceof Error ? e.message : String(e),
       });
@@ -127,11 +142,29 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
   }, [api, jobId]);
   useEffect(() => {
     const onFocus = () => void reloadJob();
+    // Or the dashboard (open in another tab) says it changed something.
+    const onMessage = (msg: { type?: string }) => {
+      if (msg?.type === 'wera:dashboard-changed') void reloadJob();
+    };
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    chrome.runtime?.onMessage?.addListener(onMessage);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      chrome.runtime?.onMessage?.removeListener(onMessage);
+    };
   }, [reloadJob]);
 
   const clearNewStep = useCallback(() => setState((s) => ({ ...s, newStep: 0 })), []);
+
+  /** "Not this job": forget what the dashboard handed this tab. */
+  const unlink = useCallback(async () => {
+    const id = state.tab?.id;
+    if (id == null) return;
+    await bindTab(id, null);
+    if (state.page) await rememberTabJob(id, new URL(state.page.url).origin, 0);
+    setBadge(id, null);
+    setState((s) => ({ ...s, job: null, fromDashboard: false }));
+  }, [state.tab?.id, state.page]);
 
   const setJob = (job: WeraJob | null) => {
     setState((s) => {
@@ -142,5 +175,5 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
   };
   /** One loaded page: a reload or another page in the tab gives a new key. */
   const pageKey = state.page ? `${state.page.docId ?? ''}|${state.page.url}` : '';
-  return { ...state, pageKey, refresh, reloadJob, setJob, clearNewStep };
+  return { ...state, pageKey, refresh, reloadJob, setJob, clearNewStep, unlink };
 }

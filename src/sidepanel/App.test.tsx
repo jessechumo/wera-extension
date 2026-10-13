@@ -312,4 +312,46 @@ describe('side panel: tracking, steps and shortcuts', () => {
     act(() => void window.dispatchEvent(new Event('focus')));
     await waitFor(() => expect(screen.getByLabelText('Tracker status')).toHaveValue('interviewing'));
   });
+
+  it('knows the job the dashboard opened this tab for, until told otherwise', async () => {
+    const careers: PageInfo = { ...page, url: 'https://acme.example/careers/sre?gh_jid=123', draft: { ...page.draft!, title: 'Site Reliability Engineer, Platform', url: 'https://acme.example/careers/sre' } };
+    const { chrome, setSession } = fakeChrome({ page: careers });
+    signedIn(chrome);
+    await setSession('wera.handoffs', { 7: { jobId: 9, url: job.url, at: Date.now() } });
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job: null }),
+      'GET /api/jobs/9': () => ({ ...job, title: 'Site Reliability Engineer' }),
+      'GET /api/jobs/9/h1b': () => h1b,
+    });
+    render(<App />);
+    expect(await screen.findByText(/opened from your dashboard/)).toBeInTheDocument();
+    expect(screen.getByLabelText('fit 81')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Not this job?' }));
+    expect(await screen.findByText('Save this job to Wera')).toBeInTheDocument();
+  });
+
+  it('ignores a dashboard handoff once the tab shows a different posting', async () => {
+    const other: PageInfo = { ...page, url: 'https://acme.example/careers/ae', draft: { ...page.draft!, title: 'Account Executive' } };
+    const { chrome, setSession } = fakeChrome({ page: other });
+    signedIn(chrome);
+    await setSession('wera.handoffs', { 7: { jobId: 9, url: job.url, at: Date.now() } });
+    fakeFetch({ 'GET /api/ext/jobs/lookup': () => ({ job: null }), 'GET /api/jobs/9': () => job });
+    render(<App />);
+    expect(await screen.findByText('Save this job to Wera')).toBeInTheDocument();
+  });
+
+  it('tells open dashboards when it changes something', async () => {
+    const { chrome, sent } = fakeChrome({ page });
+    signedIn(chrome);
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'PUT /api/jobs/9/application': () => ({ ...job, application_status: 'applied' }),
+    });
+    render(<App />);
+    await userEvent.selectOptions(await screen.findByLabelText('Tracker status'), 'applied');
+    await waitFor(() => expect(sent).toContainEqual({ type: 'wera:extension-changed', what: '/api/jobs/9/application' }));
+    // Reading the page or a lookup is not a change.
+    expect(sent.filter((m) => (m as { type: string }).type === 'wera:extension-changed')).toHaveLength(1);
+  });
 });
