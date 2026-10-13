@@ -1,6 +1,6 @@
 import type { Applicant, FieldPurpose, FillResult } from '../shared/types';
 import { classify } from './classify';
-import { collectFields, type Field, type Option } from './fields';
+import { collectFields, scopeOf, type Field, type Option } from './fields';
 
 const US_STATES: Record<string, string> = {
   AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
@@ -86,13 +86,14 @@ function check(input: HTMLInputElement) {
 
 const STYLE_ID = 'wera-fill-style';
 function mark(el: HTMLElement, kind: 'filled' | 'review') {
-  const doc = el.ownerDocument;
-  if (!doc.getElementById(STYLE_ID)) {
-    const style = doc.createElement('style');
+  // A shadow root needs its own copy of the outline style.
+  const scope = scopeOf(el);
+  if (!scope.getElementById(STYLE_ID)) {
+    const style = el.ownerDocument.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `[data-wera-filled]{outline:2px solid rgba(34,197,94,.55)!important;outline-offset:2px}
 [data-wera-review]{outline:2px solid rgba(245,158,11,.7)!important;outline-offset:2px}`;
-    doc.head?.appendChild(style);
+    (scope instanceof ShadowRoot ? scope : scope.head)?.appendChild(style);
   }
   el.removeAttribute('data-wera-filled');
   el.removeAttribute('data-wera-review');
@@ -109,8 +110,8 @@ async function fillCombobox(el: HTMLInputElement, value: string, purpose: FieldP
   el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
   for (let i = 0; i < 6; i++) {
     await wait(80);
-    const list = el.getAttribute('aria-controls') ? el.ownerDocument.getElementById(el.getAttribute('aria-controls')!) : null;
-    const scope: ParentNode = list ?? el.ownerDocument;
+    const list = el.getAttribute('aria-controls') ? scopeOf(el).getElementById(el.getAttribute('aria-controls')!) : null;
+    const scope: ParentNode = list ?? scopeOf(el);
     const options = [...scope.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => ({ label: o.textContent ?? '', value: '', node: o }));
     const hit = matchOption(options, value, purpose) as (Option & { node?: HTMLElement }) | null;
     if (hit) {

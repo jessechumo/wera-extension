@@ -5,6 +5,7 @@ import { classify } from './classify';
 import { byId, collectFields } from './fields';
 import { fillForm, insertText } from './fill';
 import { readJobPosting } from './jsonld';
+import { formFrameOrigins } from './frames';
 import { mainText } from './text';
 import { bodyText, looksSubmitted, watchPage } from './watch';
 
@@ -24,13 +25,8 @@ function readPage(): PageInfo {
     draft: readJobPosting(document, url),
     hasForm: fields.filter((f) => classify(f) !== null).length >= 3,
     submitted: looksSubmitted(bodyText(document)),
+    frameOrigins: formFrameOrigins(document),
   };
-}
-
-function questions() {
-  return collectFields(document)
-    .filter((f) => classify(f) === 'question')
-    .map((f) => ({ id: f.id, label: f.label.slice(0, 500), required: f.required, filled: !!(f.el as HTMLTextAreaElement).value }));
 }
 
 if (!window.__weraContent) {
@@ -42,9 +38,6 @@ if (!window.__weraContent) {
     switch (msg.type) {
       case 'wera:read-page':
         reply(readPage());
-        return false;
-      case 'wera:questions':
-        reply(questions());
         return false;
       case 'wera:insert':
         reply({ ok: insertText(byId(document, msg.id), msg.text) });

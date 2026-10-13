@@ -82,7 +82,7 @@ describe('side panel', () => {
   it('asks for access to a site it cannot read yet', async () => {
     const { chrome } = fakeChrome({ page });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } });
-    chrome.scripting.executeScript.mockRejectedValueOnce(new Error('Cannot access contents of the page'));
+    chrome.scripting.executeScript.mockRejectedValue(new Error('Cannot access contents of the page'));
     fakeFetch({ 'GET /api/ext/jobs/lookup': () => ({ job: null }) });
     render(<App />);
     expect(await screen.findByRole('button', { name: 'Allow on this site' })).toBeInTheDocument();

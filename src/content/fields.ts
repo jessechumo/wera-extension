@@ -34,8 +34,30 @@ function idFor(el: Element): string {
   return id;
 }
 
+/** The root and every open shadow root inside it (web-component forms such as SmartRecruiters'). */
+export function allRoots(root: ParentNode): ParentNode[] {
+  const out: ParentNode[] = [root];
+  for (let i = 0; i < out.length; i++) {
+    for (const el of out[i]!.querySelectorAll('*')) {
+      if (el.shadowRoot) out.push(el.shadowRoot);
+    }
+  }
+  return out;
+}
+
+/** querySelectorAll across the root and its open shadow roots, in order. */
+export function deepQueryAll<T extends Element = Element>(root: ParentNode, selector: string): T[] {
+  return allRoots(root).flatMap((r) => [...r.querySelectorAll<T>(selector)]);
+}
+
+/** The document or shadow root an element lives in: where its label and ids are. */
+export function scopeOf(el: Element): Document | ShadowRoot {
+  const r = el.getRootNode();
+  return r instanceof ShadowRoot ? r : el.ownerDocument;
+}
+
 export function byId(root: ParentNode, id: string): HTMLElement | null {
-  return root.querySelector<HTMLElement>(`[${ID_ATTR}="${CSS.escape(id)}"]`);
+  return deepQueryAll<HTMLElement>(root, `[${ID_ATTR}="${CSS.escape(id)}"]`)[0] ?? null;
 }
 
 function clean(s: string | null | undefined): string {
@@ -60,7 +82,7 @@ function textOf(el: Element | null, groupName?: string): string {
 
 /** Hidden by the page (not just off-screen). File inputs are often hidden behind a drop zone, so callers skip this check for them. */
 export function isHidden(el: Element): boolean {
-  for (let n: Element | null = el; n; n = n.parentElement) {
+  for (let n: Element | null = el; n; n = n.parentElement ?? (n.parentNode instanceof ShadowRoot ? n.parentNode.host : null)) {
     if ((n as HTMLElement).hidden || n.getAttribute('aria-hidden') === 'true') return true;
     const style = n.ownerDocument.defaultView?.getComputedStyle(n);
     if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
@@ -72,7 +94,7 @@ const CONTROLS = 'input, select, textarea';
 
 /** The nearest ancestor (up to 5 levels) holding only this control (or its radio group), so its text is this field's label. */
 function wrapper(el: Element, groupName?: string): Element | null {
-  const groupSize = groupName ? el.ownerDocument.querySelectorAll(`input[name="${CSS.escape(groupName)}"]`).length : 1;
+  const groupSize = groupName ? scopeOf(el).querySelectorAll(`input[name="${CSS.escape(groupName)}"]`).length : 1;
   let best: Element | null = null;
   let n = el.parentElement;
   for (let i = 0; n && i < 6; i++, n = n.parentElement) {
@@ -88,7 +110,7 @@ function wrapper(el: Element, groupName?: string): Element | null {
 }
 
 export function labelFor(el: HTMLElement, groupName?: string): string {
-  const doc = el.ownerDocument;
+  const doc = scopeOf(el);
   const ids = el.getAttribute('aria-labelledby');
   if (ids) {
     const t = clean(ids.split(/\s+/).map((i) => doc.getElementById(i)?.textContent ?? '').join(' '));
@@ -122,7 +144,7 @@ export function labelFor(el: HTMLElement, groupName?: string): string {
 
 function optionLabel(input: HTMLInputElement): string {
   if (input.id) {
-    const l = input.ownerDocument.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+    const l = scopeOf(input).querySelector(`label[for="${CSS.escape(input.id)}"]`);
     if (l) return textOf(l);
   }
   const parent = input.closest('label');
@@ -144,7 +166,7 @@ function isRequired(el: HTMLElement, label: string): boolean {
 export function collectFields(root: ParentNode): Field[] {
   const fields: Field[] = [];
   const groups = new Map<string, Field>();
-  for (const node of root.querySelectorAll<HTMLElement>(CONTROLS)) {
+  for (const node of deepQueryAll<HTMLElement>(root, CONTROLS)) {
     const input = node as HTMLInputElement;
     const type = (input.type || 'text').toLowerCase();
     if (['hidden', 'submit', 'button', 'reset', 'image', 'search', 'password'].includes(type)) continue;
@@ -154,7 +176,7 @@ export function collectFields(root: ParentNode): Field[] {
 
     if ((type === 'radio' || type === 'checkbox') && input.name) {
       const key = `${type}:${input.name}`;
-      const sameName = root.querySelectorAll(`input[type="${type}"][name="${CSS.escape(input.name)}"]`).length;
+      const sameName = scopeOf(node).querySelectorAll(`input[type="${type}"][name="${CSS.escape(input.name)}"]`).length;
       if (type === 'radio' || sameName > 1) {
         let g = groups.get(key);
         if (!g) {

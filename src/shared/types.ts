@@ -88,6 +88,8 @@ export interface PageInfo {
   hasForm: boolean;
   /** The page says the application went through ("Thank you for applying"). */
   submitted?: boolean;
+  /** Other sites whose embedded frames look like an application form (Wera needs access to fill them). */
+  frameOrigins?: string[];
 }
 
 // Messages from the side panel to the content script.
@@ -95,7 +97,6 @@ export type ContentRequest =
   | { type: 'wera:read-page' }
   | { type: 'wera:fill'; applicant: Applicant; resume?: { name: string; base64: string }; coverLetter?: string }
   | { type: 'wera:insert'; id: string; text: string }
-  | { type: 'wera:questions' }
   | { type: 'wera:insert-cover-letter'; text: string };
 
 /** Sent by the page script to the side panel when the page changes on its own. */

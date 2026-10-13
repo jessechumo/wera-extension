@@ -102,6 +102,23 @@ describe('fillForm', () => {
     expect(out.find((r) => r.label.startsWith('Location'))!.status).toBe('filled');
   });
 
+  it('fills fields inside open shadow roots (web-component forms)', async () => {
+    document.body.innerHTML = '<apply-form></apply-form>';
+    const shadow = document.querySelector('apply-form')!.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `
+      <label for="fn">First name</label><input id="fn">
+      <label for="em">Email address</label><input id="em">
+      <fieldset><legend>Do you require visa sponsorship?</legend>
+        <label><input type="radio" name="sp" value="y"> Yes</label><label><input type="radio" name="sp" value="n"> No</label></fieldset>`;
+    const out = await fillForm(document, ada, {});
+    expect(shadow.querySelector<HTMLInputElement>('#fn')!.value).toBe('Ada');
+    expect(shadow.querySelector<HTMLInputElement>('#em')!.value).toBe('ada@example.com');
+    expect(shadow.querySelector<HTMLInputElement>('input[value=y]')!.checked).toBe(true);
+    expect(out.filter((r) => r.status === 'filled')).toHaveLength(3);
+    // The outline style lives in the shadow root, where it applies.
+    expect(shadow.getElementById('wera-fill-style')).not.toBeNull();
+  });
+
   it('asks for review when a required value is missing', async () => {
     document.body.innerHTML = fixture('lever.html');
     const out = await fillForm(document, { ...ada, email: '' }, {});

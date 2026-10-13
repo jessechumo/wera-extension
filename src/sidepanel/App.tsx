@@ -11,7 +11,7 @@ import { ResumeTab } from './ResumeTab';
 import { SignIn } from './SignIn';
 import { Button, Notice, Skeleton } from './ui';
 import { usePage } from './usePage';
-import { requestSite } from './page';
+import { requestOrigins, requestSite } from './page';
 
 type Tab = 'job' | 'apply' | 'letter' | 'resume';
 const TABS: { id: Tab; label: string; Icon: typeof Briefcase }[] = [
@@ -112,6 +112,13 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           </Notice>
         ) : page.error ? (
           <Notice tone="bad">{page.error}</Notice>
+        ) : page.page?.frameOrigins?.length ? (
+          <Notice tone="warn">
+            <p className="mb-2">
+              The application form here is embedded from <b>{page.page.frameOrigins.map((o) => new URL(o).host).join(', ')}</b>. Allow Wera there to fill it.
+            </p>
+            <Button variant="primary" onClick={() => void requestOrigins(page.page!.frameOrigins!).then((ok) => { if (ok) void page.refresh(); })}>Allow the form's site</Button>
+          </Notice>
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
         {tab === 'apply' && <ApplyTab api={api} page={page} autoRun={autoFill} />}
