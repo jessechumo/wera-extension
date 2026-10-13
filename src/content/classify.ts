@@ -45,7 +45,8 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['postal_code', /zip|postal/],
   ['address', /street|address/],
   ['city', /\bcity\b|\btown\b/],
-  ['state', /\bstate\b|province|region/],
+  // "State", not the verb ("Please state why...").
+  ['state', /\bstate\b(?! (your|why|how|what|the|any|briefly))|province|region/],
   ['country', /country/],
   ['location', /location|where are you (currently )?(located|based)|where do you (live|reside)/],
 ];

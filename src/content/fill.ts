@@ -1,6 +1,6 @@
 import type { Applicant, FieldPurpose, FillResult } from '../shared/types';
 import { classify } from './classify';
-import { collectFields, scopeOf, type Field, type Option } from './fields';
+import { collectFields, isHidden, isPressed, listboxValue, scopeOf, type Field, type Option } from './fields';
 
 const US_STATES: Record<string, string> = {
   AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
@@ -39,6 +39,9 @@ export function valueFor(p: FieldPurpose, a: Applicant): string {
   }
 }
 
+// On normalized text, where "don't" reads "don t".
+const NEGATED = /\b(not|no|never|cannot)\b|n t\b/;
+
 /** Picks the option that means value, or null. */
 export function matchOption(options: Option[], value: string, purpose: FieldPurpose | null): Option | null {
   const real = options.filter((o) => norm(o.label) !== '' && !/^(select|choose|please select|--)/i.test(o.label.trim()));
@@ -46,7 +49,15 @@ export function matchOption(options: Option[], value: string, purpose: FieldPurp
   const v = norm(value);
   if (v === 'decline') return real.find((o) => DECLINE.test(o.label.toLowerCase())) ?? null;
   if (v === 'yes' || v === 'no') {
-    return real.find((o) => new RegExp(`^${v}\\b`).test(norm(o.label))) ?? null;
+    const direct = real.find((o) => new RegExp(`^${v}\\b`).test(norm(o.label)));
+    if (direct) return direct;
+    // "I am authorized..." / "I am not authorized...": the one without a negation means yes.
+    const answers = real.filter((o) => !DECLINE.test(o.label.toLowerCase()));
+    if (answers.length === 2) {
+      const neg = answers.map((o) => NEGATED.test(norm(o.label)));
+      if (neg[0] !== neg[1]) return answers[neg.indexOf(v === 'no')] ?? null;
+    }
+    return null;
   }
   const wanted = new Set([v]);
   if (purpose === 'country' && US_NAMES.includes(v)) US_NAMES.forEach((n) => wanted.add(norm(n)));
@@ -61,6 +72,59 @@ export function matchOption(options: Option[], value: string, purpose: FieldPurp
     real.find((o) => [...wanted].some((w) => w.length > 3 && norm(o.label).includes(w))) ??
     null
   );
+}
+
+/** What to type into a searchable dropdown so the right option shows: full names, not codes. */
+export function searchText(value: string, purpose: FieldPurpose | null): string {
+  const v = norm(value);
+  if (v === 'decline') return '';
+  if (v === 'yes' || v === 'no') return v === 'yes' ? 'Yes' : 'No';
+  if (purpose === 'state' && US_STATES[value.trim().toUpperCase()]) return US_STATES[value.trim().toUpperCase()]!;
+  if (purpose === 'country' && US_NAMES.includes(v)) return 'United States';
+  return value;
+}
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/** A date in the value ("2026-11-01", "11/01/2026", "November 1, 2026"), or null ("Immediately", "2 weeks"). */
+export function parseDate(value: string): Date | null {
+  const t = value.trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
+  if (m) return new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]));
+  m = /^([a-z]+)\.? (\d{1,2}),? (\d{4})$/i.exec(t);
+  const month = m ? MONTHS.findIndex((x) => x.startsWith(m![1]!.toLowerCase().slice(0, 3))) : -1;
+  if (m && month >= 0) return new Date(Number(m[3]), month, Number(m[2]));
+  return null;
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * The value in the shape the field takes: ISO dates for date inputs, the
+ * placeholder's order for "MM/DD/YYYY" boxes, digits for number inputs
+ * ("$120k" becomes 120000). Null when it cannot be entered there.
+ */
+export function formatFor(el: HTMLInputElement | HTMLTextAreaElement, value: string, purpose: FieldPurpose | null): string | null {
+  const type = el instanceof HTMLInputElement ? el.type : 'textarea';
+  if (type === 'date' || type === 'month') {
+    const d = parseDate(value);
+    if (!d) return null;
+    return type === 'month' ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}` : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  if (type === 'number') {
+    const m = /(\d[\d,]*(?:\.\d+)?)\s*(k)?/i.exec(value);
+    if (!m) return null;
+    const n = Number(m[1]!.replace(/,/g, '')) * (m[2] ? 1000 : 1);
+    return Number.isFinite(n) ? String(n) : null;
+  }
+  if (purpose === 'start_date' || purpose === 'graduation_year') {
+    const ph = (el.getAttribute('placeholder') ?? '').toLowerCase();
+    const d = /\b(mm|dd)\b.*\byyyy\b/.test(ph) ? parseDate(value) : null;
+    if (d) return ph.indexOf('dd') < ph.indexOf('mm') ? `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}` : `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()}`;
+  }
+  return value;
 }
 
 /** Sets a value the way typing would, so React/Vue/Angular forms see it. */
@@ -84,6 +148,17 @@ function check(input: HTMLInputElement) {
   }
 }
 
+/** A click as a pointer makes it: some widgets open or pick on mousedown, others on click. */
+function press(el: HTMLElement) {
+  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  el.click();
+}
+
+function escape(el: HTMLElement) {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
 const STYLE_ID = 'wera-fill-style';
 function mark(el: HTMLElement, kind: 'filled' | 'review') {
   // A shadow root needs its own copy of the outline style.
@@ -104,24 +179,68 @@ function wait(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Custom dropdowns (react-select and friends): type, then pick the option that appears. */
-async function fillCombobox(el: HTMLInputElement, value: string, purpose: FieldPurpose | null): Promise<boolean> {
-  setNativeValue(el, value);
-  el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-  for (let i = 0; i < 6; i++) {
+/** The visible options of an open dropdown: its own list when it names one, else any listbox on the page. */
+function openOptions(el: HTMLElement): (Option & { node: HTMLElement })[] {
+  const scope = scopeOf(el);
+  const ref = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+  const lists: ParentNode[] = [];
+  const own = ref ? scope.getElementById(ref) ?? el.ownerDocument.getElementById(ref) : null;
+  if (own) lists.push(own);
+  else lists.push(...el.ownerDocument.querySelectorAll('[role="listbox"]'), scope);
+  for (const list of lists) {
+    const nodes = [...list.querySelectorAll<HTMLElement>('[role="option"]')].filter((o) => o.getAttribute('aria-disabled') !== 'true' && !isHidden(o));
+    if (nodes.length) return nodes.map((node) => ({ label: (node.textContent ?? '').trim(), value: '', node }));
+  }
+  return [];
+}
+
+/** Waits up to ~1s for an option that means value to show, then picks it. */
+async function pickOpen(el: HTMLElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
+  for (let i = 0; i < 12; i++) {
     await wait(80);
-    const list = el.getAttribute('aria-controls') ? scopeOf(el).getElementById(el.getAttribute('aria-controls')!) : null;
-    const scope: ParentNode = list ?? scopeOf(el);
-    const options = [...scope.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => ({ label: o.textContent ?? '', value: '', node: o }));
-    const hit = matchOption(options, value, purpose) as (Option & { node?: HTMLElement }) | null;
+    const options = openOptions(el);
+    const hit = matchOption(options, value, purpose) as (Option & { node: HTMLElement }) | null;
     if (hit) {
-      const node = options.find((o) => o.label === hit.label)?.node;
-      node?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      node?.click();
-      return true;
+      press(hit.node);
+      return hit.label;
     }
   }
-  return false;
+  return null;
+}
+
+/** react-select and friends show the choice beside the input, which stays empty. */
+function comboboxChoice(el: HTMLInputElement): string {
+  if (el.value.trim()) return el.value.trim();
+  let n: Element | null = el.parentElement;
+  for (let i = 0; n && i < 4; i++, n = n.parentElement) {
+    if (n.querySelectorAll('input, select, textarea').length > 1) break; // reached a neighbour's field
+    const shown = n.querySelector('[class*="singleValue"], [class*="single-value"], [class*="SingleValue"]');
+    if (shown?.textContent?.trim()) return shown.textContent.trim();
+  }
+  return '';
+}
+
+/** Searchable dropdowns: type, then pick the option that appears; else list everything and look. */
+async function fillCombobox(el: HTMLInputElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
+  for (const typed of [...new Set([searchText(value, purpose), ''])]) {
+    setNativeValue(el, typed);
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    const got = await pickOpen(el, value, purpose);
+    if (got) return got;
+  }
+  // Leave no half-typed search behind.
+  setNativeValue(el, '');
+  escape(el);
+  return null;
+}
+
+/** Dropdowns that are buttons (Workday) or ARIA comboboxes: open, then pick. */
+async function fillListbox(el: HTMLElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
+  el.focus?.();
+  press(el);
+  const got = await pickOpen(el, value, purpose);
+  if (!got) escape(el);
+  return got;
 }
 
 function base64ToFile(b64: string, name: string): File {
@@ -142,29 +261,52 @@ function attachFile(input: HTMLInputElement, file: File) {
 export interface FillOptions {
   resume?: { name: string; base64: string };
   coverLetter?: string;
+  /** Rounds over the form: answers can reveal fields ("If yes...") or load options (states after country). */
+  passes?: number;
+  /** How long to let the page react between rounds, in ms. */
+  settle?: number;
 }
+
+/** Outcomes worth another try once the page has reacted (options may have loaded). Dropdowns that are slow to search are not retried. */
+const RETRY = /^no (option|choice) matches/;
 
 /**
  * Fills every field Wera understands from the applicant details. It never
  * overwrites what is already filled, never ticks consent boxes and never
  * submits; filled fields are outlined green and ones to check amber.
+ * After a round that changed something it looks again for fields that
+ * just appeared or options that just loaded.
  */
 export async function fillForm(root: ParentNode, a: Applicant, opts: FillOptions = {}): Promise<FillResult[]> {
-  const results: FillResult[] = [];
-  for (const f of collectFields(root)) {
-    const purpose = classify(f);
-    const res: FillResult = { id: f.id, label: f.label.slice(0, 160), purpose, status: 'skipped', required: f.required };
-    results.push(res);
-    try {
-      await fillOne(f, purpose, a, opts, res);
-    } catch (e) {
-      res.status = 'review';
-      res.note = `could not fill: ${String(e)}`;
+  const results = new Map<string, FillResult>();
+  const passes = opts.passes ?? 3;
+  for (let pass = 0; pass < passes; pass++) {
+    let changed = false;
+    for (const f of collectFields(root)) {
+      const prev = results.get(f.id);
+      if (prev && !(prev.status === 'review' && RETRY.test(prev.note ?? ''))) continue;
+      const purpose = classify(f);
+      const res: FillResult = { id: f.id, label: f.label.slice(0, 160), purpose, status: 'skipped', required: f.required };
+      try {
+        await fillOne(f, purpose, a, opts, res);
+      } catch (e) {
+        res.status = 'review';
+        res.note = `could not fill: ${String(e)}`;
+      }
+      results.set(f.id, res);
+      if (res.status === 'filled') {
+        changed = true;
+        mark(f.el, 'filled');
+      } else if (res.status === 'review' || (res.status !== 'already' && f.required)) {
+        mark(f.el, 'review');
+      }
     }
-    if (res.status === 'filled') mark(f.el, 'filled');
-    else if (res.status === 'review' || (res.status !== 'already' && f.required)) mark(f.el, 'review');
+    if (!changed) break;
+    if (pass < passes - 1) await wait(opts.settle ?? 300);
   }
-  return results;
+  // In page order, including fields that appeared on a later round.
+  const order = new Map(collectFields(root).map((f, i) => [f.id, i]));
+  return [...results.values()].sort((x, y) => (order.get(x.id) ?? 1e9) - (order.get(y.id) ?? 1e9));
 }
 
 async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opts: FillOptions, res: FillResult) {
@@ -222,16 +364,44 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
         res.status = 'already';
         return;
       }
-      setNativeValue(el, value);
+      const shaped = formatFor(el, value, purpose);
+      if (shaped == null) {
+        res.status = 'review';
+        res.note = `enter it yourself ("${value}" doesn't fit this field)`;
+        return;
+      }
+      setNativeValue(el, shaped);
+      // The page may refuse a value (a date box, a mask): check it took.
+      if (!el.value.trim()) {
+        res.status = 'review';
+        res.note = `the form didn't accept "${shaped}"`;
+        return;
+      }
       res.status = 'filled';
-      res.value = value;
+      res.value = el.value;
       return;
     }
     case 'combobox': {
-      const ok = await fillCombobox(f.el as HTMLInputElement, value, purpose);
-      res.status = ok ? 'filled' : 'review';
-      res.value = value;
-      if (!ok) res.note = 'pick the matching option';
+      const el = f.el as HTMLInputElement;
+      if (comboboxChoice(el)) {
+        res.status = 'already';
+        return;
+      }
+      const got = await fillCombobox(el, value, purpose);
+      res.status = got ? 'filled' : 'review';
+      res.value = got ?? value;
+      if (!got) res.note = 'pick the matching option';
+      return;
+    }
+    case 'listbox': {
+      if (listboxValue(f.el)) {
+        res.status = 'already';
+        return;
+      }
+      const got = await fillListbox(f.el, value, purpose);
+      res.status = got ? 'filled' : 'review';
+      res.value = got ?? value;
+      if (!got) res.note = 'pick the matching option';
       return;
     }
     case 'select': {
@@ -252,8 +422,10 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
       return;
     }
     case 'radio':
-    case 'checkboxes': {
-      if (f.options.some((o) => (o.el as HTMLInputElement).checked)) {
+    case 'checkboxes':
+    case 'buttons': {
+      const chosen = (o: Option) => (f.kind === 'buttons' ? isPressed(o.el!) : (o.el as HTMLInputElement).checked);
+      if (f.options.some(chosen)) {
         res.status = 'already';
         return;
       }
@@ -263,9 +435,23 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
         res.note = `no choice matches "${value}"`;
         return;
       }
-      check(hit.el as HTMLInputElement);
+      if (f.kind === 'buttons') press(hit.el!);
+      else check(hit.el as HTMLInputElement);
       res.status = 'filled';
       res.value = hit.label;
+      return;
+    }
+    case 'checkbox': {
+      // A lone box ("I am willing to relocate"): ticked for yes, left alone for no.
+      const box = f.el as HTMLInputElement;
+      if (box.checked) {
+        res.status = 'already';
+        return;
+      }
+      if (norm(value) !== 'yes') return;
+      check(box);
+      res.status = 'filled';
+      res.value = 'yes';
       return;
     }
     default:

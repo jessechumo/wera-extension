@@ -1,12 +1,13 @@
 // Finds the fillable fields of an application form and the human label of
 // each, the way a person reading the page would.
 
-export type FieldKind = 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'checkboxes' | 'file' | 'combobox';
+// listbox: a dropdown that is not a <select> (Workday's buttons, MUI); buttons: a Yes/No button pair (Ashby).
+export type FieldKind = 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'checkboxes' | 'file' | 'combobox' | 'listbox' | 'buttons';
 
 export interface Option {
   label: string;
   value: string;
-  el?: HTMLInputElement | HTMLOptionElement;
+  el?: HTMLElement;
 }
 
 export interface Field {
@@ -76,7 +77,7 @@ function textOf(el: Element | null, groupName?: string): string {
       if (i.id) clone.querySelector(`label[for="${CSS.escape(i.id)}"]`)?.remove();
     });
   }
-  clone.querySelectorAll('input, select, textarea, option, script, style, button, [aria-hidden="true"]').forEach((n) => n.remove());
+  clone.querySelectorAll(`input, select, textarea, option, script, style, button, [aria-hidden="true"], ${LISTBOX}`).forEach((n) => n.remove());
   return clean(clone.textContent);
 }
 
@@ -91,6 +92,9 @@ export function isHidden(el: Element): boolean {
 }
 
 const CONTROLS = 'input, select, textarea';
+// Dropdowns built from other elements; ones wrapping a real input are left to it.
+const LISTBOX = 'button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select), [role="button"][aria-haspopup="listbox"]';
+const FIELDS = `${CONTROLS}, ${LISTBOX}`;
 
 /** The nearest ancestor (up to 5 levels) holding only this control (or its radio group), so its text is this field's label. */
 function wrapper(el: Element, groupName?: string): Element | null {
@@ -98,7 +102,7 @@ function wrapper(el: Element, groupName?: string): Element | null {
   let best: Element | null = null;
   let n = el.parentElement;
   for (let i = 0; n && i < 6; i++, n = n.parentElement) {
-    const controls = [...n.querySelectorAll(CONTROLS)].filter((c) => (c as HTMLInputElement).type !== 'hidden');
+    const controls = [...n.querySelectorAll(FIELDS)].filter((c) => (c as HTMLInputElement).type !== 'hidden' && !isWrappingListbox(c));
     const members = groupName ? controls.filter((c) => (c as HTMLInputElement).name === groupName).length : 1;
     const others = controls.filter((c) => (groupName ? (c as HTMLInputElement).name !== groupName : c !== el));
     if (others.length > 0) break;
@@ -162,11 +166,62 @@ function isRequired(el: HTMLElement, label: string): boolean {
   );
 }
 
+/** A combobox element around a real input (ARIA 1.1 style): the input is the field. */
+function isWrappingListbox(el: Element): boolean {
+  return el.tagName !== 'INPUT' && el.tagName !== 'SELECT' && el.tagName !== 'TEXTAREA' && !!el.querySelector(CONTROLS);
+}
+
+const PLACEHOLDER = /^(select|choose|please (select|choose)|--|pick)/i;
+
+/** The value a custom dropdown shows, or '' while it shows its placeholder. */
+export function listboxValue(el: HTMLElement): string {
+  const t = clean(el.textContent);
+  return t && !PLACEHOLDER.test(t) ? t : '';
+}
+
+const PRESSED = /(^|[\s_-])(active|selected|checked|pressed)/i;
+
+/** Whether a choice button looks chosen. */
+export function isPressed(b: HTMLElement): boolean {
+  return ['aria-pressed', 'aria-checked', 'aria-selected'].some((a) => b.getAttribute(a) === 'true') || PRESSED.test(b.className);
+}
+
+/** A Yes/No button pair (Ashby asks yes/no questions this way), starting at its Yes button. */
+function yesNoButtons(button: HTMLElement): Field | null {
+  if (!/^yes$/i.test(clean(button.textContent))) return null;
+  const parent = button.parentElement;
+  if (!parent) return null;
+  const buttons = [...parent.children].filter((c): c is HTMLElement => c.tagName === 'BUTTON');
+  if (buttons.length !== 2 || buttons[0] !== button || !/^no$/i.test(clean(buttons[1]!.textContent))) return null;
+  let label = '';
+  for (let n: Element | null = parent.parentElement, i = 0; n && i < 4 && !label; n = n.parentElement, i++) label = textOf(n).slice(0, 300);
+  if (!label) return null;
+  return {
+    id: idFor(parent), kind: 'buttons', label, hints: '', autocomplete: '', inputType: 'buttons',
+    required: isRequired(parent, label), el: parent,
+    options: buttons.map((b) => ({ label: clean(b.textContent), value: clean(b.textContent), el: b })),
+  };
+}
+
 /** All fillable fields in document order, radio and checkbox groups merged. */
 export function collectFields(root: ParentNode): Field[] {
   const fields: Field[] = [];
   const groups = new Map<string, Field>();
-  for (const node of deepQueryAll<HTMLElement>(root, CONTROLS)) {
+  for (const node of deepQueryAll<HTMLElement>(root, `${FIELDS}, button`)) {
+    if (node.matches(LISTBOX)) {
+      if (isWrappingListbox(node) || node.getAttribute('aria-disabled') === 'true' || isHidden(node)) continue;
+      const label = labelFor(node);
+      fields.push({
+        id: idFor(node), kind: 'listbox', label, hints: clean(`${node.getAttribute('name') ?? ''} ${node.id}`).toLowerCase(),
+        autocomplete: '', inputType: 'listbox', required: isRequired(node, label), el: node, options: [],
+      });
+      continue;
+    }
+    if (node.tagName === 'BUTTON') {
+      const pair = isHidden(node) ? null : yesNoButtons(node);
+      if (pair) fields.push(pair);
+      continue;
+    }
     const input = node as HTMLInputElement;
     const type = (input.type || 'text').toLowerCase();
     if (['hidden', 'submit', 'button', 'reset', 'image', 'search', 'password'].includes(type)) continue;
