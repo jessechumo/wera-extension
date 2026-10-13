@@ -12,6 +12,7 @@ import { bodyText, looksSubmitted, watchPage } from './watch';
 declare global {
   interface Window {
     __weraContent?: boolean;
+    __weraDocId?: string;
   }
 }
 
@@ -26,11 +27,14 @@ function readPage(): PageInfo {
     hasForm: fields.filter((f) => classify(f) !== null).length >= 3,
     submitted: looksSubmitted(bodyText(document)),
     frameOrigins: formFrameOrigins(document),
+    docId: window.__weraDocId,
   };
 }
 
 if (!window.__weraContent) {
   window.__weraContent = true;
+  // Set once per loaded document, so the side panel can tell a reload from a tab switch.
+  window.__weraDocId = Math.random().toString(36).slice(2);
   // Tell the side panel about new form steps and confirmations (it may
   // be closed; then nobody listens and the message is dropped).
   watchPage(document, (e) => void chrome.runtime.sendMessage(e).catch(() => {}));

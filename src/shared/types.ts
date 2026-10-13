@@ -90,6 +90,8 @@ export interface PageInfo {
   submitted?: boolean;
   /** Other sites whose embedded frames look like an application form (Wera needs access to fill them). */
   frameOrigins?: string[];
+  /** Changes when the page reloads or another page loads in the tab. */
+  docId?: string;
 }
 
 // Messages from the side panel to the content script.
@@ -102,4 +104,5 @@ export type ContentRequest =
 /** Sent by the page script to the side panel when the page changes on its own. */
 export type ContentEvent =
   | { type: 'wera:form-changed'; fields: number }
-  | { type: 'wera:submitted' };
+  | { type: 'wera:submitted' }
+  | { type: 'wera:navigated'; url: string };

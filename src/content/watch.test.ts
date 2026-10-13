@@ -32,4 +32,18 @@ describe('watchPage', () => {
     stop();
     vi.useRealTimers();
   });
+
+  it('reports when a single-page site moves to another page', async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<main>Job 1</main>';
+    const events: unknown[] = [];
+    const stop = watchPage(document, (e) => events.push(e), 100);
+    history.pushState({}, '', '/jobs/2');
+    document.body.innerHTML = '<main>Job 2</main>';
+    await vi.advanceTimersByTimeAsync(150);
+    expect(events).toEqual([{ type: 'wera:navigated', url: expect.stringMatching(/\/jobs\/2$/) }]);
+    stop();
+    history.replaceState({}, '', '/');
+    vi.useRealTimers();
+  });
 });

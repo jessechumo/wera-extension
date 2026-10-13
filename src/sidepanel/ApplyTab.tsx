@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { AlertTriangle, CheckCircle2, ChevronDown, History, Layers, MessageSquareText, PartyPopper, Sparkles, Wand2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, History, Layers, MessageSquareText, PartyPopper, RotateCcw, Sparkles, Wand2 } from 'lucide-react';
 import { ApiError, type ResumeFile, type WeraApi } from '../shared/api';
 import { forgetAnswers, loadAnswers, matchAnswers, saveAnswer, type SavedAnswer } from '../shared/answers';
 import type { FillResult } from '../shared/types';
 import { fill, insert } from './page';
 import { Button, Card, INPUT, Notice, errorText } from './ui';
+import type { FillRequest } from './App';
 import type { usePage } from './usePage';
 
 type Page = ReturnType<typeof usePage>;
@@ -111,7 +112,24 @@ export function MarkApplied({ api, page, lead }: { api: WeraApi; page: Page; lea
   );
 }
 
-export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page; autoRun?: number }) {
+const LAST_FILL = 'wera.lastFill';
+interface LastFill { tabId: number; url: string; docId: string; at: number }
+
+/** Whether this page was filled before it reloaded (the reload emptied the form). */
+function useReloaded(page: Page): boolean {
+  const [reloaded, setReloaded] = useState(false);
+  const { tab, page: info } = page;
+  useEffect(() => {
+    if (!info?.hasForm || tab?.id == null || !chrome.storage?.session) return;
+    void chrome.storage.session.get(LAST_FILL).then((r) => {
+      const last = r[LAST_FILL] as LastFill | undefined;
+      setReloaded(!!last && last.tabId === tab.id && last.url === info.url && last.docId !== (info.docId ?? '') && Date.now() - last.at < 30 * 60_000);
+    }).catch(() => {});
+  }, [tab?.id, info]);
+  return reloaded;
+}
+
+export function ApplyTab({ api, page, autoFill }: { api: WeraApi; page: Page; autoFill?: FillRequest }) {
   const [results, setResults] = useState<FillResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -131,6 +149,10 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
       setResults(await fill(page.tab, applicant, resume ?? undefined));
       page.clearNewStep();
       setAttached(resume?.kind ?? null);
+      if (page.tab.id != null && page.page && chrome.storage?.session) {
+        const last: LastFill = { tabId: page.tab.id, url: page.page.url, docId: page.page.docId ?? '', at: Date.now() };
+        void chrome.storage.session.set({ [LAST_FILL]: last });
+      }
     } catch (e) {
       setError(e instanceof ApiError && e.status === 401 ? 'Your Wera connection ended; sign in again.' : errorText(e));
     } finally {
@@ -139,13 +161,14 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
   };
 
   // The keyboard shortcut (Alt+Shift+F) asks for a fill.
-  const lastAuto = useRef(0);
   useEffect(() => {
-    if (autoRun > lastAuto.current && page.tab && !page.loading) {
-      lastAuto.current = autoRun;
+    if (autoFill && page.tab && !page.loading && autoFill.claim()) {
+      // A request from outside React (the shortcut, via session storage).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void run();
     }
   }); // no deps: runs when a new request arrives
+  const reloaded = useReloaded(page);
 
   const by = (s: FillResult['status']) => results?.filter((r) => r.status === s) ?? [];
   const filled = by('filled');
@@ -157,6 +180,15 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
     <div className="space-y-3">
       {page.submitted && page.job && (
         <MarkApplied api={api} page={page} lead={<span className="inline-flex items-center gap-1.5 font-medium text-text"><PartyPopper className="size-3.5 text-accent" /> Looks like you submitted it.</span>} />
+      )}
+      {reloaded && !results && (
+        <Notice tone="warn">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="size-3.5 shrink-0" />
+            <span className="flex-1">This page reloaded, so the form may be empty again.</span>
+            <Button variant="primary" onClick={() => void run()} busy={busy}>Fill again</Button>
+          </div>
+        </Notice>
       )}
       {page.newStep > 0 && results && (
         <Notice tone="warn">

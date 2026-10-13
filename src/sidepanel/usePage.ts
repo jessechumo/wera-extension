@@ -72,22 +72,37 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
     }
   }, [api, onUnauthorized]);
 
+  // A page that changes its address without loading (a single-page job
+  // board) renders the new content a moment later: read it once it settles.
+  const later = useRef(0);
+  const refreshSoon = useCallback(() => {
+    window.clearTimeout(later.current);
+    later.current = window.setTimeout(() => void refresh(), 600);
+  }, [refresh]);
+
   useEffect(() => {
     // Syncing with the browser's tabs (an external system): refresh sets
     // state only after awaiting the tabs API, never synchronously here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
     const onActivated = () => void refresh();
-    const onUpdated = (_id: number, info: { status?: string }, tab: chrome.tabs.Tab) => {
-      if (info.status === 'complete' && tab.active) void refresh();
+    const onUpdated = (_id: number, info: { status?: string; url?: string }, tab: chrome.tabs.Tab) => {
+      if (!tab.active) return;
+      if (info.status === 'complete') {
+        window.clearTimeout(later.current);
+        void refresh();
+      } else if (info.url) {
+        refreshSoon();
+      }
     };
     chrome.tabs.onActivated.addListener(onActivated);
     chrome.tabs.onUpdated.addListener(onUpdated);
     return () => {
+      window.clearTimeout(later.current);
       chrome.tabs.onActivated.removeListener(onActivated);
       chrome.tabs.onUpdated.removeListener(onUpdated);
     };
-  }, [refresh]);
+  }, [refresh, refreshSoon]);
 
   // Signals from the page script of the tab we follow (others are ignored).
   const tabId = state.tab?.id;
@@ -97,10 +112,24 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
       if (sender.tab?.id == null || sender.tab.id !== tabId) return;
       if (msg.type === 'wera:form-changed') setState((s) => ({ ...s, newStep: msg.fields }));
       else if (msg.type === 'wera:submitted') setState((s) => ({ ...s, submitted: true }));
+      else if (msg.type === 'wera:navigated') refreshSoon();
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
-  }, [tabId]);
+  }, [tabId, refreshSoon]);
+
+  // Back in the panel after working in the dashboard: show the job as Wera has it now.
+  const jobId = state.job?.id;
+  const reloadJob = useCallback(async () => {
+    if (jobId == null) return;
+    const fresh = await api.job(jobId).catch(() => null);
+    if (fresh) setState((s) => (s.job?.id === fresh.id ? { ...s, job: fresh } : s));
+  }, [api, jobId]);
+  useEffect(() => {
+    const onFocus = () => void reloadJob();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [reloadJob]);
 
   const clearNewStep = useCallback(() => setState((s) => ({ ...s, newStep: 0 })), []);
 
@@ -111,5 +140,7 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
       return { ...s, job };
     });
   };
-  return { ...state, refresh, setJob, clearNewStep };
+  /** One loaded page: a reload or another page in the tab gives a new key. */
+  const pageKey = state.page ? `${state.page.docId ?? ''}|${state.page.url}` : '';
+  return { ...state, pageKey, refresh, reloadJob, setJob, clearNewStep };
 }

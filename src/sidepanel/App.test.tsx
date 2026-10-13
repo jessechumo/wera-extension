@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { WeraJob } from '../shared/api';
@@ -265,5 +265,51 @@ describe('side panel: tracking, steps and shortcuts', () => {
     const reuse = await screen.findByRole('button', { name: /Your answer for Acme/ });
     await userEvent.click(reuse);
     expect(screen.getByLabelText(/Answer to Why do you want/)).toHaveValue('Acme keeps robots running in hospitals, and that is the reliability work I love.');
+  });
+
+  it('clears stale results when the page reloads and offers to fill again', async () => {
+    const live: PageInfo = { ...page, hasForm: true, docId: 'd1' };
+    const { chrome, sent } = fakeChrome({
+      page: live,
+      fill: [{ id: 'w1', label: 'Email', purpose: 'email', status: 'filled', value: 'ada@example.com', required: true }],
+    });
+    signedIn(chrome);
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    await screen.findByText(/Filled 1 field/);
+
+    // The user reloads the tab: a new document at the same address.
+    live.docId = 'd2';
+    const onUpdated = chrome.tabs.onUpdated.addListener.mock.calls[0]![0] as (id: number, info: object, tab: object) => void;
+    act(() => onUpdated(7, { status: 'complete' }, { id: 7, active: true }));
+    await waitFor(() => expect(screen.queryByText(/Filled 1 field/)).toBeNull());
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill again' }));
+    await waitFor(() => expect(sent.filter((m) => (m as { type: string }).type === 'wera:fill')).toHaveLength(2));
+  });
+
+  it('follows a single-page site to its next page, and shows changes made in the dashboard', async () => {
+    const { chrome, emit } = fakeChrome({ page });
+    signedIn(chrome);
+    let lookups = 0;
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => (lookups++, { job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/jobs/9': () => ({ ...job, application_status: 'interviewing' }),
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    emit({ type: 'wera:navigated', url: 'https://jobs.example/acme/2' });
+    await waitFor(() => expect(lookups).toBe(2), { timeout: 2000 });
+
+    // Back from the dashboard, where the job moved to Interviewing.
+    act(() => void window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(screen.getByLabelText('Tracker status')).toHaveValue('interviewing'));
   });
 });
