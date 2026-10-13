@@ -29,14 +29,26 @@ describe('WeraApi', () => {
   it('returns null for a missing letter or resume', async () => {
     const api = new WeraApi('https://w', 't', vi.fn().mockResolvedValue(json(404, { error: 'none' })));
     await expect(api.coverLetter(1)).resolves.toBeNull();
-    await expect(api.resumePdf()).resolves.toBeNull();
+    await expect(api.jobResume(1)).resolves.toBeNull();
+    await expect(api.resumeFile(1)).resolves.toBeNull();
   });
 
-  it('downloads the resume as base64 with its file name', async () => {
-    const bytes = new TextEncoder().encode('%PDF-1.4');
-    const api = new WeraApi('https://w', 't', vi.fn().mockResolvedValue(
-      new Response(bytes, { status: 200, headers: { 'Content-Disposition': 'attachment; filename="Ada_Resume.pdf"' } })));
-    await expect(api.resumePdf()).resolves.toEqual({ name: 'Ada_Resume.pdf', base64: btoa('%PDF-1.4') });
+  it('attaches the tailored copy, else the main resume, else the upload', async () => {
+    const pdf = (name: string) => new Response(new TextEncoder().encode('%PDF-1.4'), {
+      status: 200, headers: { 'Content-Disposition': `attachment; filename="${name}"` } });
+    const resumes = [{ id: 1, job_id: null }, { id: 2, job_id: 9 }];
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/resumes')) return json(200, { resumes });
+      if (url.includes('/api/resumes/2/pdf')) return pdf('Ada_Acme.pdf');
+      if (url.includes('/api/resumes/1/pdf')) return pdf('Ada_Resume.pdf');
+      if (url.includes('/api/profile/resume/file')) return pdf('upload.pdf');
+      return json(404, {});
+    });
+    const api = new WeraApi('https://w', 't', fetcher as typeof fetch);
+    await expect(api.resumeFile(9)).resolves.toEqual({ name: 'Ada_Acme.pdf', base64: btoa('%PDF-1.4'), kind: 'tailored' });
+    await expect(api.resumeFile(5)).resolves.toMatchObject({ name: 'Ada_Resume.pdf', kind: 'base' });
+    resumes.length = 0;
+    await expect(api.resumeFile(9)).resolves.toMatchObject({ name: 'upload.pdf', kind: 'upload' });
   });
 });
 

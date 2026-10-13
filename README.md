@@ -11,10 +11,12 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
 
 ## What it does
 
-- **Job:** reads the posting from the page's schema.org `JobPosting` data (Greenhouse, Lever, Ashby, Workday and most career sites publish it) or, failing that, with the AI from the page text. You review the form and save; the job joins your Jobs and Tracker and gets a fit score. A job already in Wera shows its score, reasons and missing skills.
-- **Apply:** finds the form's fields, works out what each asks (name, contact, links, work authorization and sponsorship, relocation, education, experience, salary, start date, voluntary self-identification) and fills them from your application details. It attaches your resume PDF, picks options by meaning ("USA" for United States, "TX" for Texas, "Prefer not to say"), and handles custom dropdowns. Open questions ("Why do you want to work here?") get an AI draft you edit and insert.
+- **Job:** reads the posting from the page's schema.org `JobPosting` data (Greenhouse, Lever, Ashby, Workday and most career sites publish it) or, failing that, with the AI from the page text. You review the form and save; the job joins your Jobs and Tracker and gets a fit score. A job already in Wera shows its score, reasons and missing skills, lets you move it through your tracker (saved, applied, interviewing...), and shows the company's certified H-1B filings with what it offered for similar titles. Its fit score also appears on the toolbar icon for that tab.
+- **Apply:** finds the form's fields, works out what each asks (name, contact, links, work authorization and sponsorship, relocation, education, experience, salary, start date, voluntary self-identification) and fills them from your application details. It attaches the best resume PDF (the copy tailored to this job, else your main Wera resume, else your uploaded file), picks options by meaning ("USA" for United States, "TX" for Texas, "Prefer not to say"), and handles custom dropdowns. Open questions ("Why do you want to work here?") get an AI draft you edit and insert; answers you insert are remembered in this browser and offered the next time a form asks something similar.
+- **Multi-step applications:** on Workday-style forms where each step replaces the last without a page load, Wera notices the new fields and offers **Fill this step**. When the page says the application went through ("Thank you for applying"), it offers to mark the job as applied in your tracker.
+- **Shortcuts:** Alt+Shift+W opens Wera; Alt+Shift+F (or right-click, "Fill this application with Wera") opens it and fills the form. Change them at chrome://extensions/shortcuts.
 - **Letter:** writes a cover letter with Wera's letter writer (your profile and resume, this posting, no clichés, no dashes), which you can edit, copy or insert into the page.
-- **Resume:** rewrites your resume toward the posting from your real experience only; lines citing numbers that are not in your resume are removed, and missing requirements are listed instead of invented. Print it to PDF or copy it.
+- **Resume:** shows which of the posting's keywords your Wera resume covers and tailors a one-page copy for this job (skills reordered, bullets reworded from your real experience only; missing requirements are listed, never invented). It is the same document as in the dashboard: preview it here, edit it in Wera, or download the PDF.
 
 ## Architecture
 
@@ -22,7 +24,7 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
 
 - `src/content`: injected into the active tab only when you use Wera there. Reads job data and text, finds and labels fields, fills them. Pure DOM code, unit-tested against fixture forms.
 - `src/sidepanel`: the React UI (an extension page). It calls your Wera server with the extension's bearer token.
-- `src/background`: opens the side panel from the toolbar icon and the page's right-click menu.
+- `src/background`: opens the side panel from the toolbar icon, the page's right-click menu and the keyboard shortcuts.
 - `src/shared`: the API client, storage and shared types.
 
 The server side lives in the Wera repository (`/api/ext/*`, `/api/applicant`); the dashboard lists connected browsers under Settings and holds your application details under Profile.
@@ -32,6 +34,8 @@ The server side lives in the Wera repository (`/api/ext/*`, `/api/applicant`); t
 - Permissions: `storage`, `sidePanel`, `activeTab`, `scripting`, `contextMenus`. Site access is **optional**: Wera asks for your server when you sign in and for a job site the first time you use it there.
 - The extension talks only to your own Wera server. Your password is sent once to get a token; the token is stored in `chrome.storage.local` and can be revoked in Wera's Settings (changing your password revokes all of them).
 - Page text you send to the AI is fenced as untrusted data in every prompt.
+- Watching for new form steps and confirmations happens in the page and sends the side panel only a field count or "submitted", never page content. The toolbar badge uses jobs the side panel already looked up; nothing else about your browsing is sent anywhere.
+- Remembered answers stay in `chrome.storage.local` on this computer; the Apply tab can forget them all.
 
 ## Install (development)
 

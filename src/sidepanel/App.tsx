@@ -31,6 +31,34 @@ export function App() {
   return <Main session={session} onSignOut={() => setSession(null)} />;
 }
 
+const PENDING_FILL = 'wera.pendingFill';
+
+/**
+ * A fill asked for by the keyboard shortcut or the right-click menu (the
+ * background leaves it in session storage): switches to Apply and returns
+ * a counter that tells the Apply tab to fill.
+ */
+function usePendingFill(tabId: number | undefined, onFill: () => void) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (tabId == null || !chrome.storage?.session) return;
+    const take = (v: unknown) => {
+      const p = v as { tabId: number; at: number } | undefined;
+      if (!p || p.tabId !== tabId || Date.now() - p.at > 15_000) return;
+      void chrome.storage.session.remove(PENDING_FILL);
+      onFill();
+      setCount((c) => c + 1);
+    };
+    void chrome.storage.session.get(PENDING_FILL).then((r) => take(r[PENDING_FILL]));
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === 'session' && changes[PENDING_FILL]) take(changes[PENDING_FILL].newValue);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
+  }, [tabId]); // eslint-disable-line react-hooks/exhaustive-deps -- onFill only switches the tab
+  return count;
+}
+
 function Main({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const api = useMemo(() => new WeraApi(session.server, session.token), [session]);
   const signOutLocal = useCallback(() => {
@@ -38,6 +66,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
   }, [onSignOut]);
   const page = usePage(api, signOutLocal);
   const [tab, setTab] = useState<Tab>('job');
+  const autoFill = usePendingFill(page.tab?.id, () => setTab('apply'));
 
   // An application page opens on Apply; a posting on Job.
   const pageKey = page.page ? `${page.page.url}|${page.page.hasForm}` : '';
@@ -85,9 +114,9 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           <Notice tone="bad">{page.error}</Notice>
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
-        {tab === 'apply' && <ApplyTab api={api} page={page} />}
+        {tab === 'apply' && <ApplyTab api={api} page={page} autoRun={autoFill} />}
         {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
-        {tab === 'resume' && <ResumeTab api={api} page={page} userName={session.user.name} onNeedJob={() => setTab('job')} />}
+        {tab === 'resume' && <ResumeTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
       </main>
     </div>
   );

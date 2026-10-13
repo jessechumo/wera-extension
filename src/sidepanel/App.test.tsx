@@ -122,15 +122,20 @@ describe('side panel', () => {
     const { chrome } = fakeChrome({ page });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'Ada', is_admin: false } } });
     let body = '';
+    let tailored: unknown = null;
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
       'GET /api/jobs/9/cover-letter': () => (body ? { body, edited: false } : new Response('{"error":"none"}', { status: 404 })),
       'POST /api/jobs/9/cover-letter': () => ((body = 'Dear Hiring Team,\n\nHello.'), { body, edited: false }),
       'PUT /api/jobs/9/cover-letter': (init) => ((body = JSON.parse(String(init.body)).body), { body, edited: true }),
-      'POST /api/jobs/9/tailored-resume': () => ({
-        headline: 'SRE', summary: 'Keeps systems up.', skills: [], experience: [{ title: 'Intern', company: 'Acme', dates: '2024', bullets: ['Shipped it'] }],
-        projects: [], education: [], changes: ['Led with reliability'], missing_keywords: ['Terraform'], dropped: ['Saved $1M'],
-      }),
+      'GET /api/jobs/9/keywords': () => ({ keywords: ['Go', 'Terraform'], coverage: tailored ? { matched: ['Go', 'Terraform'], missing: [], percent: 100 } : { matched: ['Go'], missing: ['Terraform'], percent: 50 }, resume_id: 1 }),
+      'GET /api/jobs/9/resume': () => tailored ?? new Response('{"error":"none"}', { status: 404 }),
+      'POST /api/jobs/9/resume': () => {
+        tailored = { id: 7, title: 'SRE, Acme', job_id: 9, data: {}, layout: {}, fit: { one_page: true, summary: '' }, notes: ['Led with reliability'] };
+        return { resume: tailored, coverage_before: { matched: ['Go'], missing: ['Terraform'], percent: 50 } };
+      },
+      'POST /api/resumes/preview': () => ({ pages: ['<svg xmlns="http://www.w3.org/2000/svg"/>'], measure: { pages: 1, fill: 0.9 } }),
+      'GET /api/resumes/7/pdf': () => new Response('%PDF', { status: 200, headers: { 'Content-Disposition': 'attachment; filename="Ada.pdf"' } }),
     });
     render(<App />);
     await screen.findByText('In your Wera lists');
@@ -146,12 +151,119 @@ describe('side panel', () => {
     expect(await screen.findByText('Inserted into the cover letter box.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: /Resume/ }));
+    expect(await screen.findByText('50%')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Tailor my resume/ }));
-    expect(await screen.findByText(/doesn't show: Terraform/)).toBeInTheDocument();
-    expect(screen.getByText('Shipped it')).toBeInTheDocument();
-    expect(screen.getByText(/Removed 1 line/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Print \/ PDF/ }));
-    expect(chrome.tabs.create).toHaveBeenCalled();
+    expect(await screen.findByText('Led with reliability')).toBeInTheDocument();
+    expect(await screen.findByText('100%')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Edit in Wera/ })).toHaveAttribute('href', `${API}/profile/resume/7`);
+    expect(await screen.findByAltText('Resume preview')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /PDF/ }));
+    await waitFor(() => expect(chrome.tabs.create).toHaveBeenCalled());
     expect(within(document.body).queryByText('no route')).toBeNull();
+  });
+});
+
+describe('side panel: tracking, steps and shortcuts', () => {
+  const signedIn = (chrome: ReturnType<typeof fakeChrome>['chrome']) =>
+    chrome.storage.local.get.mockImplementation(async (k: string) =>
+      k === 'wera.session' ? { 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } } : {});
+  const h1b = { matched: true, filings: 294, new_hires: 112, wage_median: 163000, level: '',
+    similar: [{ title: 'Site Reliability Engineer', wage_from: 150000, wage_to: null, level: 'II', place: 'Austin, TX' }], similar_low: 140000, similar_high: 190000 };
+
+  it('shows the fit on the toolbar icon, H-1B filings, and tracks the job', async () => {
+    const { chrome } = fakeChrome({ page });
+    signedIn(chrome);
+    let status = '';
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'PUT /api/jobs/9/application': (init) => ((status = JSON.parse(String(init.body)).status), { ...job, application_status: status }),
+    });
+    render(<App />);
+    expect(await screen.findByText(/294/)).toBeInTheDocument();
+    expect(screen.getByText('$140k – $190k')).toBeInTheDocument();
+    expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ tabId: 7, text: '81' });
+    await userEvent.selectOptions(screen.getByLabelText('Tracker status'), 'interviewing');
+    await waitFor(() => expect(status).toBe('interviewing'));
+  });
+
+  it('offers to fill a new step, then to mark the application as applied', async () => {
+    const { chrome, emit, sent } = fakeChrome({
+      page: { ...page, hasForm: true },
+      fill: [{ id: 'w1', label: 'Email', purpose: 'email', status: 'filled', value: 'ada@example.com', required: true }],
+    });
+    signedIn(chrome);
+    let status = '';
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+      'PUT /api/jobs/9/application': (init) => ((status = JSON.parse(String(init.body)).status), { ...job, application_status: status }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    await screen.findByText(/Filled 1 field/);
+    const fills = () => sent.filter((m) => (m as { type: string }).type === 'wera:fill').length;
+    expect(fills()).toBe(1);
+
+    emit({ type: 'wera:form-changed', fields: 6 }, 99); // another tab: ignored
+    emit({ type: 'wera:form-changed', fields: 6 });
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill this step' }));
+    await waitFor(() => expect(fills()).toBe(2));
+    await waitFor(() => expect(screen.queryByText(/A new step appeared/)).toBeNull());
+
+    emit({ type: 'wera:submitted' });
+    expect(await screen.findByText(/Looks like you submitted it/)).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole('button', { name: 'Mark as applied' })[0]!);
+    await waitFor(() => expect(status).toBe('applied'));
+    expect(await screen.findByText(/Marked as applied in your Wera tracker/)).toBeInTheDocument();
+  });
+
+  it('fills when the keyboard shortcut asks', async () => {
+    const { chrome, sent, setSession } = fakeChrome({ page, fill: [] });
+    signedIn(chrome);
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    await setSession('wera.pendingFill', { tabId: 7, at: Date.now() });
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
+    await waitFor(() => expect(sent.some((m) => (m as { type: string }).type === 'wera:fill')).toBe(true));
+  });
+
+  it('remembers an inserted answer and offers it for the same question later', async () => {
+    const question = { id: 'w3', label: 'Why do you want to work here?', purpose: 'question' as const, status: 'question' as const, required: false };
+    const { chrome, store } = fakeChrome({ page: { ...page, hasForm: true }, fill: [question] });
+    signedIn(chrome);
+    chrome.storage.local.get.mockImplementation(async (k: string) =>
+      k === 'wera.session' ? { 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } } : k in store ? { [k]: store[k] } : {});
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+      'POST /api/ext/answer': () => ({ answer: 'Acme keeps robots running in hospitals, and that is the reliability work I love.' }),
+    });
+    const first = render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Draft an answer/ }));
+    await screen.findByLabelText(/Answer to Why do you want/);
+    await userEvent.click(screen.getByRole('button', { name: 'Insert into form' }));
+    await waitFor(() => expect(store['wera.answers']).toHaveLength(1));
+    first.unmount();
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    const reuse = await screen.findByRole('button', { name: /Your answer for Acme/ });
+    await userEvent.click(reuse);
+    expect(screen.getByLabelText(/Answer to Why do you want/)).toHaveValue('Acme keeps robots running in hospitals, and that is the reliability work I love.');
   });
 });

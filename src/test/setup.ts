@@ -43,3 +43,4 @@ if (typeof DataTransfer === 'undefined') {
 
 // Blob URLs for the print view.
 if (!URL.createObjectURL) URL.createObjectURL = () => 'blob:wera-test';
+if (!URL.revokeObjectURL) URL.revokeObjectURL = () => {};

@@ -16,7 +16,7 @@ let extId = '';
 const run = Date.now().toString(36);
 test.beforeAll(async () => {
   server = createServer((req, res) => {
-    const file = req.url?.endsWith('/apply') ? 'apply.html' : 'job.html';
+    const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : 'job.html';
     res.setHeader('Content-Type', 'text/html');
     res.end(readFileSync(join(import.meta.dirname, 'pages', file)));
   });
@@ -98,7 +98,10 @@ test('sign in, save a job from its page, and fill its application', async () => 
   await expect(job.locator('#fn')).not.toHaveValue('');
   await expect(job.locator('#em')).toHaveValue(/@/);
   await expect(job.locator('#sp')).not.toHaveValue('');
-  expect(await job.locator('#re').evaluate((i: HTMLInputElement) => i.files?.[0]?.name)).toBe('Alex_Resume.pdf');
+  // The best resume Wera has is attached: a tailored copy, the main
+  // resume, or the uploaded file, and the panel says which.
+  expect(await job.locator('#re').evaluate((i: HTMLInputElement) => i.files?.[0]?.name)).toMatch(/\.pdf$/);
+  await expect(panel.getByText(/Resume offered for upload/)).toBeVisible();
   // Never ticks consent, never submits.
   await expect(job.locator('#agree')).not.toBeChecked();
   expect(await job.title()).not.toBe('SUBMITTED');
@@ -107,6 +110,29 @@ test('sign in, save a job from its page, and fill its application', async () => 
   await expect(panel.getByRole('button', { name: /Draft an answer/ })).toBeVisible();
   await shot(panel, 'apply-panel');
   await shot(job, 'apply-form');
+});
+
+test('fill a multi-step application, then mark it applied', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre`); // the posting saved above
+  await job.goto(`${site}/jobs/${run}/sre/steps`); // its application, same tab
+  const panel = await openPanel();
+  await panel.getByRole('button', { name: /Fill the form|Fill again/ }).click();
+  await expect(panel.getByText(/^Filled \d+ field/)).toBeVisible();
+  await expect(job.locator('#fn')).not.toHaveValue('');
+
+  // The page moves to step 2 on its own; Wera notices.
+  await job.locator('#next').click();
+  await panel.getByRole('button', { name: 'Fill this step' }).click({ timeout: 10_000 });
+  await expect(job.locator('#sp')).not.toHaveValue('');
+  await shot(panel, 'steps-panel');
+
+  // Submitting shows a thank-you; Wera offers to update the tracker.
+  await job.locator('#submit').click();
+  await expect(panel.getByText(/Looks like you submitted it/)).toBeVisible({ timeout: 10_000 });
+  await panel.getByRole('button', { name: 'Mark as applied' }).first().click();
+  await expect(panel.getByText(/Marked as applied in your Wera tracker/)).toBeVisible();
+  await shot(panel, 'applied');
 });
 
 // Uses the live AI (a fraction of a cent): run with WERA_E2E_AI=1.
@@ -137,6 +163,7 @@ test('AI: draft an answer, write a cover letter, tailor the resume', async () =>
 
   await panel.getByRole('tab', { name: 'Resume' }).click();
   await panel.getByRole('button', { name: /Tailor my resume/ }).click();
-  await expect(panel.getByRole('button', { name: /Print \/ PDF/ })).toBeVisible({ timeout: 45_000 });
+  await expect(panel.getByRole('link', { name: /Edit in Wera/ })).toBeVisible({ timeout: 45_000 });
+  await expect(panel.getByAltText('Resume preview')).toBeVisible({ timeout: 15_000 });
   await shot(panel, 'ai-resume');
 });

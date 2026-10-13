@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ExternalLink, Sparkles } from 'lucide-react';
-import type { WeraApi, WeraJob } from '../shared/api';
+import type { ApplicationStatus, WeraApi, WeraJob } from '../shared/api';
+import { H1BCard } from './H1BCard';
 import type { JobDraft } from '../shared/types';
 import { Button, Card, Field, INPUT, Notice, ScoreRing, Skeleton, errorText } from './ui';
 import type { usePage } from './usePage';
@@ -18,8 +19,14 @@ const SOURCE: Record<JobDraft['source'], string> = {
   manual: "Wera couldn't read a job here. Fill it in, or let the AI try.",
 };
 
-export function JobCard({ job, api }: { job: WeraJob; api: WeraApi }) {
+const STATUSES: { value: ApplicationStatus; label: string }[] = [
+  { value: 'saved', label: 'Saved' }, { value: 'applied', label: 'Applied' }, { value: 'interviewing', label: 'Interviewing' },
+  { value: 'offer', label: 'Offer' }, { value: 'rejected', label: 'Rejected' }, { value: 'not_interested', label: 'Not interested' },
+];
+
+export function JobCard({ job, api, onJob }: { job: WeraJob; api: WeraApi; onJob?: (j: WeraJob) => void }) {
   const score = job.fit_score ?? job.estimated_score;
+  const setStatus = (status: ApplicationStatus) => void api.setStatus(job.id, status).then((j) => onJob?.(j)).catch(() => {});
   return (
     <Card>
       <div className="flex gap-3">
@@ -43,10 +50,16 @@ export function JobCard({ job, api }: { job: WeraJob; api: WeraApi }) {
           className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:border-accent/40">
           Open in Wera <ExternalLink className="size-3" />
         </a>
+        <select value={job.application_status ?? ''} onChange={(e) => setStatus(e.target.value as ApplicationStatus)} aria-label="Tracker status"
+          className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-xs text-text">
+          <option value="" disabled>Track…</option>
+          {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
         {job.sponsorship && job.sponsorship !== 'unknown' && (
           <span className="self-center text-[11px] text-muted">Sponsorship: {job.sponsorship === 'yes' ? 'offered' : 'not offered'}</span>
         )}
       </div>
+      <H1BCard api={api} jobId={job.id} company={job.company} />
     </Card>
   );
 }
@@ -77,7 +90,7 @@ export function JobTab({ api, page }: { api: WeraApi; page: Page }) {
   }, [job, api, page]);
 
   if (page.loading) return <div className="space-y-2"><Skeleton className="h-20" /><Skeleton className="h-40" /></div>;
-  if (job) return <JobCard job={job} api={api} />;
+  if (job) return <JobCard job={job} api={api} onJob={page.setJob} />;
   if (!page.page) return null;
 
   const readWithAI = async () => {
