@@ -16,8 +16,17 @@ let extId = '';
 const run = Date.now().toString(36);
 test.beforeAll(async () => {
   server = createServer((req, res) => {
-    const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : 'job.html';
     res.setHeader('Content-Type', 'text/html');
+    // A careers page embedding the application from "another site": the
+    // same server under localhost, a different origin from 127.0.0.1.
+    if (req.url?.endsWith('/embedded')) {
+      const port = (server.address() as { port: number }).port;
+      res.end(`<!doctype html><title>Careers</title><main><h1>Join us</h1>
+        <form><label for="nl">Newsletter email</label><input id="nl" type="email" name="newsletter"></form>
+        <iframe id="grnhse_iframe" src="http://localhost:${port}${req.url.replace('/embedded', '/apply')}" width="900" height="1200"></iframe></main>`);
+      return;
+    }
+    const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : 'job.html';
     res.end(readFileSync(join(import.meta.dirname, 'pages', file)));
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -133,6 +142,61 @@ test('fill a multi-step application, then mark it applied', async () => {
   await panel.getByRole('button', { name: 'Mark as applied' }).first().click();
   await expect(panel.getByText(/Marked as applied in your Wera tracker/)).toBeVisible();
   await shot(panel, 'applied');
+});
+
+test('fill an application embedded from another site, and offer to fill again after a reload', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre/embedded`);
+  const panel = await openPanel();
+  await expect(panel.getByRole('tab', { name: 'Apply' })).toHaveAttribute('aria-selected', 'true');
+  await panel.getByRole('button', { name: /Fill the form/ }).click();
+  await expect(panel.getByText(/^Filled \d+ field/)).toBeVisible();
+  const form = job.frameLocator('#grnhse_iframe');
+  await expect(form.locator('#fn')).not.toHaveValue('');
+  await expect(form.locator('#em')).toHaveValue(/@/);
+  // The careers page's own newsletter box is not the application.
+  await expect(job.locator('#nl')).toHaveValue('');
+  await shot(job, 'embedded-form');
+
+  // The page reloads and its form is empty again: Wera offers to fill it.
+  await job.reload();
+  await expect(form.locator('#fn')).toHaveValue('');
+  await job.bringToFront();
+  await panel.reload();
+  await panel.getByRole('button', { name: 'Fill again' }).click();
+  await expect(form.locator('#fn')).not.toHaveValue('');
+});
+
+test('the dashboard tells the extension which job a tab is for', async () => {
+  // The job saved by the first test, as Wera has it.
+  const conn = await fetch(`${API}/api/ext/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'chrome-extension://e2e' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: 'e2e lookup' }),
+  });
+  const { token } = (await conn.json()) as { token: string };
+  const found = await fetch(`${API}/api/ext/jobs/lookup?url=${encodeURIComponent(`${site}/jobs/${run}/sre`)}`, { headers: { Authorization: `Bearer ${token}` } });
+  const { job: saved } = (await found.json()) as { job: { id: number } };
+  await fetch(`${API}/api/ext/tokens/current`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+
+  // A dashboard page on the signed-in Wera server (the API serves no HTML,
+  // so the test serves one at its address): the bridge runs there.
+  const careers = `${site}/careers/fixture-robotics/sre-${run}`;
+  await context.route(`${API}/e2e-dashboard`, (route) =>
+    route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Wera</title><a id="go" href="${careers}" target="_blank" rel="noreferrer">Apply on Fixture Robotics' site</a>` }));
+  const dash = await context.newPage();
+  await dash.goto(`${API}/e2e-dashboard`);
+  await expect.poll(() => dash.evaluate(() => document.documentElement.dataset.weraExtension ?? '')).not.toBe('');
+
+  // "Apply on Fixture Robotics' site", where the careers page has an address Wera never saw.
+  await dash.evaluate(([id, url]) => window.postMessage({ source: 'wera-dashboard', type: 'open-job', jobId: id, url }, location.origin), [saved.id, careers] as const);
+  const [tab] = await Promise.all([context.waitForEvent('page'), dash.click('#go')]);
+  await tab.waitForLoadState();
+  await tab.bringToFront();
+  const panel = await openPanel();
+  await expect(panel.getByText(/opened from your dashboard/)).toBeVisible();
+  await expect(panel.getByText('In your Wera lists')).toBeVisible();
+  await shot(panel, 'from-dashboard');
 });
 
 // Uses the live AI (a fraction of a cent): run with WERA_E2E_AI=1.
