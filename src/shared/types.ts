@@ -77,6 +77,8 @@ export interface FillResult {
   value?: string;
   note?: string;
   required: boolean;
+  /** The field's character limit, when it has one (drafted answers fit it). */
+  maxLength?: number;
 }
 
 /** What the content script reports about the page. */

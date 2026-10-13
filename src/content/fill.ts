@@ -287,6 +287,8 @@ export async function fillForm(root: ParentNode, a: Applicant, opts: FillOptions
       if (prev && !(prev.status === 'review' && RETRY.test(prev.note ?? ''))) continue;
       const purpose = classify(f);
       const res: FillResult = { id: f.id, label: f.label.slice(0, 160), purpose, status: 'skipped', required: f.required };
+      const max = (f.el as HTMLTextAreaElement).maxLength;
+      if (purpose === 'question' && max > 0) res.maxLength = max;
       try {
         await fillOne(f, purpose, a, opts, res);
       } catch (e) {

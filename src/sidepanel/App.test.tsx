@@ -100,9 +100,11 @@ describe('side panel', () => {
       ],
     });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } });
+    let savedDetails: unknown;
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com', city: 'Austin' }, saved: true }),
+      'PUT /api/applicant': (init) => ((savedDetails = JSON.parse(String(init.body))), { applicant: savedDetails, saved: true }),
       'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
       'POST /api/ext/answer': () => ({ answer: 'Because robots.' }),
     });
@@ -111,7 +113,13 @@ describe('side panel', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
     await userEvent.click(screen.getByRole('button', { name: 'Fill the form' }));
     expect(await screen.findByText(/Filled 1 field; 1 to check/)).toBeInTheDocument();
-    expect(screen.getByText('not in your application details')).toBeInTheDocument();
+
+    // The phone is missing: add it here, saved to Wera, and the form is filled again.
+    await userEvent.type(screen.getByLabelText('Your phone'), '(512) 555-0142');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedDetails).toEqual({ email: 'ada@example.com', city: 'Austin', phone: '(512) 555-0142' }));
+    await waitFor(() => expect(sent.filter((m) => (m as { type: string }).type === 'wera:fill')).toHaveLength(2));
+
     await userEvent.click(screen.getByRole('button', { name: /Draft an answer/ }));
     expect(await screen.findByLabelText('Answer to Why Acme?')).toHaveValue('Because robots.');
     await userEvent.click(screen.getByRole('button', { name: 'Insert into form' }));
@@ -353,5 +361,26 @@ describe('side panel: tracking, steps and shortcuts', () => {
     await waitFor(() => expect(sent).toContainEqual({ type: 'wera:extension-changed', what: '/api/jobs/9/application' }));
     // Reading the page or a lookup is not a change.
     expect(sent.filter((m) => (m as { type: string }).type === 'wera:extension-changed')).toHaveLength(1);
+  });
+
+  it('drafts answers for an unsaved job from the posting on the page, sized to the box', async () => {
+    const { chrome } = fakeChrome({
+      page: { ...page, hasForm: true },
+      fill: [{ id: 'w3', label: 'Why Acme?', purpose: 'question', status: 'question', required: true, maxLength: 700 }],
+    });
+    signedIn(chrome);
+    let asked: Record<string, unknown> = {};
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job: null }),
+      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+      'POST /api/ext/answer': (init) => ((asked = JSON.parse(String(init.body))), { answer: 'Robots.' }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Draft an answer/ }));
+    await screen.findByLabelText('Answer to Why Acme?');
+    expect(asked).toMatchObject({ question: 'Why Acme?', job_id: 0, max_words: 100, company: 'Acme', title: 'SRE', description: 'Keep things up.' });
   });
 });
