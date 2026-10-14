@@ -1,13 +1,21 @@
-// Renders public/icons/{16,32,48,128}.png from the Wera briefcase mark.
-// Run once after changing the mark: node scripts/icons.mjs
+// Renders public/icons/{16,32,48,128}.png from the dashboard's favicon
+// (wera-frontend/public/favicon.svg, copied below), so the extension and
+// the web app share one mark. Run after changing it: node scripts/icons.mjs
 import { mkdirSync } from 'node:fs';
 import { chromium } from '@playwright/test';
 
-const svg = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24">
-  <rect x="1" y="1" width="22" height="22" rx="5.5" fill="#D9653F"/>
-  <rect x="5" y="9" width="14" height="9.5" rx="1.8" fill="#fff"/>
-  <path d="M9.5 9V7.6A1.3 1.3 0 0 1 10.8 6.3h2.4a1.3 1.3 0 0 1 1.3 1.3V9" fill="none" stroke="#fff" stroke-width="1.6"/>
-  <rect x="10.8" y="12.3" width="2.4" height="1.6" rx=".5" fill="#D9653F"/>
+// The briefcase mark in its dark-theme colors (as favicon.svg).
+const svg = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none">
+  <defs>
+    <linearGradient id="g" x1="3" y1="6" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF7A59"/>
+      <stop offset="1" stop-color="#F2546A"/>
+    </linearGradient>
+  </defs>
+  <path d="M8.75 7V5.25A2.25 2.25 0 0 1 11 3h2a2.25 2.25 0 0 1 2.25 2.25V7" stroke="#FF7A59" stroke-width="2" stroke-linecap="round"/>
+  <rect x="2" y="6.5" width="20" height="14.5" rx="4" fill="url(#g)"/>
+  <path d="M2 12.75h20" stroke="#0A0B0F" stroke-opacity="0.3" stroke-width="1.25"/>
+  <rect x="10" y="11" width="4" height="3.5" rx="1.25" fill="#0A0B0F"/>
 </svg>`;
 
 mkdirSync('public/icons', { recursive: true });
