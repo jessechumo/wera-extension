@@ -92,6 +92,13 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
     if (page.page?.hasForm) setTab('apply');
   }
 
+  // What each tab has for this page: the job is saved; there is a form to fill.
+  const marks: Partial<Record<Tab, string>> = {
+    job: page.job ? 'bg-good' : undefined,
+    apply: page.page?.hasForm ? 'bg-accent' : undefined,
+  };
+  const markTitle: Partial<Record<Tab, string>> = { job: 'In your Wera lists', apply: 'This page has a form to fill' };
+
   const signOut = async () => {
     await api.disconnect().catch(() => {});
     signOutLocal();
@@ -112,9 +119,10 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
         <nav role="tablist" className="flex px-2">
           {TABS.map(({ id, label, Icon }) => (
             <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
-              className={clsx('-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2 text-xs font-medium transition-colors',
+              className={clsx('relative -mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2 text-xs font-medium transition-colors',
                 tab === id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text')}>
               <Icon className="size-3.5" /> {label}
+              {marks[id] && <span className={clsx('size-1.5 rounded-full', marks[id])} title={markTitle[id]} />}
             </button>
           ))}
         </nav>

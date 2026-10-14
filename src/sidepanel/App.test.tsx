@@ -76,7 +76,19 @@ describe('side panel', () => {
     render(<App />);
     expect(await screen.findByText('Strong match for your Go work.')).toBeInTheDocument();
     expect(screen.getByLabelText('fit 81')).toBeInTheDocument();
-    expect(screen.getByText(/You may lack: Terraform/)).toBeInTheDocument();
+    expect(screen.getByText('You lack')).toBeInTheDocument();
+    expect(screen.getByText('Terraform')).toBeInTheDocument();
+  });
+
+  it('offers to read or fill in a page with no job data', async () => {
+    const { chrome } = fakeChrome({ page: { ...page, draft: null } });
+    chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } });
+    fakeFetch({ 'GET /api/ext/jobs/lookup': () => ({ job: null }) });
+    render(<App />);
+    expect(await screen.findByText('No job found on this page')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Fill in/ }));
+    expect(screen.getByText('Save this job to Wera')).toBeInTheDocument();
+    expect(screen.getByLabelText('Company')).toHaveValue('');
   });
 
   it('asks for access to a site it cannot read yet', async () => {
