@@ -15,6 +15,7 @@
   --color-warn: #F5C451;
   --color-bad: #FF5C7A;
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
   --radius-card: 12px;
 }
 
