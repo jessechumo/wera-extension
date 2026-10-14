@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { WeraJob } from '../shared/api';
@@ -82,7 +82,7 @@ describe('side panel', () => {
   it('asks for access to a site it cannot read yet', async () => {
     const { chrome } = fakeChrome({ page });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } });
-    chrome.scripting.executeScript.mockRejectedValueOnce(new Error('Cannot access contents of the page'));
+    chrome.scripting.executeScript.mockRejectedValue(new Error('Cannot access contents of the page'));
     fakeFetch({ 'GET /api/ext/jobs/lookup': () => ({ job: null }) });
     render(<App />);
     expect(await screen.findByRole('button', { name: 'Allow on this site' })).toBeInTheDocument();
@@ -100,9 +100,11 @@ describe('side panel', () => {
       ],
     });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } });
+    let savedDetails: unknown;
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com', city: 'Austin' }, saved: true }),
+      'PUT /api/applicant': (init) => ((savedDetails = JSON.parse(String(init.body))), { applicant: savedDetails, saved: true }),
       'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
       'POST /api/ext/answer': () => ({ answer: 'Because robots.' }),
     });
@@ -111,7 +113,13 @@ describe('side panel', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
     await userEvent.click(screen.getByRole('button', { name: 'Fill the form' }));
     expect(await screen.findByText(/Filled 1 field; 1 to check/)).toBeInTheDocument();
-    expect(screen.getByText('not in your application details')).toBeInTheDocument();
+
+    // The phone is missing: add it here, saved to Wera, and the form is filled again.
+    await userEvent.type(screen.getByLabelText('Your phone'), '(512) 555-0142');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedDetails).toEqual({ email: 'ada@example.com', city: 'Austin', phone: '(512) 555-0142' }));
+    await waitFor(() => expect(sent.filter((m) => (m as { type: string }).type === 'wera:fill')).toHaveLength(2));
+
     await userEvent.click(screen.getByRole('button', { name: /Draft an answer/ }));
     expect(await screen.findByLabelText('Answer to Why Acme?')).toHaveValue('Because robots.');
     await userEvent.click(screen.getByRole('button', { name: 'Insert into form' }));
@@ -265,5 +273,114 @@ describe('side panel: tracking, steps and shortcuts', () => {
     const reuse = await screen.findByRole('button', { name: /Your answer for Acme/ });
     await userEvent.click(reuse);
     expect(screen.getByLabelText(/Answer to Why do you want/)).toHaveValue('Acme keeps robots running in hospitals, and that is the reliability work I love.');
+  });
+
+  it('clears stale results when the page reloads and offers to fill again', async () => {
+    const live: PageInfo = { ...page, hasForm: true, docId: 'd1' };
+    const { chrome, sent } = fakeChrome({
+      page: live,
+      fill: [{ id: 'w1', label: 'Email', purpose: 'email', status: 'filled', value: 'ada@example.com', required: true }],
+    });
+    signedIn(chrome);
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    await screen.findByText(/Filled 1 field/);
+
+    // The user reloads the tab: a new document at the same address.
+    live.docId = 'd2';
+    const onUpdated = chrome.tabs.onUpdated.addListener.mock.calls[0]![0] as (id: number, info: object, tab: object) => void;
+    act(() => onUpdated(7, { status: 'complete' }, { id: 7, active: true }));
+    await waitFor(() => expect(screen.queryByText(/Filled 1 field/)).toBeNull());
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill again' }));
+    await waitFor(() => expect(sent.filter((m) => (m as { type: string }).type === 'wera:fill')).toHaveLength(2));
+  });
+
+  it('follows a single-page site to its next page, and shows changes made in the dashboard', async () => {
+    const { chrome, emit } = fakeChrome({ page });
+    signedIn(chrome);
+    let lookups = 0;
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => (lookups++, { job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'GET /api/jobs/9': () => ({ ...job, application_status: 'interviewing' }),
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    emit({ type: 'wera:navigated', url: 'https://jobs.example/acme/2' });
+    await waitFor(() => expect(lookups).toBe(2), { timeout: 2000 });
+
+    // Back from the dashboard, where the job moved to Interviewing.
+    act(() => void window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(screen.getByLabelText('Tracker status')).toHaveValue('interviewing'));
+  });
+
+  it('knows the job the dashboard opened this tab for, until told otherwise', async () => {
+    const careers: PageInfo = { ...page, url: 'https://acme.example/careers/sre?gh_jid=123', draft: { ...page.draft!, title: 'Site Reliability Engineer, Platform', url: 'https://acme.example/careers/sre' } };
+    const { chrome, setSession } = fakeChrome({ page: careers });
+    signedIn(chrome);
+    await setSession('wera.handoffs', { 7: { jobId: 9, url: job.url, at: Date.now() } });
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job: null }),
+      'GET /api/jobs/9': () => ({ ...job, title: 'Site Reliability Engineer' }),
+      'GET /api/jobs/9/h1b': () => h1b,
+    });
+    render(<App />);
+    expect(await screen.findByText(/opened from your dashboard/)).toBeInTheDocument();
+    expect(screen.getByLabelText('fit 81')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Not this job?' }));
+    expect(await screen.findByText('Save this job to Wera')).toBeInTheDocument();
+  });
+
+  it('ignores a dashboard handoff once the tab shows a different posting', async () => {
+    const other: PageInfo = { ...page, url: 'https://acme.example/careers/ae', draft: { ...page.draft!, title: 'Account Executive' } };
+    const { chrome, setSession } = fakeChrome({ page: other });
+    signedIn(chrome);
+    await setSession('wera.handoffs', { 7: { jobId: 9, url: job.url, at: Date.now() } });
+    fakeFetch({ 'GET /api/ext/jobs/lookup': () => ({ job: null }), 'GET /api/jobs/9': () => job });
+    render(<App />);
+    expect(await screen.findByText('Save this job to Wera')).toBeInTheDocument();
+  });
+
+  it('tells open dashboards when it changes something', async () => {
+    const { chrome, sent } = fakeChrome({ page });
+    signedIn(chrome);
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => h1b,
+      'PUT /api/jobs/9/application': () => ({ ...job, application_status: 'applied' }),
+    });
+    render(<App />);
+    await userEvent.selectOptions(await screen.findByLabelText('Tracker status'), 'applied');
+    await waitFor(() => expect(sent).toContainEqual({ type: 'wera:extension-changed', what: '/api/jobs/9/application' }));
+    // Reading the page or a lookup is not a change.
+    expect(sent.filter((m) => (m as { type: string }).type === 'wera:extension-changed')).toHaveLength(1);
+  });
+
+  it('drafts answers for an unsaved job from the posting on the page, sized to the box', async () => {
+    const { chrome } = fakeChrome({
+      page: { ...page, hasForm: true },
+      fill: [{ id: 'w3', label: 'Why Acme?', purpose: 'question', status: 'question', required: true, maxLength: 700 }],
+    });
+    signedIn(chrome);
+    let asked: Record<string, unknown> = {};
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job: null }),
+      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
+      'GET /api/resumes': () => ({ resumes: [] }),
+      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+      'POST /api/ext/answer': (init) => ((asked = JSON.parse(String(init.body))), { answer: 'Robots.' }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Draft an answer/ }));
+    await screen.findByLabelText('Answer to Why Acme?');
+    expect(asked).toMatchObject({ question: 'Why Acme?', job_id: 0, max_words: 100, company: 'Acme', title: 'SRE', description: 'Keep things up.' });
   });
 });

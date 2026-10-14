@@ -1,4 +1,4 @@
-// Builds the extension into dist/: the three Vite targets plus the
+// Builds the extension into dist/: the four Vite targets plus the
 // manifest (with the version from package.json) and icons.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { build } from 'vite';
@@ -7,7 +7,7 @@ const watch = process.argv.includes('--watch');
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist', { recursive: true });
 
-for (const target of ['sidepanel', 'background', 'content']) {
+for (const target of ['sidepanel', 'background', 'content', 'bridge']) {
   process.env.WERA_TARGET = target;
   await build({ configFile: 'vite.config.ts', mode: watch ? 'development' : 'production', build: { watch: watch ? {} : null } });
 }

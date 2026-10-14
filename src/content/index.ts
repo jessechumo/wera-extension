@@ -5,12 +5,14 @@ import { classify } from './classify';
 import { byId, collectFields } from './fields';
 import { fillForm, insertText } from './fill';
 import { readJobPosting } from './jsonld';
+import { formFrameOrigins } from './frames';
 import { mainText } from './text';
 import { bodyText, looksSubmitted, watchPage } from './watch';
 
 declare global {
   interface Window {
     __weraContent?: boolean;
+    __weraDocId?: string;
   }
 }
 
@@ -24,17 +26,15 @@ function readPage(): PageInfo {
     draft: readJobPosting(document, url),
     hasForm: fields.filter((f) => classify(f) !== null).length >= 3,
     submitted: looksSubmitted(bodyText(document)),
+    frameOrigins: formFrameOrigins(document),
+    docId: window.__weraDocId,
   };
-}
-
-function questions() {
-  return collectFields(document)
-    .filter((f) => classify(f) === 'question')
-    .map((f) => ({ id: f.id, label: f.label.slice(0, 500), required: f.required, filled: !!(f.el as HTMLTextAreaElement).value }));
 }
 
 if (!window.__weraContent) {
   window.__weraContent = true;
+  // Set once per loaded document, so the side panel can tell a reload from a tab switch.
+  window.__weraDocId = Math.random().toString(36).slice(2);
   // Tell the side panel about new form steps and confirmations (it may
   // be closed; then nobody listens and the message is dropped).
   watchPage(document, (e) => void chrome.runtime.sendMessage(e).catch(() => {}));
@@ -42,9 +42,6 @@ if (!window.__weraContent) {
     switch (msg.type) {
       case 'wera:read-page':
         reply(readPage());
-        return false;
-      case 'wera:questions':
-        reply(questions());
         return false;
       case 'wera:insert':
         reply({ ok: insertText(byId(document, msg.id), msg.text) });

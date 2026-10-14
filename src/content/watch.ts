@@ -34,9 +34,18 @@ export function formSignature(doc: Document): { count: number; key: string } {
 export function watchPage(doc: Document, notify: (e: ContentEvent) => void, delay = 700): () => void {
   let last = formSignature(doc).key;
   let submitted = looksSubmitted(bodyText(doc));
+  let href = doc.location.href;
   let timer = 0;
   const check = () => {
     timer = 0;
+    // A single-page site moved to another page (another job, the apply step) without loading.
+    if (doc.location.href !== href) {
+      href = doc.location.href;
+      last = formSignature(doc).key;
+      submitted = looksSubmitted(bodyText(doc));
+      notify({ type: 'wera:navigated', url: href });
+      return;
+    }
     const sig = formSignature(doc);
     if (sig.key !== last) {
       last = sig.key;
@@ -47,12 +56,15 @@ export function watchPage(doc: Document, notify: (e: ContentEvent) => void, dela
       notify({ type: 'wera:submitted' });
     }
   };
-  const obs = new MutationObserver(() => {
+  const schedule = () => {
     if (!timer) timer = window.setTimeout(check, delay);
-  });
+  };
+  const obs = new MutationObserver(schedule);
   obs.observe(doc.body, { childList: true, subtree: true });
+  window.addEventListener('popstate', schedule);
   return () => {
     obs.disconnect();
+    window.removeEventListener('popstate', schedule);
     window.clearTimeout(timer);
   };
 }

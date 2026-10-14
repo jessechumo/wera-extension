@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { AlertTriangle, CheckCircle2, ChevronDown, History, Layers, MessageSquareText, PartyPopper, Sparkles, Wand2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, History, Layers, MessageSquareText, PartyPopper, RotateCcw, Sparkles, Wand2 } from 'lucide-react';
 import { ApiError, type ResumeFile, type WeraApi } from '../shared/api';
 import { forgetAnswers, loadAnswers, matchAnswers, saveAnswer, type SavedAnswer } from '../shared/answers';
-import type { FillResult } from '../shared/types';
+import type { ApplicantKey, FieldPurpose, FillResult } from '../shared/types';
 import { fill, insert } from './page';
 import { Button, Card, INPUT, Notice, errorText } from './ui';
+import type { FillRequest } from './App';
 import type { usePage } from './usePage';
 
 type Page = ReturnType<typeof usePage>;
@@ -37,7 +38,16 @@ function Question({ r, api, page, memory }: { r: FillResult; api: WeraApi; page:
     setBusy(true);
     setNote('');
     try {
-      const a = await api.answer(r.label, page.job?.id ?? null);
+      // A box with a character limit gets an answer that fits (about 7 characters a word).
+      const words = r.maxLength ? Math.max(25, Math.min(300, Math.floor(r.maxLength / 7))) : 150;
+      // Not saved to Wera: the posting on the page is the context.
+      const info = page.page;
+      const posting = info && {
+        company: info.draft?.company ?? '',
+        title: info.draft?.title || info.title,
+        description: info.draft?.description || info.text,
+      };
+      const a = await api.answer(r.label, page.job?.id ?? null, words, posting ?? undefined);
       if (a.needs_input) setNote(`Add yourself: ${a.needs_input}`);
       else setText(a.answer ?? '');
     } catch (e) {
@@ -80,6 +90,51 @@ function Question({ r, api, page, memory }: { r: FillResult; api: WeraApi; page:
   );
 }
 
+// Purposes that are one application detail each (the others are derived or not details).
+const DERIVED = new Set<FieldPurpose>(['full_name', 'authorized_no_sponsorship', 'location', 'resume', 'cover_letter', 'question', 'consent']);
+const YES_NO = new Set<string>(['authorized_to_work', 'needs_sponsorship', 'willing_to_relocate']);
+const MISSING = 'not in your application details';
+
+/** A detail the form asks for that Wera does not have: add it here, saved to Wera, and fill again. */
+function MissingDetail({ r, api, onSaved }: { r: FillResult; api: WeraApi; onSaved: () => void }) {
+  const key = r.purpose as ApplicantKey;
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const name = NICE[key] ?? key.replace(/_/g, ' ');
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const { applicant } = await api.applicant();
+      await api.saveApplicant({ ...applicant, [key]: value.trim() });
+      onSaved();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li className="rounded-md bg-surface px-2.5 py-1.5 text-xs">
+      <div className="truncate text-text" title={r.label}>{r.label || name}</div>
+      <form className="mt-1 flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        {YES_NO.has(key) ? (
+          <select className={INPUT} value={value} onChange={(e) => setValue(e.target.value)} aria-label={`Your ${name}`}>
+            <option value="" disabled>Choose…</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        ) : (
+          <input className={INPUT} value={value} onChange={(e) => setValue(e.target.value)} placeholder={`Your ${name}`} aria-label={`Your ${name}`} />
+        )}
+        <Button type="submit" variant="secondary" busy={busy} disabled={!value.trim()} title="Saved to your application details in Wera, then the form is filled again">Save</Button>
+      </form>
+      {error && <p className="mt-1 text-[11px] text-bad">{error}</p>}
+    </li>
+  );
+}
+
 /** Moves the job to Applied in the Wera tracker. */
 export function MarkApplied({ api, page, lead }: { api: WeraApi; page: Page; lead: ReactNode }) {
   const [busy, setBusy] = useState(false);
@@ -111,7 +166,24 @@ export function MarkApplied({ api, page, lead }: { api: WeraApi; page: Page; lea
   );
 }
 
-export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page; autoRun?: number }) {
+const LAST_FILL = 'wera.lastFill';
+interface LastFill { tabId: number; url: string; docId: string; at: number }
+
+/** Whether this page was filled before it reloaded (the reload emptied the form). */
+function useReloaded(page: Page): boolean {
+  const [reloaded, setReloaded] = useState(false);
+  const { tab, page: info } = page;
+  useEffect(() => {
+    if (!info?.hasForm || tab?.id == null || !chrome.storage?.session) return;
+    void chrome.storage.session.get(LAST_FILL).then((r) => {
+      const last = r[LAST_FILL] as LastFill | undefined;
+      setReloaded(!!last && last.tabId === tab.id && last.url === info.url && last.docId !== (info.docId ?? '') && Date.now() - last.at < 30 * 60_000);
+    }).catch(() => {});
+  }, [tab?.id, info]);
+  return reloaded;
+}
+
+export function ApplyTab({ api, page, autoFill }: { api: WeraApi; page: Page; autoFill?: FillRequest }) {
   const [results, setResults] = useState<FillResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -131,6 +203,10 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
       setResults(await fill(page.tab, applicant, resume ?? undefined));
       page.clearNewStep();
       setAttached(resume?.kind ?? null);
+      if (page.tab.id != null && page.page && chrome.storage?.session) {
+        const last: LastFill = { tabId: page.tab.id, url: page.page.url, docId: page.page.docId ?? '', at: Date.now() };
+        void chrome.storage.session.set({ [LAST_FILL]: last });
+      }
     } catch (e) {
       setError(e instanceof ApiError && e.status === 401 ? 'Your Wera connection ended; sign in again.' : errorText(e));
     } finally {
@@ -139,13 +215,14 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
   };
 
   // The keyboard shortcut (Alt+Shift+F) asks for a fill.
-  const lastAuto = useRef(0);
   useEffect(() => {
-    if (autoRun > lastAuto.current && page.tab && !page.loading) {
-      lastAuto.current = autoRun;
+    if (autoFill && page.tab && !page.loading && autoFill.claim()) {
+      // A request from outside React (the shortcut, via session storage).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void run();
     }
   }); // no deps: runs when a new request arrives
+  const reloaded = useReloaded(page);
 
   const by = (s: FillResult['status']) => results?.filter((r) => r.status === s) ?? [];
   const filled = by('filled');
@@ -157,6 +234,15 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
     <div className="space-y-3">
       {page.submitted && page.job && (
         <MarkApplied api={api} page={page} lead={<span className="inline-flex items-center gap-1.5 font-medium text-text"><PartyPopper className="size-3.5 text-accent" /> Looks like you submitted it.</span>} />
+      )}
+      {reloaded && !results && (
+        <Notice tone="warn">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="size-3.5 shrink-0" />
+            <span className="flex-1">This page reloaded, so the form may be empty again.</span>
+            <Button variant="primary" onClick={() => void run()} busy={busy}>Fill again</Button>
+          </div>
+        </Notice>
       )}
       {page.newStep > 0 && results && (
         <Notice tone="warn">
@@ -198,7 +284,11 @@ export function ApplyTab({ api, page, autoRun = 0 }: { api: WeraApi; page: Page;
           )}
           {review.length > 0 && (
             <Section icon={<AlertTriangle className="size-3.5 text-warn" />} title="Check these">
-              {review.map((r) => <Row key={r.id} r={r} />)}
+              {review.map((r) =>
+                r.note === MISSING && r.purpose && !DERIVED.has(r.purpose)
+                  ? <MissingDetail key={r.id} r={r} api={api} onSaved={() => void run()} />
+                  : <Row key={r.id} r={r} />,
+              )}
             </Section>
           )}
           {questions.length > 0 && (

@@ -24,7 +24,14 @@ const STATUSES: { value: ApplicationStatus; label: string }[] = [
   { value: 'offer', label: 'Offer' }, { value: 'rejected', label: 'Rejected' }, { value: 'not_interested', label: 'Not interested' },
 ];
 
-export function JobCard({ job, api, onJob }: { job: WeraJob; api: WeraApi; onJob?: (j: WeraJob) => void }) {
+export function JobCard({ job, api, onJob, fromDashboard, onUnlink }: {
+  job: WeraJob;
+  api: WeraApi;
+  onJob?: (j: WeraJob) => void;
+  /** Opened from the dashboard for this job (the page's address is not the one Wera has). */
+  fromDashboard?: boolean;
+  onUnlink?: () => void;
+}) {
   const score = job.fit_score ?? job.estimated_score;
   const setStatus = (status: ApplicationStatus) => void api.setStatus(job.id, status).then((j) => onJob?.(j)).catch(() => {});
   return (
@@ -32,7 +39,15 @@ export function JobCard({ job, api, onJob }: { job: WeraJob; api: WeraApi; onJob
       <div className="flex gap-3">
         <ScoreRing score={score} estimate={job.fit_score == null && score != null} />
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-medium text-good inline-flex items-center gap-1"><CheckCircle2 className="size-3" /> In your Wera lists</div>
+          <div className="flex flex-wrap items-center gap-x-1.5 text-[11px]">
+            <span className="inline-flex items-center gap-1 font-medium text-good"><CheckCircle2 className="size-3" /> In your Wera lists</span>
+            {fromDashboard && (
+              <>
+                <span className="text-faint">· opened from your dashboard</span>
+                {onUnlink && <button type="button" onClick={onUnlink} className="text-faint underline hover:text-text">Not this job?</button>}
+              </>
+            )}
+          </div>
           <h2 className="mt-0.5 text-sm font-semibold leading-snug text-text">{job.title}</h2>
           <p className="text-xs text-muted">{job.company}{job.location_summary || job.location_raw ? ` · ${job.location_summary ?? job.location_raw}` : ''}</p>
         </div>
@@ -90,7 +105,7 @@ export function JobTab({ api, page }: { api: WeraApi; page: Page }) {
   }, [job, api, page]);
 
   if (page.loading) return <div className="space-y-2"><Skeleton className="h-20" /><Skeleton className="h-40" /></div>;
-  if (job) return <JobCard job={job} api={api} onJob={page.setJob} />;
+  if (job) return <JobCard job={job} api={api} onJob={page.setJob} fromDashboard={page.fromDashboard} onUnlink={() => void page.unlink()} />;
   if (!page.page) return null;
 
   const readWithAI = async () => {

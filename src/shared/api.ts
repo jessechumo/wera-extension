@@ -79,6 +79,9 @@ export interface JobH1B {
 
 export type ApplicationStatus = 'saved' | 'applied' | 'interviewing' | 'offer' | 'rejected' | 'not_interested';
 
+/** POSTs that only compute something (nothing in Wera changes). */
+const READ_ONLY = /^\/api\/(ext\/(extract|answer|tokens)|resumes\/preview)/;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -98,6 +101,8 @@ export class WeraApi {
     readonly server: string,
     private token = '',
     private readonly fetcher: typeof fetch = (...a) => fetch(...a),
+    /** Called after a request that changed the user's data (the panel tells the dashboard). */
+    private readonly onChange?: (path: string) => void,
   ) {}
 
   private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -119,6 +124,7 @@ export class WeraApi {
       }
       throw new ApiError(res.status, msg);
     }
+    if (init.method && init.method !== 'GET' && !READ_ONLY.test(path)) this.onChange?.(path);
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
@@ -212,11 +218,23 @@ export class WeraApi {
     });
   }
 
-  answer(question: string, jobId: number | null, maxWords = 150) {
+  /**
+   * Drafts an answer to an application question, for the saved job, or
+   * else for the posting on the page (company, title, description).
+   */
+  answer(question: string, jobId: number | null, maxWords = 150, posting?: { company: string; title: string; description: string }) {
     return this.call<{ answer?: string; needs_input?: string }>('/api/ext/answer', {
       method: 'POST',
-      body: JSON.stringify({ question, job_id: jobId ?? 0, max_words: maxWords }),
+      body: JSON.stringify({
+        question, job_id: jobId ?? 0, max_words: maxWords,
+        ...(jobId == null && posting ? { company: posting.company, title: posting.title, description: posting.description.slice(0, 8000) } : {}),
+      }),
     });
+  }
+
+  /** Saves application details (all of them; merge before calling). */
+  saveApplicant(a: Applicant) {
+    return this.call<{ applicant: Applicant; saved: boolean }>('/api/applicant', { method: 'PUT', body: JSON.stringify(a) });
   }
 
   private async download(path: string): Promise<{ name: string; base64: string } | null> {
