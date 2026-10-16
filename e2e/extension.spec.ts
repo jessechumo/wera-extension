@@ -44,6 +44,16 @@ test.beforeAll(async () => {
   form.append('file', new Blob([readFileSync(join(import.meta.dirname, 'fixtures', 'resume.pdf'))], { type: 'application/pdf' }), 'Alex_Resume.pdf');
   const up = await fetch(`${API}/api/profile/resume`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
   expect(up.ok).toBe(true);
+  // And the work authorization answers a form asks for (a fresh account has none,
+  // and Wera never guesses them).
+  const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const { applicant } = (await (await fetch(`${API}/api/applicant`, { headers: auth })).json()) as { applicant: Record<string, string> };
+  const saved = await fetch(`${API}/api/applicant`, {
+    method: 'PUT',
+    headers: auth,
+    body: JSON.stringify({ ...applicant, authorized_to_work: 'yes', needs_sponsorship: 'no' }),
+  });
+  expect(saved.ok).toBe(true);
   await fetch(`${API}/api/ext/tokens/current`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
 
   const dist = resolve(import.meta.dirname, '..', 'dist');
