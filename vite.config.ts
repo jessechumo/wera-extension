@@ -18,7 +18,7 @@ export default defineConfig(() => {
       build: {
         outDir: 'dist',
         emptyOutDir: false,
-        rollupOptions: { input: { sidepanel: resolve(__dirname, 'sidepanel.html') } },
+        rollupOptions: { input: { sidepanel: resolve(import.meta.dirname, 'sidepanel.html') } },
       },
     };
   }
@@ -27,7 +27,7 @@ export default defineConfig(() => {
       outDir: 'dist',
       emptyOutDir: false,
       lib: {
-        entry: resolve(__dirname, `src/${target}/index.ts`),
+        entry: resolve(import.meta.dirname, `src/${target}/index.ts`),
         formats: [target === 'content' || target === 'bridge' ? ('iife' as const) : ('es' as const)],
         name: `wera_${target}`,
         fileName: () => `${target}.js`,
