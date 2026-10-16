@@ -19,13 +19,13 @@ export function LogoMark({ size = 22 }: { size?: number }) {
   );
 }
 
-/** Mark plus the "wera." wordmark. */
+/** Mark plus the "wera" wordmark. */
 export function Logo({ small }: { small?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2">
       <LogoMark size={small ? 20 : 26} />
       <span className={`font-mono font-semibold tracking-tight text-text ${small ? 'text-[15px]' : 'text-xl'}`}>
-        wera<span className="text-accent">.</span>
+        wera
       </span>
     </span>
   );
