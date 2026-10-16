@@ -169,6 +169,9 @@ test('fill an application embedded from another site, and offer to fill again af
   await shot(job, 'embedded-form');
 
   // The page reloads and its form is empty again: Wera offers to fill it.
+  // The panel, opened here as a tab, works on the most recently used other
+  // tab; close the earlier tests' job tabs so a slow machine cannot pick one.
+  for (const p of context.pages()) if (p !== job && p !== panel) await p.close();
   await job.reload();
   await expect(form.locator('#fn')).toHaveValue('');
   await job.bringToFront();
