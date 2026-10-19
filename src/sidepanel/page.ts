@@ -67,7 +67,7 @@ async function inject(tab: chrome.tabs.Tab): Promise<number[]> {
 function sendTo<T>(tab: chrome.tabs.Tab, frameId: number, msg: ContentRequest): Promise<T> {
   return (frameId === 0
     ? chrome.tabs.sendMessage(tab.id!, msg)
-    : chrome.tabs.sendMessage(tab.id!, msg, { frameId })) as Promise<T>;
+    : chrome.tabs.sendMessage(tab.id!, msg, { frameId }));
 }
 
 /** Sends a request to every frame; frames that do not answer are left out. */

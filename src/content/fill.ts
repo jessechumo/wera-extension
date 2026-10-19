@@ -94,7 +94,7 @@ export function parseDate(value: string): Date | null {
   m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t);
   if (m) return new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]));
   m = /^([a-z]+)\.? (\d{1,2}),? (\d{4})$/i.exec(t);
-  const month = m ? MONTHS.findIndex((x) => x.startsWith(m![1]!.toLowerCase().slice(0, 3))) : -1;
+  const month = m ? MONTHS.findIndex((x) => x.startsWith(m[1]!.toLowerCase().slice(0, 3))) : -1;
   if (m && month >= 0) return new Date(Number(m[3]), month, Number(m[2]));
   return null;
 }
@@ -130,6 +130,9 @@ export function formatFor(el: HTMLInputElement | HTMLTextAreaElement, value: str
 /** Sets a value the way typing would, so React/Vue/Angular forms see it. */
 export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const proto = Object.getPrototypeOf(el) as object;
+  // The prototype's native setter, called on el: it bypasses the
+  // framework's own value tracking so the events below register.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   el.focus?.();
   if (setter) setter.call(el, value);

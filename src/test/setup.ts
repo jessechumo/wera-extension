@@ -33,7 +33,7 @@ if (typeof DataTransfer === 'undefined') {
   Object.defineProperty(HTMLInputElement.prototype, 'files', {
     configurable: true,
     get(this: HTMLInputElement & { _weraFiles?: FileList }) {
-      return this._weraFiles ?? desc.get!.call(this);
+      return this._weraFiles ?? (desc.get!.call(this) as FileList);
     },
     set(this: HTMLInputElement & { _weraFiles?: FileList }, v: FileList) {
       this._weraFiles = v;

@@ -19,6 +19,12 @@ const job: WeraJob = {
 };
 
 type Route = (init: RequestInit) => unknown;
+
+/** The JSON body a faked request sent. */
+function jsonBody<T = Record<string, unknown>>(init: RequestInit): T {
+  if (typeof init.body !== 'string') throw new Error('the request has no JSON body');
+  return JSON.parse(init.body) as T;
+}
 function fakeFetch(routes: Record<string, Route>) {
   const f = vi.fn(async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${url.replace(API, '').split('?')[0]}`;
@@ -45,7 +51,7 @@ describe('side panel', () => {
     fakeFetch({
       'POST /api/ext/tokens': () => ({ token: 'wera_ext_t', user: { id: 1, email: 'ada@example.com', name: 'Ada', is_admin: false } }),
       'GET /api/ext/jobs/lookup': () => ({ job: null }),
-      'POST /api/ext/jobs': (init) => ((saved = JSON.parse(String(init.body))), { ...job, fit_score: null, stage: 'pending_score' }),
+      'POST /api/ext/jobs': (init) => ((saved = jsonBody(init)), { ...job, fit_score: null, stage: 'pending_score' }),
     });
     render(<App />);
     await signIn();
@@ -116,7 +122,7 @@ describe('side panel', () => {
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
       'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com', city: 'Austin' }, saved: true }),
-      'PUT /api/applicant': (init) => ((savedDetails = JSON.parse(String(init.body))), { applicant: savedDetails, saved: true }),
+      'PUT /api/applicant': (init) => ((savedDetails = jsonBody(init)), { applicant: savedDetails, saved: true }),
       'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
       'POST /api/ext/answer': () => ({ answer: 'Because robots.' }),
     });
@@ -147,7 +153,7 @@ describe('side panel', () => {
       'GET /api/ext/jobs/lookup': () => ({ job }),
       'GET /api/jobs/9/cover-letter': () => (body ? { body, edited: false } : new Response('{"error":"none"}', { status: 404 })),
       'POST /api/jobs/9/cover-letter': () => ((body = 'Dear Hiring Team,\n\nHello.'), { body, edited: false }),
-      'PUT /api/jobs/9/cover-letter': (init) => ((body = JSON.parse(String(init.body)).body), { body, edited: true }),
+      'PUT /api/jobs/9/cover-letter': (init) => ((body = jsonBody<{ body: string }>(init).body), { body, edited: true }),
       'GET /api/jobs/9/keywords': () => ({ keywords: ['Go', 'Terraform'], coverage: tailored ? { matched: ['Go', 'Terraform'], missing: [], percent: 100 } : { matched: ['Go'], missing: ['Terraform'], percent: 50 }, resume_id: 1 }),
       'GET /api/jobs/9/resume': () => tailored ?? new Response('{"error":"none"}', { status: 404 }),
       'POST /api/jobs/9/resume': () => {
@@ -197,7 +203,7 @@ describe('side panel: tracking, steps and shortcuts', () => {
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
       'GET /api/jobs/9/h1b': () => h1b,
-      'PUT /api/jobs/9/application': (init) => ((status = JSON.parse(String(init.body)).status), { ...job, application_status: status }),
+      'PUT /api/jobs/9/application': (init) => ((status = jsonBody<{ status: string }>(init).status), { ...job, application_status: status }),
     });
     render(<App />);
     expect(await screen.findByText(/294/)).toBeInTheDocument();
@@ -220,7 +226,7 @@ describe('side panel: tracking, steps and shortcuts', () => {
       'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
       'GET /api/resumes': () => ({ resumes: [] }),
       'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-      'PUT /api/jobs/9/application': (init) => ((status = JSON.parse(String(init.body)).status), { ...job, application_status: status }),
+      'PUT /api/jobs/9/application': (init) => ((status = jsonBody<{ status: string }>(init).status), { ...job, application_status: status }),
     });
     render(<App />);
     await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
@@ -387,7 +393,7 @@ describe('side panel: tracking, steps and shortcuts', () => {
       'GET /api/applicant': () => ({ applicant: {}, saved: true }),
       'GET /api/resumes': () => ({ resumes: [] }),
       'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-      'POST /api/ext/answer': (init) => ((asked = JSON.parse(String(init.body))), { answer: 'Robots.' }),
+      'POST /api/ext/answer': (init) => ((asked = jsonBody(init)), { answer: 'Robots.' }),
     });
     render(<App />);
     await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
