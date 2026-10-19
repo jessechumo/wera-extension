@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.2.0...wera-extension-v0.2.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **content:** answer the side panel when filling a form fails ([f5a9f99](https://github.com/jessechumo/wera-extension/commit/f5a9f999825ad622c0431c8573f3b80b9c16a1a7))
+
+
+### Documentation
+
+* add a contributing guide and editorconfig ([300fbbe](https://github.com/jessechumo/wera-extension/commit/300fbbeeb794ccef6a875f08426a9e01c8c7321b))
+* **diagrams:** redraw the architecture diagrams in Excalidraw ([ca0fb77](https://github.com/jessechumo/wera-extension/commit/ca0fb7731bf217905ea36be39e816f0cc08b9e90))
+
 ## [0.2.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.1.0...wera-extension-v0.2.0) (2026-10-17)
 
 
