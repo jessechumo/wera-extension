@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.2.1...wera-extension-v0.2.2) (2026-10-19)
+
+
+### Documentation
+
+* redraw architecture diagrams with logos and legends ([d312a4e](https://github.com/jessechumo/wera-extension/commit/d312a4eb7beda65c9f810d8f1faa0ea9a86868bb))
+* redraw architecture diagrams with logos and legends ([d80d337](https://github.com/jessechumo/wera-extension/commit/d80d3376f6bb0f48ba3702c3faf0c83df8edaeb4))
+
 ## [0.2.1](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.2.0...wera-extension-v0.2.1) (2026-10-19)
 
 
