@@ -44,7 +44,7 @@ function location(job: Json): string {
   for (const loc of asArray(job.jobLocation as Json | Json[])) {
     const a = (loc?.address ?? {}) as Json;
     const text = typeof loc?.address === 'string'
-      ? (loc.address as string)
+      ? (loc.address)
       : [str(a.addressLocality), str(a.addressRegion), str(a.addressCountry && typeof a.addressCountry === 'object' ? (a.addressCountry as Json).name : a.addressCountry)]
           .filter(Boolean)
           .join(', ');

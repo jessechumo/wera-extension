@@ -13,7 +13,7 @@ describe('WeraApi', () => {
     const api = new WeraApi('https://wera.example', '', fetcher);
     await api.connect('a@x', 'pw', 'Chrome');
     await api.lookup('https://jobs.example/1?a=b');
-    const [url, init] = fetcher.mock.calls[1]!;
+    const [url, init] = fetcher.mock.calls[1] as [string, RequestInit & { headers: Record<string, string> }];
     expect(url).toBe('https://wera.example/api/ext/jobs/lookup?url=https%3A%2F%2Fjobs.example%2F1%3Fa%3Db');
     expect(init.headers.Authorization).toBe('Bearer wera_ext_abc');
     expect(init.credentials).toBe('omit');

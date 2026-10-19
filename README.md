@@ -21,7 +21,10 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
 
 ## Architecture
 
-![Wera for Chrome architecture: job site tab with an on-demand content script, the side panel and service worker in the browser; the Wera API, PostgreSQL and the inference API on your server](docs/architecture.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <img alt="Wera for Chrome architecture: the job site tab, side panel and service worker in the browser; the Wera API and PostgreSQL on your server; the AI provider reached only through the API" src="docs/architecture.svg">
+</picture>
 
 - `src/content`: injected into the active tab (and its frames) only when you use Wera there. Reads job data and text, finds and labels fields, fills them, and watches for new steps, confirmations and in-page navigation. Pure DOM code, unit-tested against fixture forms.
 - `src/sidepanel`: the React UI (an extension page). It calls your Wera server with the extension's bearer token.
@@ -78,5 +81,5 @@ src/bridge/       script on the Wera dashboard: job handoffs and change notices
 src/shared/       API client, storage, types
 e2e/              Playwright tests and fixture pages
 scripts/          build, package, icons
-docs/             architecture diagram (generated from docs/diagrams)
+docs/             architecture diagram (Excalidraw source in docs/diagrams)
 ```

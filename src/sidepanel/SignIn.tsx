@@ -47,7 +47,7 @@ export function SignIn({ onSignedIn, makeApi = (s: string) => new WeraApi(s) }: 
         <Logo />
         <p className="mt-2 text-xs text-muted">Save jobs, write cover letters, tailor your resume and fill applications. You review and submit.</p>
       </div>
-      <form onSubmit={submit} className="space-y-3 rounded-card border border-border bg-surface p-4">
+      <form onSubmit={(e) => void submit(e)} className="space-y-3 rounded-card border border-border bg-surface p-4">
         <Field label="Wera address">
           <input className={INPUT} value={server} onChange={(e) => setServer(e.target.value)} required />
         </Field>
