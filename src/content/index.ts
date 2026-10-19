@@ -52,7 +52,9 @@ if (!window.__weraContent) {
         return false;
       }
       case 'wera:fill':
-        fillForm(document, msg.applicant, { resume: msg.resume, coverLetter: msg.coverLetter }).then(reply);
+        // An unexpected failure answers with no results instead of leaving
+        // the side panel waiting for a reply that never comes.
+        fillForm(document, msg.applicant, { resume: msg.resume, coverLetter: msg.coverLetter }).then(reply, () => reply([]));
         return true; // async reply
       default:
         return false;
