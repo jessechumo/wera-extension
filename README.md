@@ -23,7 +23,7 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
-  <img alt="Wera for Chrome architecture: the job site tab, side panel and service worker in the browser; the Wera API and PostgreSQL on your server; the AI provider reached only through the API" src="docs/architecture.svg">
+  <img alt="Wera for Chrome architecture: the side panel reads and fills the job site tab and is opened by the service worker; it calls the Wera API with a bearer token; the API keeps hashed tokens in PostgreSQL and is the only part that calls the LLM API" src="docs/architecture.svg">
 </picture>
 
 - `src/content`: injected into the active tab (and its frames) only when you use Wera there. Reads job data and text, finds and labels fields, fills them, and watches for new steps, confirmations and in-page navigation. Pure DOM code, unit-tested against fixture forms.
