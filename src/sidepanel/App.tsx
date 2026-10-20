@@ -12,6 +12,7 @@ import { ResumeTab } from './ResumeTab';
 import { SignIn } from './SignIn';
 import { Button, Notice, Skeleton } from './ui';
 import { usePage } from './usePage';
+import { useSettings } from './useSettings';
 import { requestOrigins, requestSite } from './page';
 
 type Tab = 'job' | 'apply' | 'letter' | 'resume';
@@ -82,6 +83,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
   }, [onSignOut]);
   const page = usePage(api, signOutLocal);
   const [tab, setTab] = useState<Tab>('job');
+  const [settings] = useSettings();
   const autoFill = usePendingFill(page.tab?.id, () => setTab('apply'));
 
   // An application page opens on Apply; a posting on Job.
@@ -145,7 +147,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           </Notice>
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
-        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} />}
+        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} settings={settings} />}
         {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'resume' && <ResumeTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
       </main>

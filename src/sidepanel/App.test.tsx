@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { WeraJob } from '../shared/api';
-import type { PageInfo } from '../shared/types';
+import type { FieldPlan, PageInfo, PagePlan } from '../shared/types';
 import { fakeChrome } from '../test/chrome';
 import { App } from './App';
 
@@ -108,42 +108,6 @@ describe('side panel', () => {
     expect(chrome.permissions.request).toHaveBeenCalledWith({ origins: ['https://jobs.example/*'] });
   });
 
-  it('fills an application and drafts an answer to insert', async () => {
-    const { chrome, sent } = fakeChrome({
-      page: { ...page, hasForm: true },
-      fill: [
-        { id: 'w1', label: 'Email', purpose: 'email', status: 'filled', value: 'ada@example.com', required: true },
-        { id: 'w2', label: 'Phone', purpose: 'phone', status: 'review', note: 'not in your application details', required: true },
-        { id: 'w3', label: 'Why Acme?', purpose: 'question', status: 'question', required: false },
-      ],
-    });
-    chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } });
-    let savedDetails: unknown;
-    fakeFetch({
-      'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com', city: 'Austin' }, saved: true }),
-      'PUT /api/applicant': (init) => ((savedDetails = jsonBody(init)), { applicant: savedDetails, saved: true }),
-      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-      'POST /api/ext/answer': () => ({ answer: 'Because robots.' }),
-    });
-    render(<App />);
-    // An application page opens on Apply.
-    await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
-    await userEvent.click(screen.getByRole('button', { name: 'Fill the form' }));
-    expect(await screen.findByText(/Filled 1 field; 1 to check/)).toBeInTheDocument();
-
-    // The phone is missing: add it here, saved to Wera, and the form is filled again.
-    await userEvent.type(screen.getByLabelText('Your phone'), '(512) 555-0142');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(savedDetails).toEqual({ email: 'ada@example.com', city: 'Austin', phone: '(512) 555-0142' }));
-    await waitFor(() => expect(sent.filter((m) => (m as { type: string }).type === 'wera:fill')).toHaveLength(2));
-
-    await userEvent.click(screen.getByRole('button', { name: /Draft an answer/ }));
-    expect(await screen.findByLabelText('Answer to Why Acme?')).toHaveValue('Because robots.');
-    await userEvent.click(screen.getByRole('button', { name: 'Insert into form' }));
-    await waitFor(() => expect(sent).toContainEqual({ type: 'wera:insert', id: 'w3', text: 'Because robots.' }));
-  });
-
   it('writes, edits and inserts a cover letter; tailors the resume', async () => {
     const { chrome } = fakeChrome({ page });
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'Ada', is_admin: false } } });
@@ -213,113 +177,6 @@ describe('side panel: tracking, steps and shortcuts', () => {
     await waitFor(() => expect(status).toBe('interviewing'));
   });
 
-  it('offers to fill a new step, then to mark the application as applied', async () => {
-    const { chrome, emit, sent } = fakeChrome({
-      page: { ...page, hasForm: true },
-      fill: [{ id: 'w1', label: 'Email', purpose: 'email', status: 'filled', value: 'ada@example.com', required: true }],
-    });
-    signedIn(chrome);
-    let status = '';
-    fakeFetch({
-      'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/jobs/9/h1b': () => h1b,
-      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
-      'GET /api/resumes': () => ({ resumes: [] }),
-      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-      'PUT /api/jobs/9/application': (init) => ((status = jsonBody<{ status: string }>(init).status), { ...job, application_status: status }),
-    });
-    render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
-    await screen.findByText(/Filled 1 field/);
-    const fills = () => sent.filter((m) => (m as { type: string }).type === 'wera:fill').length;
-    expect(fills()).toBe(1);
-
-    emit({ type: 'wera:form-changed', fields: 6 }, 99); // another tab: ignored
-    emit({ type: 'wera:form-changed', fields: 6 });
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill this step' }));
-    await waitFor(() => expect(fills()).toBe(2));
-    await waitFor(() => expect(screen.queryByText(/A new step appeared/)).toBeNull());
-
-    emit({ type: 'wera:submitted' });
-    expect(await screen.findByText(/Looks like you submitted it/)).toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole('button', { name: 'Mark as applied' })[0]!);
-    await waitFor(() => expect(status).toBe('applied'));
-    expect(await screen.findByText(/Marked as applied in your Wera tracker/)).toBeInTheDocument();
-  });
-
-  it('fills when the keyboard shortcut asks', async () => {
-    const { chrome, sent, setSession } = fakeChrome({ page, fill: [] });
-    signedIn(chrome);
-    fakeFetch({
-      'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/jobs/9/h1b': () => h1b,
-      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
-      'GET /api/resumes': () => ({ resumes: [] }),
-      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-    });
-    render(<App />);
-    await screen.findByText('In your Wera lists');
-    await setSession('wera.pendingFill', { tabId: 7, at: Date.now() });
-    await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
-    await waitFor(() => expect(sent.some((m) => (m as { type: string }).type === 'wera:fill')).toBe(true));
-  });
-
-  it('remembers an inserted answer and offers it for the same question later', async () => {
-    const question = { id: 'w3', label: 'Why do you want to work here?', purpose: 'question' as const, status: 'question' as const, required: false };
-    const { chrome, store } = fakeChrome({ page: { ...page, hasForm: true }, fill: [question] });
-    signedIn(chrome);
-    chrome.storage.local.get.mockImplementation(async (k: string) =>
-      k === 'wera.session' ? { 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } } : k in store ? { [k]: store[k] } : {});
-    fakeFetch({
-      'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/jobs/9/h1b': () => h1b,
-      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
-      'GET /api/resumes': () => ({ resumes: [] }),
-      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-      'POST /api/ext/answer': () => ({ answer: 'Acme keeps robots running in hospitals, and that is the reliability work I love.' }),
-    });
-    const first = render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
-    await userEvent.click(await screen.findByRole('button', { name: /Draft an answer/ }));
-    await screen.findByLabelText(/Answer to Why do you want/);
-    await userEvent.click(screen.getByRole('button', { name: 'Insert into form' }));
-    await waitFor(() => expect(store['wera.answers']).toHaveLength(1));
-    first.unmount();
-
-    render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
-    const reuse = await screen.findByRole('button', { name: /Your answer for Acme/ });
-    await userEvent.click(reuse);
-    expect(screen.getByLabelText(/Answer to Why do you want/)).toHaveValue('Acme keeps robots running in hospitals, and that is the reliability work I love.');
-  });
-
-  it('clears stale results when the page reloads and offers to fill again', async () => {
-    const live: PageInfo = { ...page, hasForm: true, docId: 'd1' };
-    const { chrome, sent } = fakeChrome({
-      page: live,
-      fill: [{ id: 'w1', label: 'Email', purpose: 'email', status: 'filled', value: 'ada@example.com', required: true }],
-    });
-    signedIn(chrome);
-    fakeFetch({
-      'GET /api/ext/jobs/lookup': () => ({ job }),
-      'GET /api/jobs/9/h1b': () => h1b,
-      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com' }, saved: true }),
-      'GET /api/resumes': () => ({ resumes: [] }),
-      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
-    });
-    render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
-    await screen.findByText(/Filled 1 field/);
-
-    // The user reloads the tab: a new document at the same address.
-    live.docId = 'd2';
-    const onUpdated = chrome.tabs.onUpdated.addListener.mock.calls[0]![0] as (id: number, info: object, tab: object) => void;
-    act(() => onUpdated(7, { status: 'complete' }, { id: 7, active: true }));
-    await waitFor(() => expect(screen.queryByText(/Filled 1 field/)).toBeNull());
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill again' }));
-    await waitFor(() => expect(sent.filter((m) => (m as { type: string }).type === 'wera:fill')).toHaveLength(2));
-  });
-
   it('follows a single-page site to its next page, and shows changes made in the dashboard', async () => {
     const { chrome, emit } = fakeChrome({ page });
     signedIn(chrome);
@@ -380,25 +237,210 @@ describe('side panel: tracking, steps and shortcuts', () => {
     // Reading the page or a lookup is not a change.
     expect(sent.filter((m) => (m as { type: string }).type === 'wera:extension-changed')).toHaveLength(1);
   });
+});
+
+describe('side panel: guided autofill', () => {
+  const session = { 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } };
+  const signedIn = (chrome: ReturnType<typeof fakeChrome>['chrome'], store: Record<string, unknown> = {}) =>
+    chrome.storage.local.get.mockImplementation(async (k: string) => (k === 'wera.session' ? session : k in store ? { [k]: store[k] } : {}));
+  const field = (id: string, label: string, over: Partial<FieldPlan> = {}): FieldPlan => ({
+    id, label, purpose: null, kind: 'text', options: [], required: false, current: '', value: '', source: null, group: 'other', ...over,
+  });
+  const noResume = {
+    'GET /api/resumes': () => ({ resumes: [] }),
+    'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+    'GET /api/jobs/9/cover-letter': () => new Response('{"error":"none"}', { status: 404 }),
+    'GET /api/jobs/9/h1b': () => ({ matched: false, filings: 0, new_hires: 0, wage_median: null, similar: [], similar_low: null, similar_high: null, level: '' }),
+  };
+  const sentOf = (sent: unknown[], type: string) => sent.filter((m) => (m as { type: string }).type === type) as Record<string, unknown>[];
+
+  it('lists every field with its value and source, fills the ticked ones live, and learns', async () => {
+    const plan: PagePlan = {
+      fields: [
+        field('w1', 'Email', { purpose: 'email', value: 'ada@example.com', source: 'details', group: 'details', required: true }),
+        field('w2', 'Phone', { purpose: 'phone', group: 'details', required: true, note: 'not in your application details' }),
+        field('w3', 'Favorite tool'),
+        field('w4', 'Clearance level', { kind: 'select', options: ['None', 'Secret'] }),
+        field('w5', 'I agree to the terms', { purpose: 'consent', kind: 'checkbox', group: 'consent', note: 'agree yourself after reading it' }),
+      ],
+      next: null, errors: 0,
+    };
+    const { chrome, sent } = fakeChrome({
+      page: { ...page, hasForm: true }, plan,
+      snapshot: [{ id: 'w1', label: 'Email', purpose: 'email', kind: 'text', value: 'ada@example.com' }, { id: 'w2', label: 'Phone', purpose: 'phone', kind: 'text', value: '512 555 0142' },
+        { id: 'w3', label: 'Favorite tool', purpose: null, kind: 'text', value: 'Terraform' }],
+    });
+    signedIn(chrome);
+    let asked: { fields: { id: string }[] } = { fields: [] };
+    let details: Record<string, string> = {};
+    let learned: unknown = null;
+    let run: unknown = null;
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: { email: 'ada@example.com', phone: '' }, saved: true }),
+      'PUT /api/applicant': (init) => ((details = jsonBody(init)), { applicant: details, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'PUT /api/applicant/answers': (init) => ((learned = jsonBody(init)), { answers: [] }),
+      'POST /api/ext/autofill': (init) => ((asked = jsonBody(init)), {
+        answers: [{ id: 'w3', value: 'Terraform', confidence: 'high', why: 'from your resume' }, { id: 'w4', value: 'None', confidence: 'low' }],
+      }),
+      'POST /api/ext/autofill-runs': (init) => ((run = jsonBody(init)), { id: 5, job_id: 9, host: 'jobs.example', pages: 1, filled: 3, suggested: 1 }),
+    });
+    render(<App />);
+    // A form page opens on Apply and is read at once.
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
+    expect(await screen.findByLabelText('Value for Email')).toHaveValue('ada@example.com');
+    await waitFor(() => expect(screen.getByLabelText('Value for Favorite tool')).toHaveValue('Terraform'));
+    // The AI is asked only about what Wera's details and answers did not cover, never the consent.
+    expect(asked.fields.map((f) => f.id)).toEqual(['w2', 'w3', 'w4']);
+    expect(screen.getByLabelText('Fill Favorite tool')).toBeChecked();
+    expect(screen.getByLabelText('Fill Clearance level')).not.toBeChecked(); // a guess: the user decides
+    expect(screen.getByLabelText('Fill I agree to the terms')).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText('Value for Phone'), '512 555 0142');
+    expect(screen.getByLabelText('Fill Phone')).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Fill 3 fields' }));
+    await waitFor(() => expect(sentOf(sent, 'wera:apply')).toHaveLength(1));
+    expect(sentOf(sent, 'wera:apply')[0]!.items).toEqual([
+      { id: 'w1', value: 'ada@example.com' }, { id: 'w2', value: '512 555 0142' }, { id: 'w3', value: 'Terraform' },
+    ]);
+    expect(await screen.findAllByLabelText('Filled')).toHaveLength(3);
+    // Learned: the phone goes to the details, the tool to the saved answers.
+    await waitFor(() => expect(details.phone).toBe('512 555 0142'));
+    await waitFor(() => expect(learned).toEqual({ answers: [{ question: 'Favorite tool', answer: 'Terraform', kind: 'text', company: 'Acme' }] }));
+    expect(await screen.findByText(/Saved for next time/)).toBeInTheDocument();
+    expect(run).toEqual({ host: 'jobs.example', job_id: 9, filled: 3, suggested: 1 });
+    // No Next button: the last page is the user's to submit.
+    expect(screen.getByText(/Check everything on the page, then submit it yourself/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show Email on the page' }));
+    expect(sentOf(sent, 'wera:highlight')).toEqual([{ type: 'wera:highlight', id: 'w1' }]);
+  });
+
+  it('approves a page, presses Next, fills the next step on its own, and stops at Submit', async () => {
+    let step = 1;
+    const plans: Record<number, PagePlan> = {
+      1: { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', source: 'details', group: 'details' })], next: { id: 'n1', label: 'Save and continue', final: false }, errors: 0 },
+      2: { fields: [field('w9', 'Phone', { purpose: 'phone', value: '512', source: 'details', group: 'details' })], next: { id: 'n2', label: 'Submit application', final: true }, errors: 0 },
+    };
+    const { chrome, sent, emit } = fakeChrome({ page: { ...page, hasForm: true }, plan: () => plans[step]! });
+    signedIn(chrome);
+    const pages: unknown[] = [];
+    let status = '';
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'POST /api/ext/autofill-runs': () => ({ id: 5 }),
+      'POST /api/ext/autofill-runs/5/pages': (init) => (pages.push(jsonBody(init)), { id: 5 }),
+      'PUT /api/jobs/9/application': (init) => ((status = jsonBody<{ status: string }>(init).status), { ...job, application_status: status }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill 1 field' }));
+    await userEvent.click(await screen.findByRole('button', { name: /Approve & continue/ }));
+    await waitFor(() => expect(sentOf(sent, 'wera:next')).toHaveLength(1));
+    expect(await screen.findByText('Moving to the next page…')).toBeInTheDocument();
+
+    // The site shows step 2 without a page load; Wera reads and fills it.
+    step = 2;
+    emit({ type: 'wera:form-changed', fields: 1 }, 99); // another tab: ignored
+    emit({ type: 'wera:form-changed', fields: 1 });
+    await waitFor(() => expect(sentOf(sent, 'wera:apply')).toHaveLength(2));
+    expect(sentOf(sent, 'wera:apply')[1]!.items).toEqual([{ id: 'w9', value: '512' }]);
+    await waitFor(() => expect(pages).toEqual([{ filled: 1, suggested: 0 }]));
+    expect(await screen.findByText(/This is the last page/)).toHaveTextContent('Submit application');
+    expect(screen.getByRole('heading', { name: 'Application, page 2' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Approve & continue/ })).toBeNull();
+
+    emit({ type: 'wera:submitted' });
+    expect(await screen.findByText(/Looks like you submitted it/)).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole('button', { name: 'Mark as applied' })[0]!);
+    await waitFor(() => expect(status).toBe('applied'));
+  });
+
+  it('fills when the keyboard shortcut asks', async () => {
+    const plan: PagePlan = { fields: [field('w1', 'Email', { purpose: 'email', value: 'a@x', source: 'details', group: 'details' })], next: null, errors: 0 };
+    const { chrome, sent, setSession } = fakeChrome({ page, plan });
+    signedIn(chrome);
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: { email: 'a@x' }, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'POST /api/ext/autofill-runs': () => ({ id: 1 }),
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    await setSession('wera.pendingFill', { tabId: 7, at: Date.now() });
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Apply/ })).toHaveAttribute('aria-selected', 'true'));
+    await waitFor(() => expect(sentOf(sent, 'wera:apply')).toHaveLength(1));
+  });
+
+  it('moves answers kept in this browser to Wera and offers them for the same question', async () => {
+    const plan: PagePlan = { fields: [field('w3', 'Why do you want to work here?', { purpose: 'question', kind: 'textarea', group: 'questions' })], next: null, errors: 0 };
+    const store: Record<string, unknown> = {
+      'wera.answers': [{ question: 'Why do you want to work here?', answer: 'Acme keeps robots running in hospitals.', company: 'Acme', at: Date.now() - 86_400_000 * 3 }],
+    };
+    const { chrome, sent } = fakeChrome({ page: { ...page, hasForm: true }, plan });
+    signedIn(chrome, store);
+    chrome.storage.local.remove.mockImplementation(async (k: string) => void delete store[k]);
+    let moved: unknown = null;
+    const saves: unknown[] = [];
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'PUT /api/applicant/answers': (init) => (moved ??= jsonBody(init), saves.push(jsonBody(init)), { answers: [] }),
+    });
+    render(<App />);
+    const reuse = await screen.findByRole('button', { name: /Your answer for Acme, 3 days ago/ });
+    expect(moved).toEqual({ answers: [{ question: 'Why do you want to work here?', answer: 'Acme keeps robots running in hospitals.', kind: 'long', company: 'Acme' }] });
+    expect(store['wera.answers']).toBeUndefined();
+    await userEvent.click(reuse);
+    await userEvent.type(screen.getByLabelText(/Answer to Why do you want/), ' I love that work.');
+    await userEvent.click(screen.getByRole('button', { name: 'Insert into form' }));
+    await waitFor(() => expect(sentOf(sent, 'wera:insert')).toEqual([{ type: 'wera:insert', id: 'w3', text: 'Acme keeps robots running in hospitals. I love that work.' }]));
+    await waitFor(() => expect(saves).toHaveLength(2));
+  });
+
+  it('reads the form again when the page reloads', async () => {
+    const live: PageInfo = { ...page, hasForm: true, docId: 'd1' };
+    const plan: PagePlan = { fields: [field('w1', 'Email', { purpose: 'email', value: 'a@x', source: 'details', group: 'details' })], next: null, errors: 0 };
+    const { chrome, sent } = fakeChrome({ page: live, plan });
+    signedIn(chrome);
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: {}, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+    });
+    render(<App />);
+    await screen.findByLabelText('Value for Email');
+    live.docId = 'd2';
+    const onUpdated = chrome.tabs.onUpdated.addListener.mock.calls[0]![0] as (id: number, info: object, tab: object) => void;
+    act(() => onUpdated(7, { status: 'complete' }, { id: 7, active: true }));
+    await waitFor(() => expect(sentOf(sent, 'wera:scan')).toHaveLength(2));
+    expect(await screen.findByLabelText('Value for Email')).toHaveValue('a@x');
+  });
 
   it('drafts answers for an unsaved job from the posting on the page, sized to the box', async () => {
-    const { chrome } = fakeChrome({
-      page: { ...page, hasForm: true },
-      fill: [{ id: 'w3', label: 'Why Acme?', purpose: 'question', status: 'question', required: true, maxLength: 700 }],
-    });
+    const plan: PagePlan = { fields: [field('w3', 'Why Acme?', { purpose: 'question', kind: 'textarea', group: 'questions', required: true, maxLength: 700 })], next: null, errors: 0 };
+    const { chrome } = fakeChrome({ page: { ...page, hasForm: true }, plan });
     signedIn(chrome);
     let asked: Record<string, unknown> = {};
     fakeFetch({
+      ...noResume,
       'GET /api/ext/jobs/lookup': () => ({ job: null }),
       'GET /api/applicant': () => ({ applicant: {}, saved: true }),
-      'GET /api/resumes': () => ({ resumes: [] }),
-      'GET /api/profile/resume/file': () => new Response('{"error":"none"}', { status: 404 }),
+      'GET /api/applicant/answers': () => new Response('{"error":"not found"}', { status: 404 }),
       'POST /api/ext/answer': (init) => ((asked = jsonBody(init)), { answer: 'Robots.' }),
     });
     render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill the form' }));
     await userEvent.click(await screen.findByRole('button', { name: /Draft an answer/ }));
-    await screen.findByLabelText('Answer to Why Acme?');
+    expect(await screen.findByLabelText('Answer to Why Acme?')).toHaveValue('Robots.');
     expect(asked).toMatchObject({ question: 'Why Acme?', job_id: 0, max_words: 100, company: 'Acme', title: 'SRE', description: 'Keep things up.' });
   });
 });

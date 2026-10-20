@@ -178,7 +178,6 @@ export interface PageInfo {
 // Messages from the side panel to the content script.
 export type ContentRequest =
   | { type: 'wera:read-page' }
-  | { type: 'wera:fill'; applicant: Applicant; resume?: { name: string; base64: string }; coverLetter?: string }
   | { type: 'wera:scan'; applicant: Applicant; answers: KnownAnswer[]; resumeName?: string; coverLetter?: boolean }
   | { type: 'wera:apply'; items: FillItem[]; resume?: { name: string; base64: string }; coverLetter?: string; pace?: number }
   | { type: 'wera:snapshot' }

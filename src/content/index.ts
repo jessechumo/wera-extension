@@ -3,7 +3,7 @@
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { classify } from './classify';
 import { byId, collectFields } from './fields';
-import { fillForm, insertText } from './fill';
+import { insertText } from './fill';
 import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
 import { pressNext } from './next';
@@ -72,11 +72,6 @@ if (!window.__weraContent) {
       case 'wera:highlight':
         reply({ ok: highlight(document, msg.id) });
         return false;
-      case 'wera:fill':
-        // An unexpected failure answers with no results instead of leaving
-        // the side panel waiting for a reply that never comes.
-        fillForm(document, msg.applicant, { resume: msg.resume, coverLetter: msg.coverLetter }).then(reply, () => reply([]));
-        return true; // async reply
       default:
         return false;
     }
