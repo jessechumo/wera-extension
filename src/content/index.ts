@@ -6,6 +6,8 @@ import { byId, collectFields } from './fields';
 import { fillForm, insertText } from './fill';
 import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
+import { pressNext } from './next';
+import { applyItems, highlight, planForm, snapshot } from './plan';
 import { mainText } from './text';
 import { bodyText, looksSubmitted, watchPage } from './watch';
 
@@ -51,6 +53,25 @@ if (!window.__weraContent) {
         reply({ ok: insertText(box?.el ?? null, msg.text) });
         return false;
       }
+      case 'wera:scan':
+        reply(planForm(document, msg.applicant, { answers: msg.answers, resumeName: msg.resumeName, coverLetter: msg.coverLetter }));
+        return false;
+      case 'wera:apply':
+        // Each field is reported as it lands, so the panel ticks it off live.
+        applyItems(document, msg.items, {
+          resume: msg.resume, coverLetter: msg.coverLetter, pace: msg.pace,
+          onProgress: (result) => void chrome.runtime.sendMessage({ type: 'wera:fill-progress', result }).catch(() => {}),
+        }).then(reply, () => reply([]));
+        return true; // async reply
+      case 'wera:snapshot':
+        reply(snapshot(document));
+        return false;
+      case 'wera:next':
+        reply(pressNext(document));
+        return false;
+      case 'wera:highlight':
+        reply({ ok: highlight(document, msg.id) });
+        return false;
       case 'wera:fill':
         // An unexpected failure answers with no results instead of leaving
         // the side panel waiting for a reply that never comes.

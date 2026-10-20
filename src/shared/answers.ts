@@ -54,3 +54,26 @@ export function matchAnswers(list: SavedAnswer[], question: string, limit = 3): 
 export async function forgetAnswers(): Promise<void> {
   await chrome.storage.local.remove(KEY);
 }
+
+/** The question normalized as Wera keys it (case, punctuation, a "required" marker). */
+export function answerKey(q: string): string {
+  return q.toLowerCase().trim().replace(/\s*(\*|\(required\)|required)\s*$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/** The answer to this question, or to one very like it (the closest, then the newest). */
+export function bestAnswer<T extends { question: string; answer: string }>(list: T[], question: string, min = 0.75): T | null {
+  const key = answerKey(question);
+  if (!key) return null;
+  const exact = list.find((a) => answerKey(a.question) === key);
+  if (exact) return exact;
+  let best: T | null = null;
+  let score = min;
+  for (const a of list) {
+    const s = similarity(a.question, question);
+    if (s >= score && (s > score || !best)) {
+      best = a;
+      score = s;
+    }
+  }
+  return best;
+}
