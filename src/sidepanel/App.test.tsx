@@ -113,6 +113,7 @@ describe('side panel', () => {
     chrome.storage.local.get.mockResolvedValue({ 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'Ada', is_admin: false } } });
     let body = '';
     let tailored: unknown = null;
+    let tailorAsked: unknown;
     fakeFetch({
       'GET /api/ext/jobs/lookup': () => ({ job }),
       'GET /api/jobs/9/cover-letter': () => (body ? { body, edited: false } : new Response('{"error":"none"}', { status: 404 })),
@@ -120,8 +121,9 @@ describe('side panel', () => {
       'PUT /api/jobs/9/cover-letter': (init) => ((body = jsonBody<{ body: string }>(init).body), { body, edited: true }),
       'GET /api/jobs/9/keywords': () => ({ keywords: ['Go', 'Terraform'], coverage: tailored ? { matched: ['Go', 'Terraform'], missing: [], percent: 100 } : { matched: ['Go'], missing: ['Terraform'], percent: 50 }, resume_id: 1 }),
       'GET /api/jobs/9/resume': () => tailored ?? new Response('{"error":"none"}', { status: 404 }),
-      'POST /api/jobs/9/resume': () => {
-        tailored = { id: 7, title: 'SRE, Acme', job_id: 9, data: {}, layout: {}, fit: { one_page: true, summary: '' }, notes: ['Led with reliability'] };
+      'POST /api/jobs/9/resume': (init) => {
+        tailorAsked = init.body ? jsonBody(init) : null;
+        tailored = { id: 7, title: 'SRE, Acme', job_id: 9, data: { name: 'Ada', sections: [] }, layout: { font_size: 11, spacing: 1, margin: 0.5 }, fit: { one_page: true, summary: '' }, notes: ['Led with reliability'] };
         return { resume: tailored, coverage_before: { matched: ['Go'], missing: ['Terraform'], percent: 50 } };
       },
       'POST /api/resumes/preview': () => ({ pages: ['<svg xmlns="http://www.w3.org/2000/svg"/>'], measure: { pages: 1, fill: 0.9 } }),
@@ -142,8 +144,10 @@ describe('side panel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /Resume/ }));
     expect(await screen.findByText('50%')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('What to lead with'), 'my on-call work');
     await userEvent.click(screen.getByRole('button', { name: /Tailor my resume/ }));
     expect(await screen.findByText('Led with reliability')).toBeInTheDocument();
+    expect(tailorAsked).toEqual({ request: 'my on-call work' });
     expect(await screen.findByText('100%')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Edit in Wera/ })).toHaveAttribute('href', `${API}/profile/resume/7`);
     expect(await screen.findByAltText('Resume preview')).toBeInTheDocument();
@@ -153,10 +157,56 @@ describe('side panel', () => {
   });
 });
 
-describe('side panel: letter', () => {
+describe('side panel: resume and letter', () => {
   const signedIn = (chrome: ReturnType<typeof fakeChrome>['chrome']) =>
     chrome.storage.local.get.mockImplementation(async (k: string) =>
       k === 'wera.session' ? { 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } } : {});
+
+  it('creates the main resume (CV) and edits it in the panel', async () => {
+    const { chrome } = fakeChrome({ page });
+    signedIn(chrome);
+    const base = {
+      id: 1, title: 'Main', job_id: null, fit: null, notes: [], layout: { font_size: 11, spacing: 1, margin: 0.5, template: 'ivy' },
+      data: { name: 'Ada', sections: [
+        { id: 's1', kind: 'summary', title: 'Summary', text: 'SRE.' },
+        { id: 's2', kind: 'entries', title: 'Experience', entries: [{ id: 'e1', heading: 'Acme', subheading: 'SRE Intern', bullets: [{ id: 'b1', text: 'Ran deploys' }] }] },
+      ] },
+    };
+    let created = false;
+    let saved: { data: typeof base.data; layout: typeof base.layout } | null = null;
+    let fits = 0;
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job: null }),
+      'GET /api/resumes': () => ({ resumes: created ? [{ id: 1, job_id: null }] : [] }),
+      'POST /api/resumes/import': (init) => (created = jsonBody<{ source: string }>(init).source === 'profile', base),
+      'GET /api/resumes/templates': () => ({ templates: [{ id: 'ivy', name: 'Ivy', tagline: '', uses_accent: false }, { id: 'parse', name: 'Parse', tagline: '', uses_accent: false }] }),
+      'POST /api/resumes/preview': () => ({ pages: ['<svg xmlns="http://www.w3.org/2000/svg"/>'], measure: { pages: 2, fill: 1 } }),
+      'POST /api/resumes/suggest-bullet': () => ({ suggestions: ['Automated deploys for 12 services with GitHub Actions'] }),
+      'PUT /api/resumes/1': (init) => { const got = jsonBody<NonNullable<typeof saved>>(init); saved = got; return { ...base, data: got.data, layout: got.layout }; },
+      'POST /api/resumes/1/fit': () => (fits++, { ...base, fit: { one_page: true, summary: 'Fits on one page.' } }),
+    });
+    render(<App />);
+    await screen.findByText('Save this job to Wera');
+    await userEvent.click(screen.getByRole('tab', { name: /Resume/ }));
+    // No job saved: the main resume view, and none exists yet.
+    await userEvent.click(await screen.findByRole('button', { name: /Build it from my uploaded resume/ }));
+    expect(await screen.findByLabelText('Name')).toHaveValue('Ada');
+    expect(await screen.findByText(/This runs to 2 pages/)).toBeInTheDocument();
+    expect(await screen.findByAltText('Resume preview')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Headline'), 'Site Reliability Engineer');
+    await userEvent.click(screen.getByRole('button', { name: /^Acme/, expanded: false }));
+    await userEvent.click(screen.getByRole('button', { name: 'Improve this bullet' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Automated deploys for 12 services with GitHub Actions' }));
+    expect(screen.getByLabelText('Bullet')).toHaveValue('Automated deploys for 12 services with GitHub Actions');
+    await userEvent.selectOptions(screen.getByLabelText('Template'), 'parse');
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(saved?.data.sections[1]).toMatchObject({ entries: [{ bullets: [{ text: 'Automated deploys for 12 services with GitHub Actions' }] }] }));
+    expect(saved).toMatchObject({ data: { headline: 'Site Reliability Engineer' }, layout: { template: 'parse' } });
+    await userEvent.click(screen.getByRole('button', { name: /Fit/ }));
+    expect(await screen.findByText('Fits on one page.')).toBeInTheDocument();
+    expect(fits).toBe(1);
+  });
 
   it('steers a cover letter rewrite', async () => {
     const { chrome } = fakeChrome({ page });
