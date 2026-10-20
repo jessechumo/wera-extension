@@ -12,12 +12,17 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
 ## What it does
 
 - **Job:** reads the posting from the page's schema.org `JobPosting` data (Greenhouse, Lever, Ashby, Workday and most career sites publish it) or, failing that, with the AI from the page text. You review the form and save; the job joins your Jobs and Tracker and gets a fit score. A job already in Wera shows its score, reasons and missing skills, lets you move it through your tracker (saved, applied, interviewing...), and shows the company's certified H-1B filings with what it offered for similar titles. Its fit score also appears on the toolbar icon for that tab. A posting you open from the Wera dashboard is recognized even when the career site's address differs from the one Wera has (the panel says so, with "Not this job?" to undo it).
-- **Apply:** finds the form's fields, works out what each asks (name, contact, links, work authorization and sponsorship, relocation, education, experience, salary, start date, voluntary self-identification) and fills them from your application details. It attaches the best resume PDF (the copy tailored to this job, else your main Wera resume, else your uploaded file), picks options by meaning ("USA" for United States, "TX" for Texas, "Prefer not to say", "I am not authorized..." as no), and handles custom dropdowns: react-select, Workday's button dropdowns and Ashby's Yes/No buttons. It works inside forms embedded from another site (a careers page showing its Greenhouse or Lever form in a frame) and inside web components, fills fields that appear after an answer ("If yes...") or load late (states after the country), shapes dates and numbers for their fields, and flags any value a field refuses instead of calling it filled. A detail the form needs that Wera lacks can be added right in the panel: it is saved to your application details and the form is filled again. Open questions ("Why do you want to work here?") get an AI draft, sized to the box and written for this posting (even before you save it), that you edit and insert; answers you insert are remembered in this browser and offered the next time a form asks something similar.
-- **Follows the page:** on Workday-style forms where each step replaces the last without a page load, Wera notices the new fields and offers **Fill this step**; on single-page job boards it follows you to the next posting; after a reload empties a form it filled, it offers **Fill again**. When the page says the application went through ("Thank you for applying"), it offers to mark the job as applied in your tracker.
+- **Wera button:** on job postings and application forms (on the sites you allowed, or every common job site at once from Settings) a small **Autofill with Wera** button sits in the corner. One click opens the panel and starts filling; × hides it on that site for a week. Chrome only lets an extension open its side panel from a click, so the button is how Wera "pops up" on a job.
+- **Apply, field by field:** Wera reads the form and lists every field with what it would enter and where that came from: your application details, an answer you gave on an earlier form, your resume, your cover letter, or the AI. Nothing is typed until you press **Fill**: untick anything, pick another option, or type a value. Fields it cannot answer are listed under **Needs you**; consent boxes are never ticked. Filling goes one field at a time and each ticks off in the list as it lands. Under the hood it works out what each field asks (name, contact, links, work authorization and sponsorship, clearance, citizenship, travel, work mode, notice period, education, salary, voluntary self-identification), picks options by meaning ("USA" for United States, "TX" for Texas, "Prefer not to say", "I am not authorized..." as no), handles react-select, Workday's button dropdowns, Ashby's Yes/No buttons, forms embedded from another site and web components, shapes dates and numbers, attaches the best resume PDF, and flags any value a field refuses.
+- **Smart answers:** fields your details and earlier answers do not cover go to the AI in one small request per page (from your profile, resume, details and earlier answers; never your self-identification). Sure answers are ticked, guesses are shown for you to approve. Open questions ("Why do you want to work here?") get a draft sized to the box, or one of your earlier answers to a similar question.
+- **Learns:** what you type or choose on a form is saved in Wera (for every browser you connect) and offered the next time a form asks the same thing; details the form needed that Wera lacked go to your application details. Turn it off in Settings; manage saved answers in the dashboard.
+- **Multi-page applications:** **Approve & continue** saves what you entered, presses the page's Next / Save and continue button, and fills the next page as soon as it appears (Workday-style steps without a page load, or a new page). It never presses Submit: on the last page it says so and leaves Submit to you. Each application is recorded in Wera (site, pages, fields), shown on the job in the dashboard.
+- **Follows the page:** on single-page job boards it follows you to the next posting; after a reload it reads the form again. When the page says the application went through ("Thank you for applying"), it offers to mark the job as applied in your tracker.
 - **With the dashboard:** saving a job, tracking it, writing a letter or tailoring a resume in the panel refreshes any open dashboard tab, and changes made in the dashboard show in the panel.
 - **Shortcuts:** Alt+Shift+W opens Wera; Alt+Shift+F (or right-click, "Fill this application with Wera") opens it and fills the form. Change them at chrome://extensions/shortcuts.
-- **Letter:** writes a cover letter with Wera's letter writer (your profile and resume, this posting, no clichés, no dashes), which you can edit, copy or insert into the page.
-- **Resume:** shows which of the posting's keywords your Wera resume covers and tailors a one-page copy for this job (skills reordered, bullets reworded from your real experience only; missing requirements are listed, never invented). It is the same document as in the dashboard: preview it here, edit it in Wera, or download the PDF.
+- **Letter:** writes a cover letter with Wera's letter writer (your profile and resume, this posting, no clichés, no dashes) in the tone and length you choose, stressing what you ask for; edit, copy or insert it into the page. Apply fills it into a cover letter box.
+- **Resume and CV:** create your main resume right in the panel (built by the AI from your uploaded file, or started from your details) and edit it there: headline, summary, skills, every entry and bullet (with stronger wordings on request), what shows, and the template, with a live preview, Fit to one page and PDF. For a job, see which of the posting's keywords your resume covers and tailor a one-page copy (optionally telling it what to lead with); edit that copy here too. It is the same document as in the dashboard, and Apply attaches it.
+- **Settings:** the gear in the header: the Wera button, access to common job sites in one go, AI suggestions, filling each next page on its own, learning from your answers, your account.
 
 ## Architecture
 
@@ -26,13 +31,14 @@ A Chrome extension for [Wera](https://github.com/jessechumo/Wera): on any job pa
   <img alt="Wera for Chrome architecture: the side panel reads and fills the job site tab and is opened by the service worker; it calls the Wera API with a bearer token; the API keeps hashed tokens in PostgreSQL and is the only part that calls the LLM API" src="docs/architecture.svg">
 </picture>
 
-- `src/content`: injected into the active tab (and its frames) only when you use Wera there. Reads job data and text, finds and labels fields, fills them, and watches for new steps, confirmations and in-page navigation. Pure DOM code, unit-tested against fixture forms.
+- `src/content`: injected into the active tab (and its frames) only when you use Wera there. Reads job data and text, plans a form page (every field, what it shows, what Wera would enter and why), fills the approved values reporting each one, reads back what you left for Wera to learn, finds the Next button (never Submit), and watches for new steps, confirmations and in-page navigation. Pure DOM code, unit-tested against fixture forms.
 - `src/sidepanel`: the React UI (an extension page). It calls your Wera server with the extension's bearer token.
-- `src/background`: opens the side panel from the toolbar icon, the page's right-click menu and the keyboard shortcuts, and ties a tab the dashboard opens to its job.
+- `src/launcher`: the Wera button, registered by the background for exactly the sites you allowed (never your Wera server). It tells postings and forms from other pages and sends nothing anywhere.
+- `src/background`: opens the side panel from the toolbar icon, the Wera button, the page's right-click menu and the keyboard shortcuts, keeps the button registered for the allowed sites, and ties a tab the dashboard opens to its job.
 - `src/bridge`: runs only on your Wera dashboard (registered for the server you signed in to). It passes which job a posting link opens, and "something changed" in both directions.
 - `src/shared`: the API client, storage and shared types.
 
-The server side lives in the Wera repository (`/api/ext/*`, `/api/applicant`); the dashboard lists connected browsers under Settings and holds your application details under Profile.
+The server side lives in the Wera repository (`/api/ext/*`, `/api/applicant`, `/api/applicant/answers`, `/api/autofill-runs`); the dashboard lists connected browsers under Settings and holds your application details and saved answers under Profile.
 
 ## Privacy and permissions
 
@@ -41,7 +47,8 @@ The server side lives in the Wera repository (`/api/ext/*`, `/api/applicant`); t
 - Page text you send to the AI is fenced as untrusted data in every prompt.
 - Watching for new form steps, confirmations and in-page navigation happens in the page and sends the side panel only a field count, "submitted" or the new address, never page content.
 - The dashboard bridge runs only on your own Wera server's pages and accepts messages only from that origin; it passes job ids and posting addresses, nothing else. The toolbar badge uses jobs the side panel already looked up; nothing else about your browsing is sent anywhere.
-- Remembered answers stay in `chrome.storage.local` on this computer; the Apply tab can forget them all.
+- Answers you give on forms are saved to your own Wera server (turn learning off in Settings; forget them there or in the dashboard). Self-identification answers are never learned and never sent to the AI.
+- The Wera button runs only on sites you allowed. It looks at the page's fields and job data to decide whether to show itself, and sends nothing.
 
 ## Install (development)
 
@@ -65,7 +72,7 @@ npm run e2e         # the real extension in Chromium against a Wera API (see pla
 WERA_E2E_AI=1 npm run e2e   # also drafts an answer, writes a letter and tailors a resume with the live AI
 ```
 
-The end-to-end tests load the built extension into Playwright's Chromium, sign in through the UI, save a job read from a fixture page, then fill its application form, checking that the resume is attached and that the consent box and Submit are left alone.
+The end-to-end tests load the built extension into Playwright's Chromium, sign in through the UI, save a job read from a fixture page, review and fill its application form (checking that the resume is attached and that the consent box and Submit are left alone), approve a multi-step form through to its last page, fill a form embedded from another site, and check the Wera button.
 
 ## Releases
 
@@ -75,9 +82,10 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org). rele
 
 ```
 src/content/      page reading (JSON-LD, text), field detection, classification, filling
-src/sidepanel/    React side panel: sign in, Job, Apply, Letter, Resume
+src/sidepanel/    React side panel: sign in, Job, Apply, Letter, Resume, Settings
 src/background/   service worker
 src/bridge/       script on the Wera dashboard: job handoffs and change notices
+src/launcher/     the Wera button on job sites
 src/shared/       API client, storage, types
 e2e/              Playwright tests and fixture pages
 scripts/          build, package, icons

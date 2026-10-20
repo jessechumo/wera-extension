@@ -19,11 +19,13 @@ export interface JobDraft {
 /** Application details (mirrors the API's applicant). */
 export interface Applicant {
   first_name: string;
+  middle_name?: string;
   last_name: string;
   preferred_name: string;
   email: string;
   phone: string;
   address: string;
+  address_line2?: string;
   city: string;
   state: string;
   postal_code: string;
@@ -31,6 +33,8 @@ export interface Applicant {
   linkedin: string;
   github: string;
   portfolio: string;
+  twitter?: string;
+  other_link?: string;
   current_company: string;
   current_title: string;
   years_experience: string;
@@ -42,11 +46,21 @@ export interface Applicant {
   authorized_to_work: string;
   needs_sponsorship: string;
   willing_to_relocate: string;
+  willing_to_travel?: string;
+  over_18?: string;
+  citizenship?: string;
+  visa_status?: string;
+  security_clearance?: string;
+  work_preference?: string;
   salary_expectation: string;
   start_date: string;
+  notice_period?: string;
+  languages?: string;
   how_heard: string;
   gender: string;
   pronouns: string;
+  transgender?: string;
+  sexual_orientation?: string;
   race: string;
   hispanic: string;
   veteran: string;
@@ -67,6 +81,71 @@ export type FieldPurpose =
   | 'consent';
 
 export type FillStatus = 'filled' | 'already' | 'review' | 'skipped' | 'question';
+
+/** Where a proposed value came from. */
+export type ValueSource = 'details' | 'saved' | 'ai' | 'resume' | 'letter' | 'you';
+
+/** How the panel groups a field. */
+export type FieldGroup = 'details' | 'questions' | 'self_id' | 'documents' | 'consent' | 'other';
+
+/** One field of the form page, with what Wera would enter (nothing is entered yet). */
+export interface FieldPlan {
+  id: string;
+  label: string;
+  purpose: FieldPurpose | null;
+  /** The field's widget (see content/fields.ts FieldKind). */
+  kind: string;
+  /** Choices a dropdown, radio group or button pair offers. */
+  options: string[];
+  required: boolean;
+  maxLength?: number;
+  /** What the field shows now ('' when empty). */
+  current: string;
+  /** What Wera proposes ('' when it has nothing). */
+  value: string;
+  source: ValueSource | null;
+  confidence?: 'high' | 'low';
+  /** Why the value, or why there is none. */
+  note?: string;
+  group: FieldGroup;
+}
+
+/** The button that moves a multi-page application on. */
+export interface NextButton {
+  id: string;
+  label: string;
+  /** It submits the application: Wera never presses it. */
+  final: boolean;
+}
+
+/** One page of a form, read but not changed. */
+export interface PagePlan {
+  fields: FieldPlan[];
+  next: NextButton | null;
+  /** Fields the site marks invalid (after a Next that did not go through). */
+  errors: number;
+}
+
+/** An answer the user gave before, as the content script matches it. */
+export interface KnownAnswer {
+  question: string;
+  answer: string;
+}
+
+/** One field to fill, with the value the user approved. */
+export interface FillItem {
+  id: string;
+  value: string;
+}
+
+/** A field's value as the user left it (to learn answers from). */
+export interface FieldSnapshot {
+  id: string;
+  label: string;
+  purpose: FieldPurpose | null;
+  kind: string;
+  value: string;
+}
 
 /** One field's outcome after autofill. */
 export interface FillResult {
@@ -99,12 +178,17 @@ export interface PageInfo {
 // Messages from the side panel to the content script.
 export type ContentRequest =
   | { type: 'wera:read-page' }
-  | { type: 'wera:fill'; applicant: Applicant; resume?: { name: string; base64: string }; coverLetter?: string }
+  | { type: 'wera:scan'; applicant: Applicant; answers: KnownAnswer[]; resumeName?: string; coverLetter?: boolean }
+  | { type: 'wera:apply'; items: FillItem[]; resume?: { name: string; base64: string }; coverLetter?: string; pace?: number }
+  | { type: 'wera:snapshot' }
+  | { type: 'wera:next' }
+  | { type: 'wera:highlight'; id: string }
   | { type: 'wera:insert'; id: string; text: string }
   | { type: 'wera:insert-cover-letter'; text: string };
 
 /** Sent by the page script to the side panel when the page changes on its own. */
 export type ContentEvent =
   | { type: 'wera:form-changed'; fields: number }
+  | { type: 'wera:fill-progress'; result: FillResult }
   | { type: 'wera:submitted' }
   | { type: 'wera:navigated'; url: string };

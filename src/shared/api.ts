@@ -1,3 +1,4 @@
+import type { SavedAnswer } from './answers';
 import type { Applicant, JobDraft } from './types';
 
 export interface WeraUser {
@@ -38,16 +39,107 @@ export interface Coverage {
   percent: number;
 }
 
-/** A resume document (the fields the extension uses; data stays opaque). */
+export interface ResumeBullet {
+  id: string;
+  text: string;
+  hidden?: boolean;
+}
+
+export interface ResumeEntry {
+  id: string;
+  heading: string;
+  subheading?: string;
+  dates?: string;
+  location?: string;
+  tech?: string;
+  text?: string;
+  url?: string;
+  link_label?: string;
+  bullets?: ResumeBullet[];
+  hidden?: boolean;
+}
+
+export interface ResumeSection {
+  id: string;
+  kind: 'entries' | 'projects' | 'compact' | 'skills' | 'summary';
+  title: string;
+  hidden?: boolean;
+  entries?: ResumeEntry[];
+  skills?: { id: string; name: string; items: string }[];
+  text?: string;
+}
+
+/** The structured resume (mirrors the API's resume.Resume). */
+export interface ResumeData {
+  name: string;
+  headline?: string;
+  phone?: string;
+  email?: string;
+  location?: string;
+  links?: { label: string; url: string }[];
+  sections: ResumeSection[];
+}
+
+export interface ResumeLayout {
+  font_size: number;
+  spacing: number;
+  margin: number;
+  template?: string;
+  accent?: string;
+  paper?: string;
+}
+
+/** A resume document: the main one (job_id null) or a copy tailored to a job. */
 export interface ResumeDoc {
   id: number;
   title: string;
   job_id: number | null;
-  data: unknown;
-  layout: unknown;
+  data: ResumeData;
+  layout: ResumeLayout;
   fit: { one_page: boolean; summary: string } | null;
   notes: string[];
   coverage?: Coverage;
+}
+
+export interface ResumeTemplate {
+  id: string;
+  name: string;
+  tagline: string;
+  uses_accent: boolean;
+}
+
+/** How a cover letter should read (all optional). */
+export interface LetterSteer {
+  tone?: '' | 'warm' | 'formal' | 'confident' | 'enthusiastic' | 'concise';
+  length?: '' | 'short' | 'standard' | 'long';
+  request?: string;
+}
+
+/** A field sent for an AI suggestion (see /api/ext/autofill). */
+export interface SuggestField {
+  id: string;
+  label: string;
+  kind: string;
+  options?: string[];
+  required?: boolean;
+  max_length?: number;
+}
+
+export interface Suggestion {
+  id: string;
+  value: string;
+  confidence: 'high' | 'low';
+  why?: string;
+}
+
+/** One application the extension helped fill. */
+export interface AutofillRun {
+  id: number;
+  job_id: number | null;
+  host: string;
+  pages: number;
+  filled: number;
+  suggested: number;
 }
 
 export interface JobKeywords {
@@ -80,7 +172,7 @@ export interface JobH1B {
 export type ApplicationStatus = 'saved' | 'applied' | 'interviewing' | 'offer' | 'rejected' | 'not_interested';
 
 /** POSTs that only compute something (nothing in Wera changes). */
-const READ_ONLY = /^\/api\/(ext\/(extract|answer|tokens)|resumes\/preview)/;
+const READ_ONLY = /^\/api\/(ext\/(extract|answer|tokens|autofill(?!-))|resumes\/(preview|suggest-bullet))/;
 
 export class ApiError extends Error {
   constructor(
@@ -176,10 +268,11 @@ export class WeraApi {
     });
   }
 
-  writeCoverLetter(jobId: number, body?: string) {
+  /** Writes a new letter (with an optional steer), or saves the user's edits (body). */
+  writeCoverLetter(jobId: number, body?: string, steer?: LetterSteer) {
     return this.call<CoverLetter>(`/api/jobs/${jobId}/cover-letter`, {
       method: body == null ? 'POST' : 'PUT',
-      body: body == null ? undefined : JSON.stringify({ body }),
+      body: body != null ? JSON.stringify({ body }) : steer ? JSON.stringify(steer) : undefined,
     });
   }
 
@@ -206,8 +299,47 @@ export class WeraApi {
     }
   }
 
-  tailorResume(jobId: number) {
-    return this.call<{ resume: ResumeDoc; coverage_before: Coverage }>(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+  tailorResume(jobId: number, request = '') {
+    return this.call<{ resume: ResumeDoc; coverage_before: Coverage }>(`/api/jobs/${jobId}/resume`, {
+      method: 'POST',
+      body: request.trim() ? JSON.stringify({ request: request.trim() }) : undefined,
+    });
+  }
+
+  /** The main resume, or null when there is none yet. */
+  async baseResume(): Promise<ResumeDoc | null> {
+    const { resumes } = await this.call<{ resumes: { id: number; job_id: number | null }[] }>('/api/resumes');
+    const base = resumes.find((r) => r.job_id == null);
+    return base ? this.call<ResumeDoc>(`/api/resumes/${base.id}`) : null;
+  }
+
+  /** Creates the main resume: from the uploaded file (the AI arranges it) or a starter from the account. */
+  createResume(source: 'profile' | 'blank') {
+    return this.call<ResumeDoc>('/api/resumes/import', { method: 'POST', body: JSON.stringify({ source }) });
+  }
+
+  saveResume(doc: ResumeDoc) {
+    return this.call<ResumeDoc>(`/api/resumes/${doc.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title: doc.title, data: doc.data, layout: doc.layout }),
+    });
+  }
+
+  /** Lays the resume out on one page (dropping the least relevant bullets if it must). */
+  fitResume(id: number) {
+    return this.call<ResumeDoc>(`/api/resumes/${id}/fit`, { method: 'POST' });
+  }
+
+  resumeTemplates() {
+    return this.call<{ templates: ResumeTemplate[] }>('/api/resumes/templates');
+  }
+
+  /** Three stronger rewrites of one bullet (never with invented numbers). */
+  suggestBullet(text: string, role: string, jobId: number | null) {
+    return this.call<{ suggestions: string[] }>('/api/resumes/suggest-bullet', {
+      method: 'POST',
+      body: JSON.stringify({ text, role, job_id: jobId ?? 0 }),
+    });
   }
 
   /** Renders a resume document to SVG pages. */
@@ -230,6 +362,45 @@ export class WeraApi {
         ...(jobId == null && posting ? { company: posting.company, title: posting.title, description: posting.description.slice(0, 8000) } : {}),
       }),
     });
+  }
+
+  /** Answers the user gave on forms (empty on a Wera too old to keep them). */
+  async answers(): Promise<SavedAnswer[]> {
+    try {
+      const r = await this.call<{ answers: { id: number; question: string; answer: string; kind: SavedAnswer['kind']; company: string; updated_at: string }[] }>('/api/applicant/answers');
+      return r.answers.map((a) => ({ id: a.id, question: a.question, answer: a.answer, kind: a.kind, company: a.company, at: Date.parse(a.updated_at) || 0 }));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return [];
+      throw e;
+    }
+  }
+
+  /** Remembers answers (the same question replaces its earlier answer). */
+  saveAnswers(list: { question: string; answer: string; kind?: SavedAnswer['kind']; company?: string }[]) {
+    return this.call<{ answers: unknown[] }>('/api/applicant/answers', { method: 'PUT', body: JSON.stringify({ answers: list.slice(0, 80) }) });
+  }
+
+  forgetAnswers() {
+    return this.call<void>('/api/applicant/answers', { method: 'DELETE' });
+  }
+
+  /** AI answers for one page's fields that Wera could not fill from what it knows. */
+  suggest(fields: SuggestField[], jobId: number | null, posting?: { company: string; title: string; description: string }) {
+    return this.call<{ answers: Suggestion[] }>('/api/ext/autofill', {
+      method: 'POST',
+      body: JSON.stringify({
+        fields: fields.slice(0, 60), job_id: jobId ?? 0,
+        ...(jobId == null && posting ? { company: posting.company, title: posting.title, description: posting.description.slice(0, 8000) } : {}),
+      }),
+    });
+  }
+
+  startRun(host: string, jobId: number | null, filled: number, suggested: number) {
+    return this.call<AutofillRun>('/api/ext/autofill-runs', { method: 'POST', body: JSON.stringify({ host, job_id: jobId ?? 0, filled, suggested }) });
+  }
+
+  addRunPage(runId: number, filled: number, suggested: number) {
+    return this.call<AutofillRun>(`/api/ext/autofill-runs/${runId}/pages`, { method: 'POST', body: JSON.stringify({ filled, suggested }) });
   }
 
   /** Saves application details (all of them; merge before calling). */

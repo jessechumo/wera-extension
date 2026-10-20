@@ -5,6 +5,7 @@ import type { Field } from './fields';
 const AUTOCOMPLETE: Record<string, FieldPurpose> = {
   'given-name': 'first_name', 'family-name': 'last_name', name: 'full_name', nickname: 'preferred_name',
   email: 'email', tel: 'phone', 'tel-national': 'phone', 'street-address': 'address', 'address-line1': 'address',
+  'additional-name': 'middle_name', 'address-line2': 'address_line2',
   'address-level2': 'city', 'address-level1': 'state', 'postal-code': 'postal_code', country: 'country',
   'country-name': 'country', organization: 'current_company', 'organization-title': 'current_title',
 };
@@ -14,6 +15,7 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['cover_letter', /cover\s*letter/],
   ['resume', /\b(resume|résumé|cv|curriculum)\b/],
   ['preferred_name', /preferred (first )?name|nick ?name|goes by/],
+  ['middle_name', /middle[\s_-]*(name|initial)/],
   ['first_name', /first[\s_-]*name|given[\s_-]*name|forename|\bfname\b/],
   ['last_name', /last[\s_-]*name|surname|family[\s_-]*name|\blname\b/],
   ['full_name', /^(full |legal |your )?name\b|full[\s_-]*name|legal[\s_-]*name/],
@@ -21,14 +23,25 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['phone', /phone|mobile|cell\b|telephone/],
   ['linkedin', /linked\s*in/],
   ['github', /git\s*hub/],
+  ['twitter', /twitter|\bx\.com\b|\bx \(twitter\)/],
   ['portfolio', /portfolio|personal (web)?site|website|personal url|other (link|url|website)|^url\b/],
+  ['visa_status', /visa (status|type)|immigration status|current (work )?visa|type of (work )?visa/],
   ['needs_sponsorship', /sponsor|visa|h-?1b/],
   ['authorized_to_work', /(authori[sz]ed|eligible|legally (able|permitted)) to work|work authori[sz]ation|right to work/],
   ['willing_to_relocate', /relocat/],
+  ['over_18', /\b(18|eighteen)\b.{0,20}(years|older|age)|at least 18|legal (working )?age|over (the age of )?18/],
+  ['willing_to_travel', /(willing|able|open) to travel|travel (requirement|up to|is required)|\d+ ?% (of the time )?travel/],
+  ['security_clearance', /clearance/],
+  ['citizenship', /citizenship|country of (citizen|nationality)|nationality/],
+  ['work_preference', /work (arrangement|preference|setting|model|style)|(remote|hybrid|on-?site) (or|preference)|prefer to work (remotely|from)|preferred work (location|mode|type)/],
+  ['notice_period', /notice period|weeks.? notice|how much notice/],
   ['salary_expectation', /salary|compensation|pay (expectation|range)|desired pay|expected pay/],
-  ['start_date', /start date|available to start|earliest (possible )?start|when can you start|notice period/],
+  ['start_date', /start date|available to start|earliest (possible )?start|when can you start|date available|availability date/],
   ['how_heard', /how did you (hear|find|learn)|where did you (hear|find|learn)|referral source|^source\b|how were you referred/],
+  ['languages', /^(?!.*programming).*(languages? (do you )?(speak|spoken|fluent)|which languages|language proficiency|fluent in|languages you speak)/],
   ['pronouns', /pronoun/],
+  ['transgender', /transgender|identify as trans\b|gender identity (is )?(the same|different)/],
+  ['sexual_orientation', /sexual orientation/],
   ['hispanic', /hispanic|latin[oaxe]/],
   ['race', /\brace\b|ethnic/],
   ['gender', /gender|\bsex\b/],
@@ -43,6 +56,7 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['current_title', /current (job )?(title|role|position)|job title|^title\b/],
   ['current_company', /current (company|employer)|(most recent|latest) (company|employer)|^company( name)?\b|^employer\b/],
   ['postal_code', /zip|postal/],
+  ['address_line2', /address (line )?2|\bapt\b|apartment|^suite\b/],
   ['address', /street|address/],
   ['city', /\bcity\b|\btown\b/],
   // "State", not the verb ("Please state why...").
@@ -50,6 +64,9 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['country', /country/],
   ['location', /location|where are you (currently )?(located|based)|where do you (live|reside)/],
 ];
+
+/** Voluntary self-identification: only the user's own choices fill these. */
+export const SELF_ID = new Set<FieldPurpose>(['gender', 'pronouns', 'transgender', 'sexual_orientation', 'race', 'hispanic', 'veteran', 'disability']);
 
 const CONSENT = /\b(i agree|agree|consent|acknowledge|certify|privacy|terms|confirm that)\b/;
 

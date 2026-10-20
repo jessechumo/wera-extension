@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadAnswers, matchAnswers, saveAnswer, similarity } from './answers';
+import { answerKey, bestAnswer, clearLegacyAnswers, loadLegacyAnswers, matchAnswers, similarity, type SavedAnswer } from './answers';
 
 // An in-memory chrome.storage.local.
 let store: Record<string, unknown> = {};
@@ -13,28 +13,42 @@ vi.stubGlobal('chrome', {
   },
 });
 
-describe('answer memory', () => {
+const a = (question: string, answer: string, at = 1, company = 'Acme'): SavedAnswer => ({ question, answer, company, at });
+
+describe('matching questions to answers', () => {
+  it('keys questions the way Wera does', () => {
+    expect(answerKey('What is your notice period? *')).toBe('what is your notice period');
+    expect(answerKey('  WHAT is your notice-period (required)')).toBe('what is your notice period');
+    expect(answerKey('?!')).toBe('');
+  });
+
+  it('finds the same question, then a very similar one', () => {
+    const list = [a('What is your notice period?', 'Two weeks'), a('Do you hold an active security clearance?', 'No')];
+    expect(bestAnswer(list, 'what is your notice period *')?.answer).toBe('Two weeks');
+    expect(bestAnswer(list, 'Do you currently hold an active security clearance?')?.answer).toBe('No');
+    expect(bestAnswer(list, 'What is your favorite color?')).toBeNull();
+    expect(bestAnswer(list, '')).toBeNull();
+  });
+
+  it('ranks earlier answers to open questions', () => {
+    expect(similarity('Why do you want to work at Acme?', 'Why do you want to work here?')).toBeGreaterThanOrEqual(0.5);
+    expect(similarity('Why do you want to work at Acme?', 'Describe a technical challenge')).toBe(0);
+    const list = [a('Why do you want to work at Acme?', 'Robots.', 1), a('Why do you want to work at Initech?', 'Printers.', 2, 'Initech')];
+    expect(matchAnswers(list, 'Why do you want to work here?').map((x) => x.company)).toEqual(['Initech', 'Acme']);
+    expect(matchAnswers(list, 'What is your favorite color?')).toEqual([]);
+  });
+});
+
+describe('answers kept by older versions', () => {
   beforeEach(() => {
     store = {};
   });
 
-  it('finds earlier answers to similar questions', async () => {
-    expect(similarity('Why do you want to work at Acme?', 'Why do you want to work here?')).toBeGreaterThanOrEqual(0.5);
-    expect(similarity('Why do you want to work at Acme?', 'Describe a technical challenge')).toBe(0);
-    await saveAnswer({ question: 'Why do you want to work at Acme?', answer: 'Because Acme builds reliable robots at scale.', company: 'Acme' });
-    await saveAnswer({ question: 'Describe a hard technical challenge you solved', answer: 'I cut deploy time by half by moving to GitHub Actions.', company: 'Acme' });
-    await saveAnswer({ question: 'Salary?', answer: 'short', company: 'Acme' }); // too short to keep
-    const list = await loadAnswers();
-    expect(list).toHaveLength(2);
-    expect(matchAnswers(list, 'Why do you want to work here?').map((a) => a.company)).toEqual(['Acme']);
-    expect(matchAnswers(list, 'What is your favorite color?')).toEqual([]);
-  });
-
-  it('replaces an answer to the same question at the same company', async () => {
-    await saveAnswer({ question: 'Why Acme?', answer: 'First draft about robots and reliability.', company: 'Acme' });
-    await saveAnswer({ question: 'Why Acme?', answer: 'Second draft about robots and reliability.', company: 'Acme' });
-    const list = await loadAnswers();
-    expect(list).toHaveLength(1);
-    expect(list[0]!.answer).toMatch(/^Second/);
+  it('loads and clears them', async () => {
+    expect(await loadLegacyAnswers()).toEqual([]);
+    store['wera.answers'] = [a('Why Acme?', 'Robots and reliability at scale.')];
+    expect(await loadLegacyAnswers()).toHaveLength(1);
+    await clearLegacyAnswers();
+    expect(await loadLegacyAnswers()).toEqual([]);
   });
 });

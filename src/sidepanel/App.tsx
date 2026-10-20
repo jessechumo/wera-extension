@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { Briefcase, ExternalLink, FileText, LogOut, PenLine, Wand2 } from 'lucide-react';
+import { Briefcase, ExternalLink, FileText, PenLine, Settings2, Wand2 } from 'lucide-react';
 import { WeraApi } from '../shared/api';
 import { notifyDashboard } from '../shared/bridge';
 import { loadSession, saveSession, type Session } from '../shared/storage';
@@ -9,12 +9,14 @@ import { JobTab } from './JobTab';
 import { LetterTab } from './LetterTab';
 import { Logo } from './Logo';
 import { ResumeTab } from './ResumeTab';
+import { SettingsPanel } from './SettingsPanel';
 import { SignIn } from './SignIn';
 import { Button, Notice, Skeleton } from './ui';
 import { usePage } from './usePage';
+import { useSettings } from './useSettings';
 import { requestOrigins, requestSite } from './page';
 
-type Tab = 'job' | 'apply' | 'letter' | 'resume';
+type Tab = 'job' | 'apply' | 'letter' | 'resume' | 'settings';
 const TABS: { id: Tab; label: string; Icon: typeof Briefcase }[] = [
   { id: 'job', label: 'Job', Icon: Briefcase },
   { id: 'apply', label: 'Apply', Icon: Wand2 },
@@ -82,6 +84,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
   }, [onSignOut]);
   const page = usePage(api, signOutLocal);
   const [tab, setTab] = useState<Tab>('job');
+  const [settings, setSettings] = useSettings();
   const autoFill = usePendingFill(page.tab?.id, () => setTab('apply'));
 
   // An application page opens on Apply; a posting on Job.
@@ -112,8 +115,9 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           <a href={api.dashboardUrl('/')} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-text">
             Dashboard <ExternalLink className="size-3" />
           </a>
-          <button onClick={() => void signOut()} title={`Signed in as ${session.user.email}. Disconnect`} aria-label="Disconnect" className="rounded-md p-1 text-muted hover:text-text">
-            <LogOut className="size-3.5" />
+          <button onClick={() => setTab(tab === 'settings' ? 'job' : 'settings')} title={`Settings (signed in as ${session.user.email})`} aria-label="Settings"
+            aria-pressed={tab === 'settings'} className={clsx('rounded-md p-1 hover:text-text', tab === 'settings' ? 'text-accent' : 'text-muted')}>
+            <Settings2 className="size-3.5" />
           </button>
         </div>
         <nav role="tablist" className="flex px-2">
@@ -145,9 +149,10 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           </Notice>
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
-        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} />}
+        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} settings={settings} />}
         {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'resume' && <ResumeTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
+        {tab === 'settings' && <SettingsPanel api={api} session={session} settings={settings} onChange={setSettings} onSignOut={() => void signOut()} />}
       </main>
     </div>
   );
