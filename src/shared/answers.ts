@@ -3,6 +3,8 @@
 // form can reuse them.
 
 export interface SavedAnswer {
+  id?: number;
+  kind?: 'text' | 'long' | 'choice';
   question: string;
   answer: string;
   company: string;
