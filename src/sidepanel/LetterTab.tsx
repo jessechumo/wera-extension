@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Copy, PenLine, RefreshCw, Sparkles } from 'lucide-react';
-import type { CoverLetter, WeraApi } from '../shared/api';
+import { Copy, PenLine, RefreshCw, SlidersHorizontal, Sparkles } from 'lucide-react';
+import type { CoverLetter, LetterSteer, WeraApi } from '../shared/api';
 import { NeedJob } from './NeedJob';
 import { insertCoverLetter } from './page';
 import { Button, Card, INPUT, Notice, Skeleton, errorText } from './ui';
@@ -8,12 +8,49 @@ import type { usePage } from './usePage';
 
 type Page = ReturnType<typeof usePage>;
 
+const TONES: { value: NonNullable<LetterSteer['tone']>; label: string }[] = [
+  { value: '', label: 'Natural' }, { value: 'warm', label: 'Warm' }, { value: 'formal', label: 'Formal' },
+  { value: 'confident', label: 'Confident' }, { value: 'enthusiastic', label: 'Enthusiastic' }, { value: 'concise', label: 'Concise' },
+];
+const LENGTHS: { value: NonNullable<LetterSteer['length']>; label: string }[] = [
+  { value: 'short', label: 'Short' }, { value: '', label: 'Standard' }, { value: 'long', label: 'Long' },
+];
+
+/** How the next letter should read: tone, length, and what to stress. */
+function SteerControls({ steer, onChange }: { steer: LetterSteer; onChange: (s: LetterSteer) => void }) {
+  return (
+    <div className="space-y-2 text-left">
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-muted">Tone</span>
+          <select className={INPUT} value={steer.tone ?? ''} onChange={(e) => onChange({ ...steer, tone: e.target.value as LetterSteer['tone'] })}>
+            {TONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-muted">Length</span>
+          <select className={INPUT} value={steer.length ?? ''} onChange={(e) => onChange({ ...steer, length: e.target.value as LetterSteer['length'] })}>
+            {LENGTHS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-muted">Anything to stress or leave out?</span>
+        <textarea className={`${INPUT} h-16 resize-y`} maxLength={500} value={steer.request ?? ''} placeholder="Mention my on-call work at Acme; skip the internship"
+          onChange={(e) => onChange({ ...steer, request: e.target.value })} />
+      </label>
+    </div>
+  );
+}
+
 export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; onNeedJob: () => void }) {
   const job = page.job;
   const [letter, setLetter] = useState<CoverLetter | null | undefined>(undefined);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<'' | 'write' | 'save'>('');
+  const [steer, setSteer] = useState<LetterSteer>({});
+  const [steering, setSteering] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null);
 
   useEffect(() => {
@@ -31,7 +68,7 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
     setBusy(body == null ? 'write' : 'save');
     setMsg(null);
     try {
-      const l = await api.writeCoverLetter(job.id, body);
+      const l = await api.writeCoverLetter(job.id, body, body == null ? steer : undefined);
       setLetter(l);
       setText(l.body);
       setEditing(false);
@@ -54,7 +91,8 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
         <PenLine className="mx-auto size-5 text-accent" />
         <h2 className="mt-2 text-sm font-semibold">A cover letter for {job.company}</h2>
         <p className="mt-1 text-xs text-muted">Written from your profile and resume for this role, without repeating your resume.</p>
-        <Button variant="primary" className="mt-3" onClick={() => void write()} busy={busy === 'write'}><Sparkles className="size-3.5" /> Write my letter</Button>
+        <div className="mt-3"><SteerControls steer={steer} onChange={setSteer} /></div>
+        <Button variant="primary" className="mt-3 w-full" onClick={() => void write()} busy={busy === 'write'}><Sparkles className="size-3.5" /> Write my letter</Button>
         {msg && <div className="mt-3 text-left"><Notice tone={msg.tone}>{msg.text}</Notice></div>}
       </Card>
     );
@@ -73,10 +111,20 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
             <Button variant="primary" onClick={() => void insertIntoPage()}>Insert into page</Button>
             <Button onClick={() => void navigator.clipboard.writeText(text).then(() => setMsg({ tone: 'good', text: 'Copied.' }))}><Copy className="size-3.5" /> Copy</Button>
             <Button onClick={() => setEditing(true)}><PenLine className="size-3.5" /> Edit</Button>
-            <Button variant="ghost" onClick={() => void write()} busy={busy === 'write'}><RefreshCw className="size-3.5" /> Rewrite</Button>
+            <Button variant="ghost" onClick={() => setSteering((v) => !v)} aria-pressed={steering} title="Tone, length, what to stress">
+              <SlidersHorizontal className="size-3.5" /> Rewrite…
+            </Button>
           </>
         )}
       </div>
+      {steering && !editing && (
+        <Card className="space-y-2">
+          <SteerControls steer={steer} onChange={setSteer} />
+          <Button variant="primary" className="w-full" onClick={() => void write().then(() => setSteering(false))} busy={busy === 'write'}>
+            <RefreshCw className="size-3.5" /> Rewrite the letter
+          </Button>
+        </Card>
+      )}
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       {editing ? (
         <textarea className={`${INPUT} h-96 resize-y font-serif text-[13px] leading-relaxed`} value={text} onChange={(e) => setText(e.target.value)} aria-label="Cover letter" />

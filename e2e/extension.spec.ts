@@ -111,8 +111,13 @@ test('sign in, save a job from its page, and fill its application', async () => 
   await job.bringToFront();
   await panel.reload();
   await expect(panel.getByRole('tab', { name: 'Apply' })).toHaveAttribute('aria-selected', 'true');
-  await panel.getByRole('button', { name: 'Fill the form' }).click();
-  await expect(panel.getByText(/^Filled \d+ field/)).toBeVisible();
+  // Wera reads the form into a list first: each field with what it would enter. Nothing is typed yet.
+  await expect(panel.getByLabel('Value for First name')).not.toHaveValue('');
+  await expect(job.locator('#fn')).toHaveValue('');
+  await expect(panel.getByLabel('Fill I agree to the privacy policy')).toBeDisabled();
+  await shot(panel, 'apply-plan');
+  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
+  await expect(panel.getByLabel('Filled').first()).toBeVisible();
 
   await expect(job.locator('#fn')).not.toHaveValue('');
   await expect(job.locator('#em')).toHaveValue(/@/);
@@ -120,7 +125,7 @@ test('sign in, save a job from its page, and fill its application', async () => 
   // The best resume Wera has is attached: a tailored copy, the main
   // resume, or the uploaded file, and the panel says which.
   expect(await job.locator('#re').evaluate((i: HTMLInputElement) => i.files?.[0]?.name)).toMatch(/\.pdf$/);
-  await expect(panel.getByText(/Resume offered for upload/)).toBeVisible();
+  await expect(panel.getByText(/Resume to attach/)).toBeVisible();
   // Never ticks consent, never submits.
   await expect(job.locator('#agree')).not.toBeChecked();
   expect(await job.title()).not.toBe('SUBMITTED');
@@ -136,31 +141,34 @@ test('fill a multi-step application, then mark it applied', async () => {
   await job.goto(`${site}/jobs/${run}/sre`); // the posting saved above
   await job.goto(`${site}/jobs/${run}/sre/steps`); // its application, same tab
   const panel = await openPanel();
-  await panel.getByRole('button', { name: /Fill the form|Fill again/ }).click();
-  await expect(panel.getByText(/^Filled \d+ field/)).toBeVisible();
+  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
   await expect(job.locator('#fn')).not.toHaveValue('');
 
-  // The page moves to step 2 on its own; Wera notices.
-  await job.locator('#next').click();
-  await panel.getByRole('button', { name: 'Fill this step' }).click({ timeout: 10_000 });
-  await expect(job.locator('#sp')).not.toHaveValue('');
+  // Approve the page: Wera presses "Save and continue", then reads and fills step 2 on its own.
+  await panel.getByRole('button', { name: /Approve & continue/ }).click();
+  await expect(job.locator('#ph')).toBeVisible({ timeout: 10_000 });
+  await expect(job.locator('#sp')).not.toHaveValue('', { timeout: 15_000 });
+  await expect(panel.getByRole('heading', { name: 'Application, page 2' })).toBeVisible();
+  // The last page: Wera never presses Submit.
+  await expect(panel.getByText(/This is the last page/)).toBeVisible();
+  await expect(job.getByRole('heading', { name: 'Application questions' })).toBeVisible();
   await shot(panel, 'steps-panel');
 
-  // Submitting shows a thank-you; Wera offers to update the tracker.
+  // The user submits; the thank-you page lets Wera update the tracker.
   await job.locator('#submit').click();
   await expect(panel.getByText(/Looks like you submitted it/)).toBeVisible({ timeout: 10_000 });
   await panel.getByRole('button', { name: 'Mark as applied' }).first().click();
   await expect(panel.getByText(/Marked as applied in your Wera tracker/)).toBeVisible();
   await shot(panel, 'applied');
+
 });
 
-test('fill an application embedded from another site, and offer to fill again after a reload', async () => {
+test('fill an application embedded from another site, and read it again after a reload', async () => {
   const job = await context.newPage();
   await job.goto(`${site}/jobs/${run}/sre/embedded`);
   const panel = await openPanel();
   await expect(panel.getByRole('tab', { name: 'Apply' })).toHaveAttribute('aria-selected', 'true');
-  await panel.getByRole('button', { name: /Fill the form/ }).click();
-  await expect(panel.getByText(/^Filled \d+ field/)).toBeVisible();
+  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
   const form = job.frameLocator('#grnhse_iframe');
   await expect(form.locator('#fn')).not.toHaveValue('');
   await expect(form.locator('#em')).toHaveValue(/@/);
@@ -168,7 +176,7 @@ test('fill an application embedded from another site, and offer to fill again af
   await expect(job.locator('#nl')).toHaveValue('');
   await shot(job, 'embedded-form');
 
-  // The page reloads and its form is empty again: Wera offers to fill it.
+  // The page reloads and its form is empty again: Wera reads it again and fills it.
   // The panel, opened here as a tab, works on the most recently used other
   // tab; close the earlier tests' job tabs so a slow machine cannot pick one.
   for (const p of context.pages()) if (p !== job && p !== panel) await p.close();
@@ -176,8 +184,17 @@ test('fill an application embedded from another site, and offer to fill again af
   await expect(form.locator('#fn')).toHaveValue('');
   await job.bringToFront();
   await panel.reload();
-  await panel.getByRole('button', { name: 'Fill again' }).click();
+  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
   await expect(form.locator('#fn')).not.toHaveValue('');
+});
+
+test('shows the Wera button on job pages it may read', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre/apply`);
+  await expect(job.locator('wera-launcher')).toHaveCount(1, { timeout: 10_000 });
+  // The page turns into something that is neither a posting nor an application: the button goes.
+  await job.evaluate(() => { document.body.innerHTML = '<p>Just a blog post now.</p>'; });
+  await expect(job.locator('wera-launcher')).toHaveCount(0, { timeout: 10_000 });
 });
 
 test('the dashboard tells the extension which job a tab is for', async () => {
@@ -224,7 +241,6 @@ test('AI: draft an answer, write a cover letter, tailor the resume', async () =>
     await panel.getByLabel('Password').fill(PASSWORD);
     await panel.getByRole('button', { name: 'Connect' }).click();
   }
-  await panel.getByRole('button', { name: /Fill the form|Fill again/ }).click();
   await panel.getByRole('button', { name: /Draft an answer/ }).click();
   const answer = panel.getByLabel(/Answer to Why do you want/);
   await expect(answer).not.toHaveValue('', { timeout: 30_000 });

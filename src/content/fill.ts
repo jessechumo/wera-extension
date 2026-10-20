@@ -15,7 +15,7 @@ const US_STATES: Record<string, string> = {
 const US_NAMES = ['united states', 'united states of america', 'usa', 'us', 'u.s.', 'u.s.a.'];
 const DECLINE = /decline|prefer not|don.?t wish|do not wish|not to (say|answer|disclose|identify|self-identify)|rather not|choose not/;
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
+export const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
 
 /** The value Wera would enter for a purpose, from the applicant details. */
 export function valueFor(p: FieldPurpose, a: Applicant): string {
@@ -152,7 +152,7 @@ function check(input: HTMLInputElement) {
 }
 
 /** A click as a pointer makes it: some widgets open or pick on mousedown, others on click. */
-function press(el: HTMLElement) {
+export function press(el: HTMLElement) {
   el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   el.click();
@@ -163,7 +163,7 @@ function escape(el: HTMLElement) {
 }
 
 const STYLE_ID = 'wera-fill-style';
-function mark(el: HTMLElement, kind: 'filled' | 'review') {
+export function mark(el: HTMLElement, kind: 'filled' | 'review') {
   // A shadow root needs its own copy of the outline style.
   const scope = scopeOf(el);
   if (!scope.getElementById(STYLE_ID)) {
@@ -178,7 +178,7 @@ function mark(el: HTMLElement, kind: 'filled' | 'review') {
   el.setAttribute(kind === 'filled' ? 'data-wera-filled' : 'data-wera-review', '');
 }
 
-function wait(ms: number) {
+export function wait(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
@@ -212,7 +212,7 @@ async function pickOpen(el: HTMLElement, value: string, purpose: FieldPurpose | 
 }
 
 /** react-select and friends show the choice beside the input, which stays empty. */
-function comboboxChoice(el: HTMLInputElement): string {
+export function comboboxChoice(el: HTMLInputElement): string {
   if (el.value.trim()) return el.value.trim();
   let n: Element | null = el.parentElement;
   for (let i = 0; n && i < 4; i++, n = n.parentElement) {
@@ -246,14 +246,14 @@ async function fillListbox(el: HTMLElement, value: string, purpose: FieldPurpose
   return got;
 }
 
-function base64ToFile(b64: string, name: string): File {
+export function base64ToFile(b64: string, name: string): File {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new File([bytes], name, { type: 'application/pdf' });
 }
 
-function attachFile(input: HTMLInputElement, file: File) {
+export function attachFile(input: HTMLInputElement, file: File) {
   const dt = new DataTransfer();
   dt.items.add(file);
   input.files = dt.files;
@@ -360,13 +360,23 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
     res.note = 'not in your application details';
     return;
   }
+  await enterValue(f, purpose, value, res);
+}
 
+/**
+ * Enters one value into a field of any kind and records the outcome in
+ * res. A field that already holds something is left alone unless
+ * overwrite (the user approved this value for it). Checkboxes take
+ * several choices separated by " | ".
+ */
+export async function enterValue(f: Field, purpose: FieldPurpose | null, value: string, res: FillResult, overwrite = false) {
   switch (f.kind) {
     case 'text':
     case 'textarea': {
       const el = f.el as HTMLInputElement;
-      if (el.value.trim()) {
+      if (el.value.trim() && (!overwrite || el.value === value)) {
         res.status = 'already';
+        res.value = el.value;
         return;
       }
       const shaped = formatFor(el, value, purpose);
@@ -388,8 +398,10 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
     }
     case 'combobox': {
       const el = f.el as HTMLInputElement;
-      if (comboboxChoice(el)) {
+      const shown = comboboxChoice(el);
+      if (shown && (!overwrite || norm(shown) === norm(value))) {
         res.status = 'already';
+        res.value = shown;
         return;
       }
       const got = await fillCombobox(el, value, purpose);
@@ -399,8 +411,10 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
       return;
     }
     case 'listbox': {
-      if (listboxValue(f.el)) {
+      const shown = listboxValue(f.el);
+      if (shown && (!overwrite || norm(shown) === norm(value))) {
         res.status = 'already';
+        res.value = shown;
         return;
       }
       const got = await fillListbox(f.el, value, purpose);
@@ -411,11 +425,12 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
     }
     case 'select': {
       const sel = f.el as HTMLSelectElement;
-      if (sel.value && sel.selectedIndex > 0) {
+      const hit = matchOption(f.options, value, purpose);
+      if (sel.value && sel.selectedIndex > 0 && (!overwrite || hit?.value === sel.value)) {
         res.status = 'already';
+        res.value = sel.options[sel.selectedIndex]?.textContent?.trim() ?? sel.value;
         return;
       }
-      const hit = matchOption(f.options, value, purpose);
       if (!hit) {
         res.status = 'review';
         res.note = `no option matches "${value}"`;
@@ -430,20 +445,25 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
     case 'checkboxes':
     case 'buttons': {
       const chosen = (o: Option) => (f.kind === 'buttons' ? isPressed(o.el!) : (o.el as HTMLInputElement).checked);
-      if (f.options.some(chosen)) {
+      const wanted = f.kind === 'checkboxes' ? value.split(/\s*\|\s*/).filter(Boolean) : [value];
+      const hits = wanted.map((w) => matchOption(f.options, w, purpose)).filter((o): o is Option => o != null);
+      if (f.options.some(chosen) && (!overwrite || (hits.length > 0 && hits.every(chosen)))) {
         res.status = 'already';
+        res.value = f.options.filter(chosen).map((o) => o.label).join(' | ');
         return;
       }
-      const hit = matchOption(f.options, value, purpose);
-      if (!hit) {
+      if (!hits.length) {
         res.status = 'review';
         res.note = `no choice matches "${value}"`;
         return;
       }
-      if (f.kind === 'buttons') press(hit.el!);
-      else check(hit.el as HTMLInputElement);
+      for (const hit of hits) {
+        if (chosen(hit)) continue;
+        if (f.kind === 'buttons') press(hit.el!);
+        else check(hit.el as HTMLInputElement);
+      }
       res.status = 'filled';
-      res.value = hit.label;
+      res.value = hits.map((o) => o.label).join(' | ');
       return;
     }
     case 'checkbox': {
@@ -451,6 +471,7 @@ async function fillOne(f: Field, purpose: FieldPurpose | null, a: Applicant, opt
       const box = f.el as HTMLInputElement;
       if (box.checked) {
         res.status = 'already';
+        res.value = 'yes';
         return;
       }
       if (norm(value) !== 'yes') return;

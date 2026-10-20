@@ -1,11 +1,19 @@
 import { vi } from 'vitest';
-import type { FillResult, PageInfo } from '../shared/types';
+import type { FieldSnapshot, FillItem, FillResult, PageInfo, PagePlan } from '../shared/types';
 
 /**
  * A small fake of the chrome.* APIs the side panel uses. `content` answers
  * what the content script would; `granted` decides permission prompts.
  */
-export function fakeChrome(opts: { page?: PageInfo; fill?: FillResult[]; granted?: boolean; insertOk?: boolean } = {}) {
+export function fakeChrome(opts: {
+  page?: PageInfo; granted?: boolean; insertOk?: boolean;
+  /** What reading the form returns (a function to change it between reads). */
+  plan?: PagePlan | (() => PagePlan);
+  /** How each approved field fills (default: filled with its value). */
+  applyItem?: (item: FillItem) => Partial<FillResult>;
+  snapshot?: FieldSnapshot[] | (() => FieldSnapshot[]);
+  next?: { ok: boolean; label?: string; final?: boolean };
+} = {}) {
   const store: Record<string, unknown> = {};
   const session: Record<string, unknown> = {};
   const area = (data: Record<string, unknown>) => ({
@@ -19,15 +27,26 @@ export function fakeChrome(opts: { page?: PageInfo; fill?: FillResult[]; granted
   const sent: unknown[] = [];
   const chromeFake = {
     storage: { local: area(store), session: area(session) },
-    permissions: { request: vi.fn(async () => opts.granted ?? true) },
+    permissions: { request: vi.fn(async () => opts.granted ?? true), contains: vi.fn(async () => false) },
     tabs: {
       query: vi.fn(async () => [tab]),
       create: vi.fn(),
       sendMessage: vi.fn(async (_id: number, msg: { type: string }) => {
         sent.push(msg);
         if (msg.type === 'wera:read-page') return opts.page;
-        if (msg.type === 'wera:fill') return opts.fill ?? [];
         if (msg.type === 'wera:insert' || msg.type === 'wera:insert-cover-letter') return { ok: opts.insertOk ?? true };
+        if (msg.type === 'wera:scan') return typeof opts.plan === 'function' ? opts.plan() : (opts.plan ?? { fields: [], next: null, errors: 0 });
+        if (msg.type === 'wera:apply') {
+          const results = (msg as unknown as { items: FillItem[] }).items.map((it): FillResult => ({
+            id: it.id, label: it.id, purpose: null, status: 'filled', value: it.value, required: false, ...opts.applyItem?.(it),
+          }));
+          // The page script reports each field as it lands.
+          for (const result of results) emit({ type: 'wera:fill-progress', result });
+          return results;
+        }
+        if (msg.type === 'wera:snapshot') return typeof opts.snapshot === 'function' ? opts.snapshot() : (opts.snapshot ?? []);
+        if (msg.type === 'wera:next') return opts.next ?? { ok: true, label: 'Next' };
+        if (msg.type === 'wera:highlight') return { ok: true };
         return null;
       }),
       onActivated: { addListener: vi.fn(), removeListener: vi.fn() },
@@ -43,8 +62,9 @@ export function fakeChrome(opts: { page?: PageInfo; fill?: FillResult[]; granted
     onChanged: { addListener: (f: Listener) => listeners.changed.add(f), removeListener: (f: Listener) => listeners.changed.delete(f) },
   });
   /** A message from the page script of `tabId` (default: the active tab). */
-  const emit = (msg: unknown, tabId = tab.id) =>
-    listeners.message.forEach((f) => (f as (m: unknown, s: unknown) => void)(msg, { tab: { id: tabId } }));
+  function emit(msg: unknown, tabId = tab.id) {
+    listeners.message.forEach((f) => (f as (m: unknown, s: unknown) => void)(msg, { tab: { id: tabId }, frameId: 0 }));
+  }
   /** What the background does for a shortcut: leaves a value in session storage. */
   const setSession = async (key: string, value: unknown) => {
     session[key] = value;
