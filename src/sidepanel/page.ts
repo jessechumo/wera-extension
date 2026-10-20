@@ -132,12 +132,18 @@ export async function insertCoverLetter(tab: chrome.tabs.Tab, text: string): Pro
 }
 
 /** The frames whose page holds the form (all frames when none looks like one). */
-async function formFrames(tab: chrome.tabs.Tab): Promise<number[]> {
-  const frames = await inject(tab);
-  if (frames.length === 1) return frames;
-  const pages = await sendAll<PageInfo>(tab, frames, { type: 'wera:read-page' });
-  const withForm = pages.filter((p) => p.value.hasForm).map((p) => p.frameId);
-  return withForm.length ? withForm : frames;
+async function formFrames(tab: chrome.tabs.Tab, tries = 3, delay = 400): Promise<number[]> {
+  for (let i = 0; ; i++) {
+    const frames = await inject(tab);
+    if (frames.length === 1) return frames;
+    const pages = await sendAll<PageInfo>(tab, frames, { type: 'wera:read-page' });
+    const withForm = pages.filter((p) => p.value.hasForm).map((p) => p.frameId);
+    if (withForm.length) return withForm;
+    // An embedded form still loading would leave only the page around it
+    // (and its newsletter box): give it a moment before using every frame.
+    if (i >= tries - 1) return frames;
+    await new Promise((r) => setTimeout(r, delay));
+  }
 }
 
 /** A form page read in every frame that holds it: what each field shows and what Wera would enter. Changes nothing. */

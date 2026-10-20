@@ -18,11 +18,21 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => void syncAll());
 
-/** The dashboard bridge on the user's server, the Wera button on the sites they allowed. */
-async function syncAll() {
-  const s = await loadSession();
-  await syncBridge(s?.server ?? null);
-  await syncLauncher(s?.server ?? null);
+let syncing: Promise<void> = Promise.resolve();
+
+/**
+ * The dashboard bridge on the user's server, the Wera button on the sites
+ * they allowed. Runs one at a time: signing in fires several events at once
+ * (permission granted, session saved), and overlapping runs could
+ * unregister what another just registered.
+ */
+function syncAll(): Promise<void> {
+  syncing = syncing.then(async () => {
+    const s = await loadSession();
+    await syncBridge(s?.server ?? null);
+    await syncLauncher(s?.server ?? null);
+  }).catch(() => {});
+  return syncing;
 }
 
 // Signing in or out (in the side panel) moves the bridge to the new server.

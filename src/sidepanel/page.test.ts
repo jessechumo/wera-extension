@@ -70,4 +70,20 @@ describe('pages with embedded forms', () => {
     await insert(tab, 'f4/w1', 'hello');
     expect(sent.at(-1)).toEqual({ frameId: 4, msg: { type: 'wera:insert', id: 'w1', text: 'hello' } });
   });
+
+  it('waits for an embedded form that is still loading instead of filling the page around it', async () => {
+    const sent = stubFrames();
+    let reads = 0;
+    const send = chrome.tabs.sendMessage as unknown as ReturnType<typeof vi.fn<(id: number, msg: { type: string }, opts?: { frameId: number }) => Promise<unknown>>>;
+    const real = send.getMockImplementation()!;
+    send.mockImplementation(async (id: number, msg: { type: string }, opts?: { frameId: number }) => {
+      // The framed form answers only from the second read on.
+      if (msg.type === 'wera:read-page' && opts?.frameId === 4 && reads++ === 0) throw new Error('not loaded yet');
+      return real(id, msg, opts);
+    });
+    const plan = await scan(tab, {} as Applicant, []);
+    expect(plan.fields.map((f) => f.id)).toEqual(['f4/w1']);
+    expect(sent.filter((s) => s.msg.type === 'wera:scan').map((s) => s.frameId)).toEqual([4]);
+  });
 });
+

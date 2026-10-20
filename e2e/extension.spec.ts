@@ -54,6 +54,8 @@ test.beforeAll(async () => {
     body: JSON.stringify({ ...applicant, authorized_to_work: 'yes', needs_sponsorship: 'no' }),
   });
   expect(saved.ok).toBe(true);
+  // Answers learned on earlier runs would fill the questions these tests draft (an older API has none).
+  await fetch(`${API}/api/applicant/answers`, { method: 'DELETE', headers: auth });
   await fetch(`${API}/api/ext/tokens/current`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
 
   const dist = resolve(import.meta.dirname, '..', 'dist');
@@ -139,8 +141,12 @@ test('sign in, save a job from its page, and fill its application', async () => 
 test('fill a multi-step application, then mark it applied', async () => {
   const job = await context.newPage();
   await job.goto(`${site}/jobs/${run}/sre`); // the posting saved above
-  await job.goto(`${site}/jobs/${run}/sre/steps`); // its application, same tab
   const panel = await openPanel();
+  await expect(panel.getByText('In your Wera lists')).toBeVisible();
+  // Its application, in the same tab: Wera keeps the job.
+  await job.goto(`${site}/jobs/${run}/sre/steps`);
+  await job.bringToFront();
+  await panel.reload();
   await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
   await expect(job.locator('#fn')).not.toHaveValue('');
 
