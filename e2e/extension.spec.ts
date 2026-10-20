@@ -188,6 +188,15 @@ test('fill an application embedded from another site, and read it again after a 
   await expect(form.locator('#fn')).not.toHaveValue('');
 });
 
+test('shows the Wera button on job pages it may read', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre/apply`);
+  await expect(job.locator('wera-launcher')).toHaveCount(1, { timeout: 10_000 });
+  // The page turns into something that is neither a posting nor an application: the button goes.
+  await job.evaluate(() => { document.body.innerHTML = '<p>Just a blog post now.</p>'; });
+  await expect(job.locator('wera-launcher')).toHaveCount(0, { timeout: 10_000 });
+});
+
 test('the dashboard tells the extension which job a tab is for', async () => {
   // The job saved by the first test, as Wera has it.
   const conn = await fetch(`${API}/api/ext/tokens`, {

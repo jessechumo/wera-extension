@@ -1,8 +1,10 @@
 // Opens the side panel from the toolbar icon, adds "Open Wera on this
 // page" to the right-click menu, handles the keyboard shortcuts
-// (Alt+Shift+W opens Wera; Alt+Shift+F opens it and fills the form), and
-// keeps the dashboard bridge: which job the dashboard opened in a tab.
+// (Alt+Shift+W opens Wera; Alt+Shift+F opens it and fills the form),
+// keeps the Wera button on the job sites the user allowed, and keeps the
+// dashboard bridge: which job the dashboard opened in a tab.
 import { expectHandoff, syncBridge, takeHandoff } from '../shared/bridge';
+import { syncLauncher } from '../shared/launcher';
 import { loadSession } from '../shared/storage';
 
 export const PENDING_FILL = 'wera.pendingFill';
@@ -11,20 +13,26 @@ chrome.runtime.onInstalled.addListener(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   chrome.contextMenus.create({ id: 'wera-open', title: 'Open Wera on this page', contexts: ['page'] });
   chrome.contextMenus.create({ id: 'wera-fill', title: 'Fill this application with Wera', contexts: ['page', 'editable'] });
-  void loadSession().then((s) => syncBridge(s?.server ?? null));
+  void syncAll();
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  void loadSession().then((s) => syncBridge(s?.server ?? null));
-});
+chrome.runtime.onStartup.addListener(() => void syncAll());
+
+/** The dashboard bridge on the user's server, the Wera button on the sites they allowed. */
+async function syncAll() {
+  const s = await loadSession();
+  await syncBridge(s?.server ?? null);
+  await syncLauncher(s?.server ?? null);
+}
 
 // Signing in or out (in the side panel) moves the bridge to the new server.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes['wera.session']) {
-    const s = changes['wera.session'].newValue as { server?: string } | undefined;
-    void syncBridge(s?.server ?? null);
-  }
+  if (area === 'local' && changes['wera.session']) void syncAll();
 });
+
+// Allowing or removing a site adds or drops the Wera button there.
+chrome.permissions.onAdded.addListener(() => void syncAll());
+chrome.permissions.onRemoved.addListener(() => void syncAll());
 
 /** Opens the panel (this must happen inside the user's gesture) and, for a fill, leaves the request for it. */
 function openPanel(tab: chrome.tabs.Tab | undefined, fill: boolean) {
@@ -39,6 +47,13 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === 'fill-form') openPanel(tab, true);
+});
+
+// The Wera button on a job page: open the panel (inside the click) and fill a form.
+chrome.runtime.onMessage.addListener((msg: { type?: string; fill?: unknown }, sender) => {
+  if (msg?.type !== 'wera:launcher-open' || sender.tab?.id == null || sender.id !== chrome.runtime.id) return false;
+  openPanel(sender.tab, msg.fill === true);
+  return false;
 });
 
 // "Apply on Acme's site" in the dashboard: remember the job, then tie it
