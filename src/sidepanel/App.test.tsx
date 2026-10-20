@@ -153,6 +153,34 @@ describe('side panel', () => {
   });
 });
 
+describe('side panel: letter', () => {
+  const signedIn = (chrome: ReturnType<typeof fakeChrome>['chrome']) =>
+    chrome.storage.local.get.mockImplementation(async (k: string) =>
+      k === 'wera.session' ? { 'wera.session': { server: API, token: 't', user: { id: 1, email: 'a', name: 'A', is_admin: false } } } : {});
+
+  it('steers a cover letter rewrite', async () => {
+    const { chrome } = fakeChrome({ page });
+    signedIn(chrome);
+    const asks: unknown[] = [];
+    fakeFetch({
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/jobs/9/h1b': () => ({ matched: false, filings: 0, new_hires: 0, wage_median: null, similar: [], similar_low: null, similar_high: null, level: '' }),
+      'GET /api/jobs/9/cover-letter': () => ({ body: 'Dear Hiring Team,\n\nHello.', edited: false }),
+      'POST /api/jobs/9/cover-letter': (init) => (asks.push(jsonBody(init)), { body: 'Dear Hiring Team,\n\nFormal hello.', edited: false }),
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    await userEvent.click(screen.getByRole('tab', { name: /Letter/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Rewrite…/ }));
+    await userEvent.selectOptions(screen.getByLabelText('Tone'), 'formal');
+    await userEvent.selectOptions(screen.getByLabelText('Length'), 'short');
+    await userEvent.type(screen.getByLabelText(/Anything to stress/), 'Mention Go');
+    await userEvent.click(screen.getByRole('button', { name: /Rewrite the letter/ }));
+    expect(await screen.findByText('Formal hello.')).toBeInTheDocument();
+    expect(asks).toEqual([{ tone: 'formal', length: 'short', request: 'Mention Go' }]);
+  });
+});
+
 describe('side panel: tracking, steps and shortcuts', () => {
   const signedIn = (chrome: ReturnType<typeof fakeChrome>['chrome']) =>
     chrome.storage.local.get.mockImplementation(async (k: string) =>
