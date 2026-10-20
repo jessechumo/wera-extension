@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.2.2...wera-extension-v0.3.0) (2026-10-20)
+
+
+### Features
+
+* **api:** client calls for saved answers, page suggestions, runs and resumes ([e949e47](https://github.com/jessechumo/wera-extension/commit/e949e4777793fc9ae60763b3e3a54c2d61a61ae7))
+* **content:** plan a form page and fill only the approved values ([f93c21b](https://github.com/jessechumo/wera-extension/commit/f93c21b3339e0c69d211031b34666b58d170244f))
+* guided autofill, Wera button, multi-page continue, resume editor ([a0d229f](https://github.com/jessechumo/wera-extension/commit/a0d229f46e1940d3f2bf554f039168298095ade2))
+* guided autofill, Wera button, multi-page continue, resume editor ([7de1d98](https://github.com/jessechumo/wera-extension/commit/7de1d98def89bf026ca2db61351303b580c64602))
+* **launcher:** show a Wera button on job pages ([7d7e740](https://github.com/jessechumo/wera-extension/commit/7d7e740bf713dee00a6162f3e4f3c54a4dc2d0a2))
+* **letter:** choose the tone and length, and say what to stress ([f54e91d](https://github.com/jessechumo/wera-extension/commit/f54e91d4711c6921b52006eb19daabda292c0477))
+* **resume:** create and edit your resume (CV) in the panel ([96dc9cf](https://github.com/jessechumo/wera-extension/commit/96dc9cfaccb7fb604016910f588b3fd3ed65db67))
+* **sidepanel:** review every field before Wera fills it, then continue page by page ([9ad08f1](https://github.com/jessechumo/wera-extension/commit/9ad08f1e20cdd786d4b853bbf23ee0825df9e5b4))
+* **sidepanel:** settings for the Wera button, AI suggestions and learning ([e960103](https://github.com/jessechumo/wera-extension/commit/e96010313d982fdf5df6ede13533130179638914))
+
+
+### Bug Fixes
+
+* autofill races found by CI ([8cb1d0a](https://github.com/jessechumo/wera-extension/commit/8cb1d0a429cbd59965c00777b5b80bcb48174452))
+* **background:** register the Wera button one sync at a time ([8345357](https://github.com/jessechumo/wera-extension/commit/83453576b0aaa1bfc8a9688a06ac0ae72573fb08))
+* **sidepanel:** wait for an embedded form instead of filling the page around it ([1d6a21b](https://github.com/jessechumo/wera-extension/commit/1d6a21b2c7df01a144e61b9eeaed38c3c3640495))
+
+
+### Documentation
+
+* describe guided autofill, the Wera button, learning and the resume editor ([b8a4f38](https://github.com/jessechumo/wera-extension/commit/b8a4f380a35e160b8156b3efa71dba39b05ecc25))
+
 ## [0.2.2](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.2.1...wera-extension-v0.2.2) (2026-10-19)
 
 
