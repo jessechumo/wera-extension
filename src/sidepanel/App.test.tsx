@@ -443,4 +443,26 @@ describe('side panel: guided autofill', () => {
     expect(await screen.findByLabelText('Answer to Why Acme?')).toHaveValue('Robots.');
     expect(asked).toMatchObject({ question: 'Why Acme?', job_id: 0, max_words: 100, company: 'Acme', title: 'SRE', description: 'Keep things up.' });
   });
+
+  it('keeps settings, and asks for the job sites in one go', async () => {
+    const { chrome, store } = fakeChrome({ page });
+    signedIn(chrome, store);
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant/answers': () => ({ answers: [{ id: 1, question: 'Q', answer: 'A', kind: 'text', company: '', updated_at: '2026-10-01T00:00:00Z' }] }),
+      'DELETE /api/applicant/answers': () => undefined,
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await userEvent.click(screen.getByLabelText(/Suggest the rest with AI/));
+    await waitFor(() => expect(store['wera.settings']).toMatchObject({ aiSuggest: false, launcher: true }));
+    await userEvent.click(screen.getByRole('button', { name: /Allow job sites/ }));
+    expect(chrome.permissions.request).toHaveBeenCalledWith({ origins: expect.arrayContaining(['https://*.greenhouse.io/*', 'https://*.myworkdayjobs.com/*']) as string[] });
+    expect(await screen.findByText(/On for common job sites/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /1 saved answer/ })).toHaveAttribute('href', `${API}/profile#answers`);
+    await userEvent.click(screen.getByRole('button', { name: 'Forget all' }));
+    expect(await screen.findByRole('link', { name: /0 saved answers/ })).toBeInTheDocument();
+  });
 });
