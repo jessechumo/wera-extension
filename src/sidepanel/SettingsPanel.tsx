@@ -1,20 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ExternalLink, Globe, LogOut } from 'lucide-react';
+import { ExternalLink, LogOut } from 'lucide-react';
 import type { WeraApi } from '../shared/api';
 import type { Settings } from '../shared/settings';
 import type { Session } from '../shared/storage';
-import { Button, Card, Notice, errorText } from './ui';
-
-/** The job sites and applicant tracking systems most applications live on. */
-export const JOB_SITES = [
-  'https://*.greenhouse.io/*', 'https://*.lever.co/*', 'https://*.ashbyhq.com/*', 'https://*.myworkdayjobs.com/*',
-  'https://*.myworkdaysite.com/*', 'https://*.icims.com/*', 'https://*.smartrecruiters.com/*', 'https://*.jobvite.com/*',
-  'https://*.bamboohr.com/*', 'https://*.workable.com/*', 'https://*.recruitee.com/*', 'https://*.breezy.hr/*',
-  'https://*.applytojob.com/*', 'https://*.teamtailor.com/*', 'https://*.rippling.com/*', 'https://*.dover.com/*',
-  'https://*.taleo.net/*', 'https://*.successfactors.com/*', 'https://*.oraclecloud.com/*', 'https://*.eightfold.ai/*',
-  'https://*.jazzhr.com/*', 'https://*.paylocity.com/*', 'https://*.ultipro.com/*', 'https://*.linkedin.com/*',
-  'https://*.indeed.com/*', 'https://*.wellfound.com/*', 'https://*.ycombinator.com/*', 'https://*.builtin.com/*',
-];
+import { Button, Card } from './ui';
 
 function Toggle({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -31,23 +20,10 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint: strin
 export function SettingsPanel({ api, session, settings, onChange, onSignOut }: {
   api: WeraApi; session: Session; settings: Settings; onChange: (p: Partial<Settings>) => void; onSignOut: () => void;
 }) {
-  const [sites, setSites] = useState<boolean | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
-  const [msg, setMsg] = useState('');
   useEffect(() => {
-    void chrome.permissions?.contains?.({ origins: JOB_SITES }).then(setSites).catch(() => setSites(false));
     void api.answers().then((a) => setSaved(a.length)).catch(() => setSaved(null));
   }, [api]);
-
-  const allowSites = async () => {
-    try {
-      const ok = await chrome.permissions.request({ origins: JOB_SITES });
-      setSites(ok);
-      if (ok) setMsg('Wera now shows its button on job sites. It still reads a page only to offer help or when you ask.');
-    } catch (e) {
-      setMsg(errorText(e));
-    }
-  };
   const forget = async () => {
     await api.forgetAnswers().catch(() => {});
     setSaved(0);
@@ -57,19 +33,11 @@ export function SettingsPanel({ api, session, settings, onChange, onSignOut }: {
     <div className="space-y-3">
       <Card>
         <h2 className="text-sm font-semibold">On job pages</h2>
-        <Toggle label="Show the Wera button" hint="A small button on job postings and application forms: one click opens Wera and fills."
+        <Toggle label="Show the Wera panel on job pages" hint="It slides in when a page is a job posting or an application: your fit, Autofill, cover letter and resume, one click away."
           checked={settings.launcher} onChange={(launcher) => onChange({ launcher })} />
-        <div className="mt-1.5 rounded-lg border border-border bg-surface-2/40 p-2.5 text-xs">
-          {sites ? (
-            <p className="flex items-center gap-1.5 text-good"><CheckCircle2 className="size-3.5" /> On for common job sites (Greenhouse, Lever, Workday, Ashby and more).</p>
-          ) : (
-            <>
-              <p className="text-muted">Wera works on a site once you allow it. Allow the common job sites at once so the button shows up there on its own.</p>
-              <Button className="mt-2" onClick={() => void allowSites()}><Globe className="size-3.5" /> Allow job sites</Button>
-            </>
-          )}
-        </div>
-        {msg && <div className="mt-2"><Notice tone="good">{msg}</Notice></div>}
+        <Toggle label="Mark jobs applied when I submit" hint="When a site thanks you for applying, Wera moves the job to Applied in your tracker (with an undo)."
+          checked={settings.autoApplied} onChange={(autoApplied) => onChange({ autoApplied })} />
+        <p className="mt-1 text-[11px] text-faint">Wera reads a page only to tell whether it is a job and to fill it when you ask. It never submits anything.</p>
       </Card>
       <Card>
         <h2 className="text-sm font-semibold">Filling</h2>

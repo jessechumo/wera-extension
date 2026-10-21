@@ -23,6 +23,25 @@ export function Button({
   );
 }
 
+/** The one big action of a view (Autofill): hard to miss, same look as the dock's button on the page. */
+export function BigButton({ busy, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean }) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      disabled={rest.disabled || busy}
+      className={clsx(
+        'flex min-h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-[#ff8a5c] to-[#ff5f6d] px-4 text-[15px] font-bold text-white',
+        'shadow-[0_8px_22px_rgba(255,95,109,0.35)] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0',
+        className,
+      )}
+    >
+      {busy && <LoaderCircle className="size-5 animate-spin" />}
+      {children}
+    </button>
+  );
+}
+
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={clsx('anim-rise rounded-card border border-border bg-surface p-3.5', className)}>{children}</div>;
 }

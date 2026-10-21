@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { ExternalLink, FilePlus2, FileText, PencilLine, RefreshCw, Sparkles, Upload, Wand2 } from 'lucide-react';
+import { ExternalLink, FilePlus2, FileText, Paperclip, PencilLine, RefreshCw, Sparkles, Upload, Wand2 } from 'lucide-react';
 import type { Coverage, JobKeywords, ResumeDoc, WeraApi } from '../shared/api';
 import { NeedJob } from './NeedJob';
+import { attachToForm } from './page';
 import { openPdf, PagePreview, ResumeEditor, useLivePreview } from './ResumeEditor';
 import { Button, Card, INPUT, Notice, Skeleton, errorText } from './ui';
 import type { usePage } from './usePage';
@@ -86,7 +87,8 @@ function TailoredResume({ api, page, onMain }: { api: WeraApi; page: Page; onMai
   const job = page.job!;
   const [kw, setKw] = useState<JobKeywords | null>(null);
   const [doc, setDoc] = useState<ResumeDoc | null | undefined>(undefined);
-  const [busy, setBusy] = useState<'' | 'tailor' | 'pdf'>('');
+  const [busy, setBusy] = useState<'' | 'tailor' | 'pdf' | 'attach'>('');
+  const [attached, setAttached] = useState('');
   const [request, setRequest] = useState('');
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState('');
@@ -147,6 +149,23 @@ function TailoredResume({ api, page, onMain }: { api: WeraApi; page: Page; onMai
       setBusy('');
     }
   };
+  /** Puts this copy into the form's resume upload on the page. */
+  const attach = async () => {
+    if (!doc || !page.tab) return;
+    setBusy('attach');
+    setError('');
+    setAttached('');
+    try {
+      const f = await api.resumeDocPdf(doc.id);
+      const r = f ? await attachToForm(page.tab, 'resume', f) : { ok: false };
+      if (r.ok) setAttached(`Attached ${f!.name} to the form.`);
+      else setError('This page has no resume upload. Open the application form, then attach.');
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy('');
+    }
+  };
   const steer = (
     <textarea className={`${INPUT} h-14 resize-y text-xs`} maxLength={500} value={request} onChange={(e) => setRequest(e.target.value)}
       placeholder="Optional: what to lead with, e.g. my Kubernetes on-call work" aria-label="What to lead with" />
@@ -171,7 +190,10 @@ function TailoredResume({ api, page, onMain }: { api: WeraApi; page: Page; onMai
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5">
-            <Button variant="primary" onClick={() => setEditing(true)}><PencilLine className="size-3.5" /> Edit here</Button>
+            {page.page?.hasForm && (
+              <Button variant="primary" onClick={() => void attach()} busy={busy === 'attach'}><Paperclip className="size-3.5" /> Attach to application</Button>
+            )}
+            <Button variant={page.page?.hasForm ? 'secondary' : 'primary'} onClick={() => setEditing(true)}><PencilLine className="size-3.5" /> Edit here</Button>
             <Button onClick={() => void download()} busy={busy === 'pdf'}>PDF</Button>
             <a href={api.dashboardUrl(`/profile/resume/${doc.id}`)} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs font-semibold text-text hover:border-accent/40">
@@ -198,6 +220,7 @@ function TailoredResume({ api, page, onMain }: { api: WeraApi; page: Page; onMai
           {preview.svg ? <PagePreview svg={preview.svg} /> : <Skeleton className="aspect-[8.5/11]" />}
         </>
       )}
+      {attached && <Notice tone="good">{attached}</Notice>}
       {error && <Notice tone="bad">{error}</Notice>}
     </div>
   );

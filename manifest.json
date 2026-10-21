@@ -25,6 +25,18 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "launcher.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "permissions": [
     "storage",
     "sidePanel",
@@ -32,7 +44,7 @@
     "scripting",
     "contextMenus"
   ],
-  "optional_host_permissions": [
+  "host_permissions": [
     "https://*/*",
     "http://*/*"
   ],

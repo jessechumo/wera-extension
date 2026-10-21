@@ -26,6 +26,8 @@ export interface WeraJob {
   skills_missing: string[] | null;
   application_status: string | null;
   source: string;
+  /** When the extension last filled an application for it (absent on older servers). */
+  autofilled_at?: string | null;
 }
 
 export interface CoverLetter {
@@ -408,18 +410,23 @@ export class WeraApi {
     return this.call<{ applicant: Applicant; saved: boolean }>('/api/applicant', { method: 'PUT', body: JSON.stringify(a) });
   }
 
-  private async download(path: string): Promise<{ name: string; base64: string } | null> {
+  private async download(path: string, fallback = 'resume.pdf'): Promise<{ name: string; base64: string } | null> {
     const res = await this.fetcher(`${this.server}${path}`, {
       headers: { Authorization: `Bearer ${this.token}` },
       credentials: 'omit',
     });
     if (res.status === 404) return null;
-    if (!res.ok) throw new ApiError(res.status, 'could not load your resume');
-    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'resume.pdf';
+    if (!res.ok) throw new ApiError(res.status, fallback === 'resume.pdf' ? 'could not load your resume' : 'could not load your cover letter');
+    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallback;
     const buf = new Uint8Array(await res.arrayBuffer());
     let bin = '';
     for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     return { name, base64: btoa(bin) };
+  }
+
+  /** The job's cover letter as a PDF, for forms that want a file (null: none written yet). */
+  async coverLetterPdf(jobId: number) {
+    return this.download(`/api/jobs/${jobId}/cover-letter/pdf?download=1`, 'Cover_Letter.pdf');
   }
 
   /** A resume PDF by document id. */

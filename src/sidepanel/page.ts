@@ -63,11 +63,13 @@ async function inject(tab: chrome.tabs.Tab): Promise<number[]> {
   return ids.sort((a, b) => a - b);
 }
 
-/** Sends a request to one frame's content script. */
+/**
+ * Sends a request to one frame's content script. Always by frame id: sent
+ * to the tab, a request reaches every frame, and an embedded form's frame
+ * could answer for the top one (and fill the page's own fields).
+ */
 function sendTo<T>(tab: chrome.tabs.Tab, frameId: number, msg: ContentRequest): Promise<T> {
-  return (frameId === 0
-    ? chrome.tabs.sendMessage(tab.id!, msg)
-    : chrome.tabs.sendMessage(tab.id!, msg, { frameId }));
+  return chrome.tabs.sendMessage(tab.id!, msg, { frameId });
 }
 
 /** Sends a request to every frame; frames that do not answer are left out. */
@@ -131,6 +133,15 @@ export async function insertCoverLetter(tab: chrome.tabs.Tab, text: string): Pro
   return { ok: false };
 }
 
+/** Attaches a file to the form's resume or cover letter upload, in whichever frame has one. */
+export async function attachToForm(tab: chrome.tabs.Tab, what: 'resume' | 'cover_letter', file: { name: string; base64: string }): Promise<{ ok: boolean }> {
+  for (const frameId of await inject(tab)) {
+    const r = await sendTo<{ ok: boolean } | null>(tab, frameId, { type: 'wera:attach', what, file }).catch(() => null);
+    if (r?.ok) return r;
+  }
+  return { ok: false };
+}
+
 /** The frames whose page holds the form (all frames when none looks like one). */
 async function formFrames(tab: chrome.tabs.Tab, tries = 3, delay = 400): Promise<number[]> {
   for (let i = 0; ; i++) {
@@ -165,7 +176,7 @@ export async function scan(tab: chrome.tabs.Tab, applicant: Applicant, answers: 
 }
 
 /** Fills the approved values, each frame's fields in its frame; results come back as each frame finishes. */
-export async function apply(tab: chrome.tabs.Tab, items: FillItem[], resume?: { name: string; base64: string }, coverLetter?: string, pace = 90): Promise<FillResult[]> {
+export async function apply(tab: chrome.tabs.Tab, items: FillItem[], resume?: { name: string; base64: string }, coverLetter?: string, pace = 90, letterFile?: { name: string; base64: string }): Promise<FillResult[]> {
   await inject(tab);
   const byFrame = new Map<number, FillItem[]>();
   for (const it of items) {
@@ -174,7 +185,7 @@ export async function apply(tab: chrome.tabs.Tab, items: FillItem[], resume?: { 
   }
   const out: FillResult[] = [];
   for (const [frameId, list] of byFrame) {
-    const got = await sendTo<FillResult[] | null>(tab, frameId, { type: 'wera:apply', items: list, resume, coverLetter, pace }).catch(() => null);
+    const got = await sendTo<FillResult[] | null>(tab, frameId, { type: 'wera:apply', items: list, resume, coverLetter, letterFile, pace }).catch(() => null);
     out.push(...(got ?? list.map((i) => ({ id: i.id, label: '', purpose: null, status: 'review' as const, required: false, note: 'the page did not answer' })))
       .map((r) => ({ ...r, id: frameField(frameId, r.id) })));
   }

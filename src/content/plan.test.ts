@@ -81,7 +81,7 @@ describe('planForm', () => {
     expect(byLabel(plan.fields, 'Will you now')).toMatchObject({ value: '', note: 'not in your application details' });
     expect(byLabel(plan.fields, 'Preferred work')).toMatchObject({ value: '', note: 'no option matches "any"' });
     expect(byLabel(plan.fields, 'Resume')).toMatchObject({ value: '', note: 'upload your resume in Wera to attach it' });
-    expect(byLabel(plan.fields, 'Cover letter').note).toBe('write it on the Letter tab first');
+    expect(byLabel(plan.fields, 'Cover letter').note).toBe('no cover letter for this job yet');
   });
 
   it('never proposes an earlier answer for self-identification', () => {
@@ -132,6 +132,21 @@ describe('applyItems', () => {
     expect(out.map((r) => [r.status, r.note])).toEqual([
       ['review', 'no option matches "Perhaps"'], ['review', 'no resume to attach'], ['review', 'write your cover letter first'],
     ]);
+  });
+});
+
+describe('a cover letter upload', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<form><label for="cv">Cover letter</label><input id="cv" type="file" name="cover_letter"></form>';
+  });
+
+  it('is offered the letter as a PDF once one is written, and gets it attached', async () => {
+    expect(planForm(document, ada).fields[0]).toMatchObject({ value: '', note: 'no cover letter for this job yet' });
+    const [f] = planForm(document, ada, { coverLetter: true }).fields;
+    expect(f).toMatchObject({ value: LETTER, source: 'letter', note: 'your cover letter for this job, as a PDF' });
+    const [r] = await applyItems(document, [{ id: f!.id, value: LETTER }], { letterFile: { name: 'Ada_Cover_Letter.pdf', base64: btoa('%PDF-1.7') } });
+    expect(r).toMatchObject({ status: 'filled', value: 'Ada_Cover_Letter.pdf' });
+    expect(document.querySelector<HTMLInputElement>('#cv')!.files?.[0]?.name).toBe('Ada_Cover_Letter.pdf');
   });
 });
 

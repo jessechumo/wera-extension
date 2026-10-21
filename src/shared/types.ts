@@ -173,13 +173,16 @@ export interface PageInfo {
   frameOrigins?: string[];
   /** Changes when the page reloads or another page loads in the tab. */
   docId?: string;
+  /** The page looks like a job posting or an application, even without job data. */
+  jobLike?: boolean;
 }
 
 // Messages from the side panel to the content script.
 export type ContentRequest =
   | { type: 'wera:read-page' }
   | { type: 'wera:scan'; applicant: Applicant; answers: KnownAnswer[]; resumeName?: string; coverLetter?: boolean }
-  | { type: 'wera:apply'; items: FillItem[]; resume?: { name: string; base64: string }; coverLetter?: string; pace?: number }
+  | { type: 'wera:apply'; items: FillItem[]; resume?: { name: string; base64: string }; coverLetter?: string; letterFile?: { name: string; base64: string }; pace?: number }
+  | { type: 'wera:attach'; what: 'resume' | 'cover_letter'; file: { name: string; base64: string } }
   | { type: 'wera:snapshot' }
   | { type: 'wera:next' }
   | { type: 'wera:highlight'; id: string }
