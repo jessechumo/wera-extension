@@ -6,6 +6,7 @@ import { byId, collectFields } from './fields';
 import { attachFile, base64ToFile, insertText, mark } from './fill';
 import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
+import { pageKind } from './detect';
 import { pressNext } from './next';
 import { applyItems, highlight, planForm, snapshot } from './plan';
 import { mainText } from './text';
@@ -29,6 +30,7 @@ function readPage(): PageInfo {
     hasForm: fields.filter((f) => classify(f) !== null).length >= 3,
     submitted: looksSubmitted(bodyText(document)),
     frameOrigins: formFrameOrigins(document),
+    jobLike: pageKind(document) !== null,
     docId: window.__weraDocId,
   };
 }

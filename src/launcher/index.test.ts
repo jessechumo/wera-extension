@@ -1,14 +1,36 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { launcherMatches, syncLauncher } from '../shared/launcher';
-import { mountButton, pageKind, start } from './index';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isJobUrl, jobSummary, pageKind } from '../content/detect';
+import type { DockHello, DockJob, SubmitReply } from '../shared/dock';
+import { renderDock, type DockActions, type DockState } from './dock';
+import { start, submitToast } from './index';
 
 const fixture = (name: string) => readFileSync(join(__dirname, '..', 'content', '__fixtures__', name), 'utf8');
 const posting = `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'JobPosting', title: 'SRE', hiringOrganization: { name: 'Acme' }, description: 'Run things.' })}</script><h1>SRE</h1>`;
+// A company's own careers page: no job data, but it reads like a posting.
+const plain = `<h1>Senior Registered Nurse, ICU</h1><a href="/apply">Apply now</a>
+  <h2>About the role</h2><p>Care for patients.</p><h2>Responsibilities</h2><ul><li>Rounds</li></ul>
+  <h2>Qualifications</h2><p>3+ years of experience</p><h2>Benefits</h2><p>Good ones.</p>`;
+const job: DockJob = { id: 4, title: 'SRE', company: 'Acme', score: 82, estimate: false, verdict: 'strong', status: 'saved', autofilled: true };
 
-describe('the Wera button', () => {
-  it('tells application forms and postings from other pages', () => {
+function at(url: string) {
+  window.history.replaceState(null, '', url);
+}
+
+let stops: (() => void)[] = [];
+const run = (doc: Document, delay: number) => stops.push(start(doc, delay));
+
+afterEach(() => {
+  stops.forEach((s) => s());
+  stops = [];
+  at('/');
+  document.querySelectorAll('wera-launcher').forEach((e) => e.remove());
+  vi.unstubAllGlobals();
+});
+
+describe('telling job pages from other pages', () => {
+  it('knows application forms, postings with job data, and everything else', () => {
     document.body.innerHTML = fixture('greenhouse.html');
     expect(pageKind(document)).toBe('form');
     document.body.innerHTML = posting;
@@ -17,42 +39,32 @@ describe('the Wera button', () => {
     expect(pageKind(document)).toBeNull();
   });
 
-  it('opens Wera on click and hides for the site when dismissed', () => {
-    const open = vi.fn();
-    const dismiss = vi.fn();
-    const { host, root } = mountButton(document, 'form', open, dismiss);
-    const [go, close] = root.querySelectorAll('button');
-    expect(go!.textContent).toContain('Autofill with Wera');
-    go!.click();
-    expect(open).toHaveBeenCalledOnce();
-    close!.click();
-    expect(dismiss).toHaveBeenCalledOnce();
-    expect(host.isConnected).toBe(false);
-    expect(mountButton(document, 'posting', open, dismiss).root.textContent).toContain('Save to Wera');
+  it('reads a posting without job data by what is on it', () => {
+    at('/careers/icu-nurse-4411');
+    document.body.innerHTML = plain;
+    expect(pageKind(document)).toBe('posting');
+    // The same words in a blog post, without an Apply button or a job address, are not a posting.
+    at('/blog/what-nurses-do');
+    document.body.innerHTML = '<h1>What ICU nurses do</h1><p>Responsibilities and qualifications vary.</p>';
+    expect(pageKind(document)).toBeNull();
   });
 
-  it('shows itself on a job page unless turned off or dismissed', async () => {
-    const storage: Record<string, unknown> = {};
-    const sendMessage = vi.fn(async () => {});
-    vi.stubGlobal('chrome', {
-      runtime: { sendMessage },
-      storage: { local: { get: vi.fn(async () => storage), set: vi.fn(async (o: object) => Object.assign(storage, o)) } },
-    });
-    document.body.innerHTML = fixture('greenhouse.html');
-    start(document, 5);
-    await vi.waitFor(() => expect(document.querySelector('wera-launcher')).not.toBeNull());
-    document.querySelector('wera-launcher')!.remove();
+  it('knows the addresses of job boards', () => {
+    for (const url of [
+      'https://boards.greenhouse.io/acme/jobs/123', 'https://jobs.lever.co/acme/2f1c3b0e-4b8f-4c55-9a7e-5c0d1e2f3a4b',
+      'https://acme.wd5.myworkdayjobs.com/en-US/Careers/job/Austin-TX/SRE_R123', 'https://www.linkedin.com/jobs/view/4012345678/',
+      'https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4012345678', 'https://www.indeed.com/viewjob?jk=abc',
+      'https://apply.workable.com/acme/j/1A2B3C4D5E/', 'https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210512345',
+    ]) expect(isJobUrl(url), url).toBe(true);
+    expect(isJobUrl('https://www.linkedin.com/feed/')).toBe(false);
+    expect(isJobUrl('https://boards.greenhouse.io/acme')).toBe(false);
+  });
 
-    storage['wera.settings'] = { launcher: false };
+  it('names the job and company for the dock', () => {
     document.body.innerHTML = posting;
-    start(document, 5);
-    await new Promise((r) => setTimeout(r, 40));
-    expect(document.querySelector('wera-launcher')).toBeNull();
-  });
-
-  it('runs only on granted sites, never the Wera server', () => {
-    expect(launcherMatches(['https://*.greenhouse.io/*', 'http://192.168.4.68:3000/*', 'https://jobs.example/*', 'chrome://x/*', 'https://jobs.example/*'], 'http://192.168.4.68:3000'))
-      .toEqual(['https://*.greenhouse.io/*', 'https://jobs.example/*']);
+    expect(jobSummary(document)).toEqual({ title: 'SRE', company: 'Acme' });
+    document.body.innerHTML = plain;
+    expect(jobSummary(document).title).toBe('Senior Registered Nurse, ICU');
   });
 
   it('stays off the Wera dashboard (its own forms are not applications)', () => {
@@ -61,20 +73,117 @@ describe('the Wera button', () => {
     expect(pageKind(document)).toBeNull();
     delete document.documentElement.dataset.weraExtension;
   });
+});
 
-  it('registers itself for the granted sites, and goes when signed out', async () => {
-    let registered: { id: string; matches: string[] }[] = [];
-    const scripting = {
-      registerContentScripts: vi.fn(async (list: { id: string; matches: string[] }[]) => void (registered = list)),
-      unregisterContentScripts: vi.fn(async () => void (registered = [])),
-      getRegisteredContentScripts: vi.fn(async () => registered),
-    };
-    vi.stubGlobal('chrome', { scripting, permissions: { getAll: async () => ({ origins: ['https://*.lever.co/*', 'https://w.example/*'] }) } });
-    await syncLauncher('https://w.example');
-    expect(registered).toEqual([expect.objectContaining({ id: 'wera-launcher', matches: ['https://*.lever.co/*'], js: ['launcher.js'] })]);
-    await syncLauncher('https://w.example');
-    expect(scripting.registerContentScripts).toHaveBeenCalledOnce(); // unchanged: left alone
-    await syncLauncher(null);
-    expect(registered).toEqual([]);
+describe('the dock', () => {
+  const actions = (): DockActions => ({ open: vi.fn(), save: vi.fn(), minimize: vi.fn(), expand: vi.fn(), hide: vi.fn() });
+  const state = (p: Partial<DockState> = {}): DockState => ({
+    kind: 'form', title: 'SRE', company: 'Acme', hello: { signedIn: true, job }, canSave: true, open: true, busy: false, error: '', ...p,
+  });
+  const buttons = (el: HTMLElement) => [...el.querySelectorAll('button')].map((b) => b.textContent);
+
+  it('on a form: a big Autofill button that opens Wera and fills, plus letter and resume', () => {
+    const act = actions();
+    const card = renderDock(document, state(), act);
+    expect(card.textContent).toContain('82');
+    expect(card.textContent).toContain('Autofilled');
+    const big = card.querySelector<HTMLButtonElement>('.big')!;
+    expect(big.textContent).toBe('Autofill application');
+    big.click();
+    expect(act.open).toHaveBeenCalledWith('apply', true);
+    [...card.querySelectorAll<HTMLButtonElement>('.sec')].find((b) => b.textContent === 'Cover letter')!.click();
+    expect(act.open).toHaveBeenLastCalledWith('letter');
+    expect(buttons(card)).toContain('Tailor resume');
+  });
+
+  it('on a posting not in Wera: saves it, or reads it with AI in the panel when it has no job data', () => {
+    const act = actions();
+    renderDock(document, state({ kind: 'posting', hello: { signedIn: true, job: null } }), act).querySelector<HTMLButtonElement>('.big')!.click();
+    expect(act.save).toHaveBeenCalledOnce();
+    renderDock(document, state({ kind: 'posting', canSave: false, hello: { signedIn: true, job: null } }), act).querySelector<HTMLButtonElement>('.big')!.click();
+    expect(act.open).toHaveBeenCalledWith('job');
+  });
+
+  it('asks to sign in when the extension is not connected', () => {
+    const card = renderDock(document, state({ hello: { signedIn: false, job: null } }), actions());
+    expect(card.querySelector('.big')!.textContent).toBe('Sign in to Wera');
+    expect(buttons(card)).not.toContain('Cover letter');
+  });
+
+  it('minimizes to a tab on the edge, with the score', () => {
+    const act = actions();
+    const tab = renderDock(document, state({ open: false }), act);
+    expect(tab.getAttribute('aria-label')).toBe('Show the Wera panel');
+    expect(tab.textContent).toContain('82');
+    tab.click();
+    expect(act.expand).toHaveBeenCalledOnce();
+  });
+
+  it('page text never becomes markup', () => {
+    const card = renderDock(document, state({ hello: { signedIn: true, job: { ...job, title: '<img src=x onerror=alert(1)>' } } }), actions());
+    expect(card.querySelector('img')).toBeNull();
+    expect(card.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+});
+
+describe('after submitting', () => {
+  it('says the job is marked applied, with an undo back to where it was', () => {
+    const act = { undo: vi.fn(), open: vi.fn(), add: vi.fn() };
+    const t = submitToast({ state: 'marked', job, previous: 'saved' }, act)!;
+    expect(t.title).toBe('Marked as applied');
+    t.actions[0]!.run();
+    expect(act.undo).toHaveBeenCalledWith(job, 'saved');
+    expect(submitToast({ state: 'unknown', draft: { title: 'SRE', company: 'Acme' } }, act)!.actions[0]!.label).toBe('Add as applied');
+    expect(submitToast({ state: 'already', job }, act)).toBeNull();
+    expect(submitToast({ state: 'off' }, act)).toBeNull();
+  });
+});
+
+describe('on a page', () => {
+  function fakeChrome(hello: DockHello, submit: SubmitReply = { state: 'off' }, storage: Record<string, unknown> = {}) {
+    const sent: { type: string }[] = [];
+    vi.stubGlobal('chrome', {
+      runtime: {
+        id: 'x',
+        sendMessage: vi.fn(async (m: { type: string }) => {
+          sent.push(m);
+          return m.type === 'wera:dock-hello' ? hello : m.type === 'wera:dock-submitted' ? submit : null;
+        }),
+        onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+      storage: { local: { get: vi.fn(async () => storage), set: vi.fn(async (o: object) => Object.assign(storage, o)) } },
+    });
+    return sent;
+  }
+  // The dock's shadow root is closed: tests read what it rendered through its host's text.
+  const dockText = () => {
+    const host = document.querySelector<HTMLElement>('wera-launcher');
+    return host && !host.hidden ? 'shown' : '';
+  };
+
+  it('slides in on a job page and asks Wera about it', async () => {
+    const sent = fakeChrome({ signedIn: true, job });
+    document.body.innerHTML = fixture('greenhouse.html');
+    run(document, 5);
+    await vi.waitFor(() => expect(dockText()).toBe('shown'));
+    expect(sent[0]).toMatchObject({ type: 'wera:dock-hello', kind: 'form' });
+  });
+
+  it('stays away when turned off, and on the Wera server', async () => {
+    fakeChrome({ signedIn: true, job }, { state: 'off' }, { 'wera.settings': { launcher: false } });
+    document.body.innerHTML = posting;
+    run(document, 5);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(dockText()).toBe('');
+  });
+
+  it('tells Wera when the form gives way to a thank-you message', async () => {
+    const sent = fakeChrome({ signedIn: true, job }, { state: 'marked', job: { ...job, status: 'applied' }, previous: 'saved' });
+    document.body.innerHTML = fixture('greenhouse.html');
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-hello')).toBe(true));
+    document.body.innerHTML = '<h1>Thank you for applying!</h1><p>We will be in touch.</p>';
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-submitted')).toBe(true));
+    expect(sent.filter((m) => m.type === 'wera:dock-submitted')).toHaveLength(1);
   });
 });

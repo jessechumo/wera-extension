@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, PencilLine, SearchX, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import type { ApplicationStatus, WeraApi, WeraJob } from '../shared/api';
@@ -154,24 +154,49 @@ export function JobTab({ api, page }: { api: WeraApi; page: Page }) {
     return () => clearInterval(t);
   }, [job, api, page]);
 
-  if (page.loading) return <div className="space-y-2"><Skeleton className="h-20" /><Skeleton className="h-40" /></div>;
-  if (job) return <JobCard job={job} api={api} onJob={page.setJob} fromDashboard={page.fromDashboard} onUnlink={() => void page.unlink()} />;
-  if (!page.page) return null;
-
-  const readWithAI = async () => {
+  const info = page.page;
+  const readWithAI = useCallback(async () => {
+    if (!info) return;
     setReading(true);
     setError('');
     try {
-      const d = await api.extract(page.page!.url, page.page!.title, page.page!.text);
-      if (!d.is_job_posting) setError("The AI didn't find a single job posting on this page. You can still fill the form.");
-      setDraft({ ...EMPTY, ...d, url: page.page!.url, source: 'ai' });
+      const d = await api.extract(info.url, info.title, info.text);
+      if (!d.is_job_posting) setError("The AI didn't find a single job posting on this page. Fill in the details yourself.");
+      setDraft({ ...EMPTY, ...d, url: info.url, source: 'ai' });
       setManual(true);
     } catch (e) {
-      setError(errorText(e));
+      setError(`${errorText(e)}. Fill in the details yourself.`);
+      setManual(true);
     } finally {
       setReading(false);
     }
-  };
+  }, [api, info]);
+
+  // A page that looks like a job but has no job data (LinkedIn, Indeed, a
+  // company's own careers site): the AI reads it at once, once per page.
+  const autoRead = useRef('');
+  const pageUrl = info?.url ?? '';
+  useEffect(() => {
+    if (!info || page.loading || job || info.draft || !info.jobLike || autoRead.current === pageUrl) return;
+    autoRead.current = pageUrl;
+    void readWithAI();
+  }, [info, page.loading, job, pageUrl, readWithAI]);
+
+  if (page.loading) return <div className="space-y-2"><Skeleton className="h-20" /><Skeleton className="h-40" /></div>;
+  if (job) return <JobCard job={job} api={api} onJob={page.setJob} fromDashboard={page.fromDashboard} onUnlink={() => void page.unlink()} />;
+  if (!page.page) return null;
+  if (reading && draft.source === 'manual') {
+    return (
+      <Card className="space-y-3 text-center">
+        <Sparkles className="mx-auto size-6 animate-pulse text-accent" />
+        <div>
+          <h2 className="text-sm font-semibold">Reading this job with AI…</h2>
+          <p className="mt-0.5 text-xs text-muted">This page has no job data, so Wera reads the posting. You check it before it saves.</p>
+        </div>
+        <Skeleton className="h-24" />
+      </Card>
+    );
+  }
 
   const save = async () => {
     setSaving(true);
@@ -229,7 +254,7 @@ export function JobTab({ api, page }: { api: WeraApi; page: Page }) {
       <Button variant="primary" className="w-full" onClick={() => void save()} busy={saving} disabled={!canSave}>
         Save to Wera
       </Button>
-      <p className="text-[11px] text-faint">It joins your Jobs and Tracker (as saved) and gets a fit score. Wera also shows it to other people it suits.</p>
+      <p className="text-[11px] text-faint">It joins your Jobs and Tracker (as saved) and gets a fit score. Wera also adds it to its jobs, scores it for other people it suits, and watches the employer's job board.</p>
     </Card>
   );
 }

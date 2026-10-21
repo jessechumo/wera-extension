@@ -160,12 +160,11 @@ test('fill a multi-step application, then mark it applied', async () => {
   await expect(job.getByRole('heading', { name: 'Application questions' })).toBeVisible();
   await shot(panel, 'steps-panel');
 
-  // The user submits; the thank-you page lets Wera update the tracker.
+  // The user submits; Wera sees the thank-you page and moves the job to Applied on its own.
   await job.locator('#submit').click();
-  await expect(panel.getByText(/Looks like you submitted it/)).toBeVisible({ timeout: 10_000 });
-  await panel.getByRole('button', { name: 'Mark as applied' }).first().click();
-  await expect(panel.getByText(/Marked as applied in your Wera tracker/)).toBeVisible();
+  await expect(panel.getByText(/Application sent. Marked as applied/)).toBeVisible({ timeout: 15_000 });
   await shot(panel, 'applied');
+  await shot(job, 'applied-toast');
 
 });
 
@@ -194,13 +193,16 @@ test('fill an application embedded from another site, and read it again after a 
   await expect(form.locator('#fn')).not.toHaveValue('');
 });
 
-test('shows the Wera button on job pages it may read', async () => {
+test('slides the Wera dock in on job pages', async () => {
   const job = await context.newPage();
   await job.goto(`${site}/jobs/${run}/sre/apply`);
-  await expect(job.locator('wera-launcher')).toHaveCount(1, { timeout: 10_000 });
-  // The page turns into something that is neither a posting nor an application: the button goes.
+  const dock = job.locator('wera-launcher');
+  await expect(dock).toHaveJSProperty('hidden', false, { timeout: 10_000 });
+  await job.waitForTimeout(500); // the slide-in
+  await shot(job, 'dock-form');
+  // The page turns into something that is neither a posting nor an application: the dock goes.
   await job.evaluate(() => { document.body.innerHTML = '<p>Just a blog post now.</p>'; });
-  await expect(job.locator('wera-launcher')).toHaveCount(0, { timeout: 10_000 });
+  await expect(dock).toHaveJSProperty('hidden', true, { timeout: 10_000 });
 });
 
 test('the dashboard tells the extension which job a tab is for', async () => {

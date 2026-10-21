@@ -4,7 +4,7 @@ import {
   AlertTriangle, ArrowRight, Bot, CheckCircle2, ChevronDown, Circle, FileText, Flag, History, LoaderCircle, MessageSquareText,
   PartyPopper, RotateCcw, ScanSearch, Sparkles, UserRound, Wand2,
 } from 'lucide-react';
-import { ApiError, type ResumeFile, type SuggestField, type Suggestion, type WeraApi } from '../shared/api';
+import { ApiError, type ApplicationStatus, type ResumeFile, type SuggestField, type Suggestion, type WeraApi } from '../shared/api';
 import { clearLegacyAnswers, loadLegacyAnswers, matchAnswers, type SavedAnswer } from '../shared/answers';
 import { loadFlow, saveFlow, type Flow } from '../shared/flow';
 import type { Settings } from '../shared/settings';
@@ -329,7 +329,8 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
 
   return (
     <div className="space-y-3 pb-16">
-      {page.submitted && page.job && (
+      {page.autoApplied && page.job && <AutoApplied api={api} page={page} />}
+      {page.submitted && page.job && !page.autoApplied && (
         <MarkApplied api={api} page={page} lead={<span className="inline-flex items-center gap-1.5 font-medium text-text"><PartyPopper className="size-3.5 text-accent" /> Looks like you submitted it.</span>} />
       )}
       {page.newStep > 0 && phase !== 'continuing' && plan && (
@@ -572,6 +573,32 @@ function Question({ r, api, page, memory, posting, onAnswer }: {
       )}
       {note && <p className="mt-1.5 text-[11px] text-warn">{note}</p>}
     </li>
+  );
+}
+
+/** Wera marked the job applied when the site confirmed it: say so, with an undo. */
+function AutoApplied({ api, page }: { api: WeraApi; page: Page }) {
+  const job = page.job!;
+  const [busy, setBusy] = useState(false);
+  const previous = (page.autoApplied?.previous ?? 'saved') as ApplicationStatus;
+  if (job.application_status !== 'applied') return null;
+  const undo = async () => {
+    setBusy(true);
+    try {
+      page.setJob(await api.setStatus(job.id, previous === 'applied' ? 'saved' : previous));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="rounded-xl border border-good/30 bg-good/[0.07] p-3 text-xs">
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-text"><PartyPopper className="size-4 text-accent" /> Application sent. Marked as applied.</p>
+      <p className="mt-1 text-muted">{job.title} at {job.company} is in Applied in your Wera tracker. Good luck!</p>
+      <div className="mt-2 flex gap-3">
+        <a href={api.dashboardUrl('/tracker')} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">Open the tracker</a>
+        <button type="button" className="text-faint hover:text-text" onClick={() => void undo()} disabled={busy}>Undo</button>
+      </div>
+    </div>
   );
 }
 

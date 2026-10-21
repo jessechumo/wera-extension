@@ -1,8 +1,10 @@
 // The user's choices for how the extension behaves (this browser only).
 
 export interface Settings {
-  /** Show the Wera button on job pages Wera may read. */
+  /** Show the Wera dock on job postings and application forms. */
   launcher: boolean;
+  /** Move the job to Applied when the site confirms the application. */
+  autoApplied: boolean;
   /** Ask the AI for fields Wera could not fill from what it knows. */
   aiSuggest: boolean;
   /** After Continue, fill the next page as soon as it appears. */
@@ -11,7 +13,7 @@ export interface Settings {
   learn: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { launcher: true, aiSuggest: true, autoContinue: true, learn: true };
+export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true };
 
 export const SETTINGS_KEY = 'wera.settings';
 

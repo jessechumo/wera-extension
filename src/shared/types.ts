@@ -173,6 +173,8 @@ export interface PageInfo {
   frameOrigins?: string[];
   /** Changes when the page reloads or another page loads in the tab. */
   docId?: string;
+  /** The page looks like a job posting or an application, even without job data. */
+  jobLike?: boolean;
 }
 
 // Messages from the side panel to the content script.
