@@ -8,7 +8,7 @@ import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
 import { pageKind } from './detect';
 import { pressNext } from './next';
-import { applyItems, highlight, planForm, snapshot } from './plan';
+import { addEntries, applyItems, highlight, planForm, snapshot } from './plan';
 import { mainText } from './text';
 import { bodyText, looksSubmitted, watchPage } from './watch';
 
@@ -74,6 +74,9 @@ if (!window.__weraContent) {
           resume: msg.resume, coverLetter: msg.coverLetter, letterFile: msg.letterFile, pace: msg.pace,
           onProgress: (result) => void chrome.runtime.sendMessage({ type: 'wera:fill-progress', result }).catch(() => {}),
         }).then(reply, () => reply([]));
+        return true; // async reply
+      case 'wera:add-entries':
+        addEntries(document, msg.section, msg.count).then((added) => reply({ added }), () => reply({ added: 0 }));
         return true; // async reply
       case 'wera:snapshot':
         reply(snapshot(document));

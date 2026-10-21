@@ -2,11 +2,12 @@
 // typed: every field, what it shows now, and what Wera would enter and
 // why. Then fills exactly the values the user approved, one at a time,
 // reporting each as it lands.
-import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, FillItem, FillResult, KnownAnswer, PagePlan, ValueSource } from '../shared/types';
+import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, FillItem, FillResult, KnownAnswer, PagePlan, Profile, ValueSource } from '../shared/types';
+import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
 import { bestAnswer } from '../shared/answers';
 import { classify, SELF_ID } from './classify';
 import { byId, collectFields, isPressed, listboxValue, type Field } from './fields';
-import { attachFile, base64ToFile, comboboxChoice, enterValue, mark, matchOption, setNativeValue, valueFor, wait } from './fill';
+import { attachFile, base64ToFile, comboboxChoice, enterValue, isPlaceholderOption, mark, matchOption, setNativeValue, valueFor, wait } from './fill';
 import { findNext, invalidCount } from './next';
 
 /** The value marker for "attach the resume" (a file input). */
@@ -72,12 +73,12 @@ export interface PlanOptions {
   coverLetter?: boolean;
 }
 
-/** One field's plan: what it shows, what Wera proposes, from where. */
-export function planField(f: Field, a: Applicant, opts: PlanOptions = {}): FieldPlan {
-  const purpose = classify(f);
+/** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
+export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
+  const purpose = placed?.purpose ?? classify(f);
   const plan: FieldPlan = {
     id: f.id, label: f.label.slice(0, 200), purpose, kind: f.kind,
-    options: f.options.map((o) => o.label).filter((l) => l && !/^(select|choose|please select|--)/i.test(l)).slice(0, 120),
+    options: f.options.map((o) => o.label).filter((l) => l && !isPlaceholderOption(l)).slice(0, 120),
     required: f.required, current: currentValue(f), value: '', source: null, group: groupOf(purpose),
   };
   const max = (f.el as HTMLTextAreaElement).maxLength;
@@ -107,10 +108,36 @@ export function planField(f: Field, a: Applicant, opts: PlanOptions = {}): Field
     plan.note = 'attach this file yourself';
     return plan;
   }
+  if (placed) {
+    plan.entry = placed.entry;
+    const what = placed.purpose.startsWith('exp_') ? 'job' : 'school';
+    const v = entryValue(f, placed, a);
+    if (v) {
+      const shown = asOption(f, v, purpose);
+      if (shown != null) {
+        propose(shown, 'resume', `${ordinal(placed.entry)} ${what} on your resume`);
+        return plan;
+      }
+      plan.note = `no option matches "${v}"`;
+      return plan;
+    }
+    const have = placed.purpose.startsWith('exp_') ? (a as Profile).experience?.length ?? 0 : (a as Profile).education?.length ?? 0;
+    plan.note = placed.entry >= have ? `your resume lists ${have} ${what}${have === 1 ? '' : 's'}` : placed.purpose === 'exp_end' ? 'you still work there' : 'not on your resume';
+    return plan;
+  }
 
+  // A skills picker takes one tag at a time: the user picks them.
+  if (purpose === 'skills' && f.kind !== 'text' && f.kind !== 'textarea') {
+    plan.note = 'pick your skills from its list';
+    return plan;
+  }
   // The user's details first (never for open questions), then answers they gave before.
   if (purpose && purpose !== 'question') {
-    const v = valueFor(purpose, a);
+    let raw = valueFor(purpose, a);
+    // A city picker lists every Dallas: search with the state to pick the right one.
+    if (purpose === 'city' && raw && a.state && (f.kind === 'combobox' || f.kind === 'listbox')) raw = `${raw}, ${a.state}`;
+    // Typed into a box, a yes/no answer reads as a person writes it.
+    const v = (f.kind === 'text' || f.kind === 'textarea') && /^(yes|no)$/.test(raw) ? raw[0]!.toUpperCase() + raw.slice(1) : raw;
     if (v) {
       const shown = asOption(f, v, purpose);
       if (shown != null) {
@@ -134,10 +161,52 @@ export function planField(f: Field, a: Applicant, opts: PlanOptions = {}): Field
   return plan;
 }
 
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth'];
+const ordinal = (i: number) => (ORDINALS[i] ?? `#${i + 1}`).replace(/^./, (c) => c.toUpperCase());
+
+/** The fields with their purposes, job and school blocks numbered. */
+export function placeFields(fields: Field[]): Map<string, Placed> {
+  return placeEntries(fields.map((f) => {
+    const purpose = classify(f);
+    return { id: f.id, purpose, part: purpose && ENTRY_PURPOSES.has(purpose) ? datePart(f) : null };
+  }));
+}
+
+// How many blocks Wera adds at most: forms rarely want more than the recent ones.
+const MAX_BLOCKS: Record<Section, number> = { experience: 3, education: 2 };
+
+/** Sections that could take more of the resume's jobs or schools through their Add button. */
+function adders(root: ParentNode, fields: FieldPlan[], p: Profile): NonNullable<PagePlan['adders']> {
+  const out: NonNullable<PagePlan['adders']> = [];
+  for (const section of ['experience', 'education'] as Section[]) {
+    const have = (section === 'experience' ? p.experience : p.education)?.length ?? 0;
+    const blocks = fields.filter((f) => f.entry != null && f.purpose?.startsWith(section === 'experience' ? 'exp_' : 'edu_'));
+    const shown = blocks.length ? Math.max(...blocks.map((f) => f.entry!)) + 1 : 0;
+    const want = Math.min(have, MAX_BLOCKS[section]);
+    if (want > shown && findAdder(root, section)) out.push({ section, missing: want - shown });
+  }
+  return out;
+}
+
+/** Presses a section's Add button count times, waiting for each new block. */
+export async function addEntries(root: ParentNode, section: Section, count: number, delay = 600): Promise<number> {
+  let added = 0;
+  for (let i = 0; i < Math.min(count, 4); i++) {
+    const b = findAdder(root, section);
+    if (!b) break;
+    b.click();
+    added++;
+    await wait(delay);
+  }
+  return added;
+}
+
 /** The whole page: its fields in order, its Next button, and fields the site flags. */
-export function planForm(root: ParentNode, a: Applicant, opts: PlanOptions = {}): PagePlan {
-  const fields = collectFields(root).map((f) => planField(f, a, opts)).filter((p) => p.purpose !== null || p.label !== '' || p.required);
-  return { fields, next: findNext(root), errors: invalidCount(root) };
+export function planForm(root: ParentNode, a: Applicant | Profile, opts: PlanOptions = {}): PagePlan {
+  const all = collectFields(root);
+  const placed = placeFields(all);
+  const fields = all.map((f) => planField(f, a, opts, placed.get(f.id))).filter((p) => p.purpose !== null || p.label !== '' || p.required);
+  return { fields, next: findNext(root), errors: invalidCount(root), adders: adders(root, fields, a) };
 }
 
 export interface ApplyOptions {

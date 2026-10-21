@@ -264,3 +264,145 @@ describe('values and options', () => {
     expect(matchOption(opts(['Man', 'Woman']), 'decline', 'gender')).toBeNull();
   });
 });
+
+describe('options by meaning', () => {
+  const opts = (labels: string[]) => labels.map((label) => ({ label, value: label }));
+  const pick = (labels: string[], value: string, purpose: Parameters<typeof matchOption>[2]) => matchOption(opts(labels), value, purpose)?.label ?? null;
+
+  it('gender, however the form words it, never "Female" for male', () => {
+    expect(pick(['Man', 'Woman', 'Non-binary', 'I prefer not to say'], 'Male', 'gender')).toBe('Man');
+    expect(pick(['Female', 'Male', 'Decline To Self Identify'], 'Male', 'gender')).toBe('Male');
+    expect(pick(['Female', 'Male (he/him)'], 'Male', 'gender')).toBe('Male (he/him)');
+    expect(pick(['Woman', 'Man'], 'Female', 'gender')).toBe('Woman');
+    expect(pick(['Male', 'Female', 'Genderqueer / Non-binary'], 'Non-binary', 'gender')).toBe('Genderqueer / Non-binary');
+  });
+
+  it('declining, in the many ways forms say it', () => {
+    for (const d of ['Decline To Self Identify', 'I don\'t wish to answer', 'I do not want to answer', 'Prefer not to disclose', 'Choose not to disclose', 'Not Declared', 'I wish not to answer']) {
+      expect(pick(['Male', 'Female', d], 'decline', 'gender'), d).toBe(d);
+    }
+  });
+
+  it('race, sexual orientation and Hispanic origin', () => {
+    expect(pick(['White (Not Hispanic or Latino)', 'Black or African American (Not Hispanic or Latino)', 'Two or More Races (Not Hispanic or Latino)'], 'Black or African American', 'race'))
+      .toBe('Black or African American (Not Hispanic or Latino)');
+    expect(pick(['Asian (United States of America)', 'White (United States of America)'], 'White', 'race')).toBe('White (United States of America)');
+    expect(pick(['Multiracial', 'Asian'], 'Two or more races', 'race')).toBe('Multiracial');
+    expect(pick(['Straight / Heterosexual', 'Gay', 'Lesbian', 'Bisexual'], 'Heterosexual or straight', 'sexual_orientation')).toBe('Straight / Heterosexual');
+    expect(pick(['Hispanic or Latino', 'Not Hispanic or Latino', 'Decline to self-identify'], 'no', 'hispanic')).toBe('Not Hispanic or Latino');
+  });
+
+  it('veteran and disability statements as Greenhouse, Lever and Workday word them', () => {
+    const vet = ['I am not a protected veteran', 'I identify as one or more of the classifications of protected veteran', "I don't wish to answer"];
+    expect(pick(vet, 'I am not a protected veteran', 'veteran')).toBe('I am not a protected veteran');
+    expect(pick(vet, 'I am a protected veteran', 'veteran')).toBe('I identify as one or more of the classifications of protected veteran');
+    expect(pick(['I am not a veteran', 'I am a veteran, but not a protected veteran', 'I am a protected veteran'], 'I am not a protected veteran', 'veteran')).toBe('I am not a veteran');
+    const dis = ['Yes, I have a disability (or previously had a disability)', "No, I don't have a disability and have not had one in the past", 'I do not want to answer'];
+    expect(pick(dis, 'No, I do not have a disability', 'disability')).toBe("No, I don't have a disability and have not had one in the past");
+    expect(pick(dis, 'Yes, I have a disability', 'disability')).toBe('Yes, I have a disability (or previously had a disability)');
+    expect(pick(dis, 'decline', 'disability')).toBe('I do not want to answer');
+  });
+
+  it('degrees by level, months and ranges of years', () => {
+    expect(pick(["Bachelor's Degree", "Master's Degree", 'MBA', 'PhD'], 'Master of Science', 'degree')).toBe("Master's Degree");
+    expect(pick(['High School', 'Associates', 'Bachelors', 'Masters'], 'B.S.', 'degree')).toBe('Bachelors');
+    expect(pick(['BA', 'BS', 'MS', 'PhD'], 'Doctor of Philosophy', 'degree')).toBe('PhD');
+    expect(pick(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], 'May', 'exp_start')).toBe('May');
+    expect(pick(['01', '02', '03', '04', '05', '06'], 'March', 'edu_end')).toBe('03');
+    const years = ['Less than 1 year', '1-2 years', '3-5 years', '6-10 years', '10+ years'];
+    expect(pick(years, '4', 'years_experience')).toBe('3-5 years');
+    expect(pick(years, '0', 'years_experience')).toBe('Less than 1 year');
+    expect(pick(years, '12', 'years_experience')).toBe('10+ years');
+  });
+
+  it('whole words only when nothing else matches', () => {
+    expect(pick(['Data Science', 'Computer Science and Engineering'], 'Computer Science', 'major')).toBe('Computer Science and Engineering');
+    expect(pick(['Female'], 'male', 'how_heard')).toBeNull();
+  });
+});
+
+describe('phone parts', () => {
+  it('fills the device type and the country code beside the number', async () => {
+    document.body.innerHTML = `<form>
+      <label for="t">Phone Device Type</label><select id="t"><option value="">Select One</option><option>Landline</option><option>Mobile</option></select>
+      <label for="c">Country Phone Code</label><select id="c"><option value="">Select One</option><option>Canada (+1)</option><option>United States of America (+1)</option></select>
+      <label for="n">Phone Number</label><input id="n"></form>`;
+    const out = await fillForm(document, { ...ada, phone: '469 555 0101', country: 'United States' }, {});
+    expect(out.map((r) => [r.purpose, r.value])).toEqual([['phone_type', 'Mobile'], ['phone_code', 'United States of America (+1)'], ['phone', '469 555 0101']]);
+  });
+});
+
+describe('names worded differently', () => {
+  const opts = (labels: string[]) => labels.map((label) => ({ label, value: label }));
+  it('finds the school in a long list, and stays out of a tie', () => {
+    const list = opts(['Texas A&M University', 'The University of Texas at Austin', 'The University of Texas at Dallas', 'University of Dallas']);
+    expect(matchOption(list, 'University of Texas at Dallas', 'school')?.label).toBe('The University of Texas at Dallas');
+    expect(matchOption(opts(['University of Texas - Dallas', 'Dallas College']), 'University of Texas at Dallas', 'edu_school')?.label).toBe('University of Texas - Dallas');
+    expect(matchOption(opts(['Texas Tech (Dallas)', 'Texas State Dallas']), 'University of Texas at Dallas', 'school')).toBeNull();
+  });
+
+  it('reads the questions real forms ask', () => {
+    const at = (label: string, kind = 'text') => {
+      document.body.innerHTML = kind === 'select' ? `<label for="x">${label}</label><select id="x"><option>Yes</option><option>No</option></select>` : `<label for="x">${label}</label><input id="x">`;
+      return classify(collectFields(document)[0]!);
+    };
+    expect(at('Are you subject to any employment agreements and/or post-employment restrictions with your current employer?', 'select')).toBeNull();
+    expect(at('Name Pronunciation | How do you pronounce your name?')).toBe('question');
+    expect(at('Will you now or in the future require sponsorship for employment visa status?', 'select')).toBe('needs_sponsorship');
+    expect(at('Please tell us how you heard about this opportunity.', 'select')).toBe('how_heard');
+    expect(at("What's the name you'd prefer us to use throughout the interview process?")).toBe('preferred_name');
+    expect(at('Are you legally authorized to work in the country for which you are applying?', 'select')).toBe('authorized_to_work');
+    document.body.innerHTML = '<label>Attach<input type="file" id="cover_letter" name="cover_letter"></label>';
+    expect(classify(collectFields(document)[0]!)).toBe('cover_letter');
+  });
+});
+
+describe('more questions from real forms', () => {
+  const first = (html: string) => {
+    document.body.innerHTML = html;
+    return classify(collectFields(document)[0]!);
+  };
+  it('tells essays, tick boxes and race lists from details', () => {
+    expect(first('<label for="a">How are you using AI today in your current role? If applicable, show us.</label><textarea id="a"></textarea>')).toBe('question');
+    expect(first('<label><input type="checkbox" id="li"> LinkedIn</label>')).toBeNull();
+    expect(first(`<fieldset><legend>Race</legend><p>Hispanic or Latino - A person of Cuban, Mexican...</p>
+      <label><input type="radio" name="r" value="1">Hispanic or Latino</label><label><input type="radio" name="r" value="2">White (Not Hispanic or Latino)</label>
+      <label><input type="radio" name="r" value="3">Black or African American (Not Hispanic or Latino)</label><label><input type="radio" name="r" value="4">Asian (Not Hispanic or Latino)</label></fieldset>`)).toBe('race');
+    expect(first('<label for="x">X</label><input id="x">')).toBe('twitter');
+    expect(first('<label for="l">Legal Name (if different than above)</label><input id="l">')).toBeNull();
+    expect(first('<label for="c">Cover letter</label><textarea id="c"></textarea>')).toBe('cover_letter');
+  });
+});
+
+describe('never the opposite answer', () => {
+  it('leaves a veteran question when no option means "not a protected veteran"', () => {
+    const robinhood = ['I am on active duty', 'I have never served in the military', 'I identify as a protected veteran', 'I identify as a non-protected veteran', "I don't wish to answer"]
+      .map((label) => ({ label, value: label }));
+    expect(matchOption(robinhood, 'I am not a protected veteran', 'veteran')).toBeNull();
+  });
+});
+
+describe('boxes that suggest places', () => {
+  it('types the city and picks the matching suggestion (Lever)', async () => {
+    document.body.innerHTML = `<form><label>Current location <div class="application-field"><input class="location-input" id="loc" name="location">
+      <div class="dropdown-container"><div class="dropdown-results"></div></div></div></label></form>`;
+    const input = document.querySelector<HTMLInputElement>('#loc')!;
+    const results = document.querySelector('.dropdown-results')!;
+    input.addEventListener('input', () => {
+      results.innerHTML = input.value ? ['Dallas, TX, USA', 'Dallas, OR, USA'].map((t, i) => `<div class="dropdown-location" id="l${i}">${t}</div>`).join('') : '';
+      results.querySelectorAll('.dropdown-location').forEach((d) => d.addEventListener('click', () => { input.value = d.textContent!; results.innerHTML = ''; }));
+    });
+    const out = await fillForm(document, { ...ada, city: 'Dallas', state: 'TX', country: 'United States' }, {});
+    expect(out[0]).toMatchObject({ purpose: 'location', status: 'filled', value: 'Dallas, TX, USA' });
+  });
+});
+
+describe('places', () => {
+  const opts = (labels: string[]) => labels.map((label) => ({ label, value: label }));
+  it('picks the right Dallas', () => {
+    const list = opts(['Dallas, Georgia, United States', 'Dallas, Texas, United States', 'Dallas, Oregon, United States']);
+    expect(matchOption(list, 'Dallas, TX', 'location')?.label).toBe('Dallas, Texas, United States');
+    expect(matchOption(opts(['Dallas, OR, USA', 'Dallas, TX, USA']), 'Dallas, TX', 'city')?.label).toBe('Dallas, TX, USA');
+    expect(matchOption(list, 'Dallas, WA', 'location')).toBeNull();
+  });
+});
