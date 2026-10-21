@@ -1,3 +1,4 @@
+import type { JobDraft } from './types';
 import type { WeraUser } from './api';
 
 /** Where the extension keeps its sign-in (chrome.storage.local). */
@@ -48,4 +49,27 @@ export function normalizeServer(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+const TAB_PAGES = 'wera.tabPages';
+
+/** What the Wera dock saw in a tab: when it last showed a form, and the posting it last showed. */
+export interface TabPage {
+  formAt?: number;
+  draft?: JobDraft;
+  at: number;
+}
+
+export async function tabPages(): Promise<Record<string, TabPage>> {
+  const got = await chrome.storage.session.get(TAB_PAGES);
+  return (got[TAB_PAGES] as Record<string, TabPage> | undefined) ?? {};
+}
+
+export async function notePage(tabId: number, patch: Partial<TabPage>): Promise<TabPage> {
+  const map = await tabPages();
+  const next = { ...map[tabId], ...patch, at: Date.now() };
+  map[tabId] = next;
+  for (const [k, v] of Object.entries(map)) if (Date.now() - v.at > 12 * 3600_000) delete map[k];
+  await chrome.storage.session.set({ [TAB_PAGES]: map });
+  return next;
 }

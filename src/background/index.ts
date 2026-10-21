@@ -1,13 +1,12 @@
 // Opens the side panel from the toolbar icon, adds "Open Wera on this
 // page" to the right-click menu, handles the keyboard shortcuts
 // (Alt+Shift+W opens Wera; Alt+Shift+F opens it and fills the form),
-// keeps the Wera button on the job sites the user allowed, and keeps the
-// dashboard bridge: which job the dashboard opened in a tab.
+// answers the Wera dock on job pages, and keeps the dashboard bridge:
+// which job the dashboard opened in a tab.
 import { expectHandoff, syncBridge, takeHandoff } from '../shared/bridge';
-import { syncLauncher } from '../shared/launcher';
+import { isDockRequest, PENDING_VIEW, type PanelView, type PendingView } from '../shared/dock';
 import { loadSession } from '../shared/storage';
-
-export const PENDING_FILL = 'wera.pendingFill';
+import { handleDock } from './dock';
 
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -21,16 +20,14 @@ chrome.runtime.onStartup.addListener(() => void syncAll());
 let syncing: Promise<void> = Promise.resolve();
 
 /**
- * The dashboard bridge on the user's server, the Wera button on the sites
- * they allowed. Runs one at a time: signing in fires several events at once
- * (permission granted, session saved), and overlapping runs could
- * unregister what another just registered.
+ * The dashboard bridge on the user's server. Runs one at a time: signing
+ * in fires several events at once (permission granted, session saved),
+ * and overlapping runs could unregister what another just registered.
  */
 function syncAll(): Promise<void> {
   syncing = syncing.then(async () => {
     const s = await loadSession();
     await syncBridge(s?.server ?? null);
-    await syncLauncher(s?.server ?? null);
   }).catch(() => {});
   return syncing;
 }
@@ -40,15 +37,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes['wera.session']) void syncAll();
 });
 
-// Allowing or removing a site adds or drops the Wera button there.
-chrome.permissions.onAdded.addListener(() => void syncAll());
-chrome.permissions.onRemoved.addListener(() => void syncAll());
+// Older installs registered the Wera button per site; the dock now runs everywhere from the manifest.
+chrome.runtime.onInstalled.addListener(() => void chrome.scripting.unregisterContentScripts({ ids: ['wera-launcher'] }).catch(() => {}));
 
-/** Opens the panel (this must happen inside the user's gesture) and, for a fill, leaves the request for it. */
-function openPanel(tab: chrome.tabs.Tab | undefined, fill: boolean) {
+/**
+ * Opens the panel (this must happen inside the user's gesture) and leaves
+ * it the view to show and whether to fill.
+ */
+function openPanel(tab: chrome.tabs.Tab | undefined, fill: boolean, view?: PanelView) {
   if (tab?.id == null) return;
   void chrome.sidePanel.open({ tabId: tab.id });
-  if (fill) void chrome.storage.session.set({ [PENDING_FILL]: { tabId: tab.id, at: Date.now() } });
+  if (fill || view) {
+    const p: PendingView = { tabId: tab.id, at: Date.now(), view: view ?? 'apply', fill };
+    void chrome.storage.session.set({ [PENDING_VIEW]: p });
+  }
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -59,11 +61,15 @@ chrome.commands.onCommand.addListener((command, tab) => {
   if (command === 'fill-form') openPanel(tab, true);
 });
 
-// The Wera button on a job page: open the panel (inside the click) and fill a form.
-chrome.runtime.onMessage.addListener((msg: { type?: string; fill?: unknown }, sender) => {
-  if (msg?.type !== 'wera:launcher-open' || sender.tab?.id == null || sender.id !== chrome.runtime.id) return false;
-  openPanel(sender.tab, msg.fill === true);
-  return false;
+// The Wera dock on a job page: open the panel at once (inside the click), or ask Wera something.
+chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
+  if (!isDockRequest(msg) || sender.tab?.id == null || sender.id !== chrome.runtime.id) return false;
+  if (msg.type === 'wera:dock-open') {
+    openPanel(sender.tab, msg.fill === true, msg.view);
+    return false;
+  }
+  handleDock(msg, sender.tab.id, sender.tab.url ?? '').then(reply, () => reply(null));
+  return true; // async reply
 });
 
 // "Apply on Acme's site" in the dashboard: remember the job, then tie it

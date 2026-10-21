@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Copy, PenLine, RefreshCw, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Copy, Download, FilePlus2, PenLine, RefreshCw, SlidersHorizontal, Sparkles } from 'lucide-react';
 import type { CoverLetter, LetterSteer, WeraApi } from '../shared/api';
 import { NeedJob } from './NeedJob';
-import { insertCoverLetter } from './page';
+import { attachToForm, insertCoverLetter } from './page';
 import { Button, Card, INPUT, Notice, Skeleton, errorText } from './ui';
 import type { usePage } from './usePage';
 
@@ -48,7 +48,7 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
   const [letter, setLetter] = useState<CoverLetter | null | undefined>(undefined);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState<'' | 'write' | 'save'>('');
+  const [busy, setBusy] = useState<'' | 'write' | 'save' | 'add'>('');
   const [steer, setSteer] = useState<LetterSteer>({});
   const [steering, setSteering] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null);
@@ -78,11 +78,34 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
       setBusy('');
     }
   };
-  const insertIntoPage = async () => {
+  const openLetterPdf = async () => {
+    const f = await api.coverLetterPdf(job.id).catch((e: unknown) => {
+      setMsg({ tone: 'bad', text: errorText(e) });
+      return null;
+    });
+    if (!f) return;
+    const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
+    await chrome.tabs.create({ url: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })) });
+  };
+
+  /** Puts the letter into the form: its cover letter box, else its cover letter upload (as a PDF). */
+  const addToApplication = async () => {
     if (!page.tab) return;
-    const r = await insertCoverLetter(page.tab, text).catch(() => ({ ok: false }));
-    setMsg(r.ok ? { tone: 'good', text: 'Inserted into the cover letter box.' }
-      : { tone: 'warn', text: 'No cover letter box on this page. Copy it, or attach it as a file.' });
+    setBusy('add');
+    setMsg(null);
+    try {
+      const typed = await insertCoverLetter(page.tab, text).catch(() => ({ ok: false }));
+      if (typed.ok) {
+        setMsg({ tone: 'good', text: 'Added to the cover letter box on the form.' });
+        return;
+      }
+      const file = await api.coverLetterPdf(job.id).catch(() => null);
+      const attached = file ? await attachToForm(page.tab, 'cover_letter', file).catch(() => ({ ok: false })) : { ok: false };
+      setMsg(attached.ok ? { tone: 'good', text: `Attached to the form as ${file!.name}.` }
+        : { tone: 'warn', text: 'This page has no cover letter box or upload. Open the application form, or copy the letter.' });
+    } finally {
+      setBusy('');
+    }
   };
 
   if (!letter) {
@@ -108,7 +131,8 @@ export function LetterTab({ api, page, onNeedJob }: { api: WeraApi; page: Page; 
           </>
         ) : (
           <>
-            <Button variant="primary" onClick={() => void insertIntoPage()}>Insert into page</Button>
+            <Button variant="primary" onClick={() => void addToApplication()} busy={busy === 'add'}><FilePlus2 className="size-3.5" /> Add to application</Button>
+            <Button onClick={() => void openLetterPdf()} title="Open the letter as a PDF"><Download className="size-3.5" /> PDF</Button>
             <Button onClick={() => void navigator.clipboard.writeText(text).then(() => setMsg({ tone: 'good', text: 'Copied.' }))}><Copy className="size-3.5" /> Copy</Button>
             <Button onClick={() => setEditing(true)}><PenLine className="size-3.5" /> Edit</Button>
             <Button variant="ghost" onClick={() => setSteering((v) => !v)} aria-pressed={steering} title="Tone, length, what to stress">

@@ -38,8 +38,8 @@ jobs:
           node -e "process.exit(${pct} < ${MIN_COVERAGE} ? 1 : 0)" \
             || { echo "::error::coverage ${pct}% is below ${MIN_COVERAGE}%"; exit 1; }
       - run: npm run package
-      - name: The release build never grants sites up front
-        run: node -e "const m=require('./dist/manifest.json'); if (m.host_permissions) { console.error('host_permissions in a release build'); process.exit(1) }"
+      - name: The release build has the real site access, not the test servers
+        run: node -e "const m=require('./dist/manifest.json'); if (JSON.stringify(m.host_permissions) !== JSON.stringify(['https://*/*','http://*/*'])) { console.error('unexpected host_permissions in a release build:', m.host_permissions); process.exit(1) }"
       - uses: actions/upload-artifact@v7
         with:
           name: wera-extension

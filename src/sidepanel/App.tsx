@@ -15,6 +15,7 @@ import { Button, Notice, Skeleton } from './ui';
 import { usePage } from './usePage';
 import { useSettings } from './useSettings';
 import { requestOrigins, requestSite } from './page';
+import { PENDING_VIEW, type PendingView } from '../shared/dock';
 
 type Tab = 'job' | 'apply' | 'letter' | 'resume' | 'settings';
 const TABS: { id: Tab; label: string; Icon: typeof Briefcase }[] = [
@@ -34,8 +35,6 @@ export function App() {
   return <Main session={session} onSignOut={() => setSession(null)} />;
 }
 
-const PENDING_FILL = 'wera.pendingFill';
-
 /** A fill request; claim() is true once per request, even if the Apply tab remounts meanwhile. */
 export interface FillRequest {
   count: number;
@@ -43,29 +42,30 @@ export interface FillRequest {
 }
 
 /**
- * A fill asked for by the keyboard shortcut or the right-click menu (the
- * background leaves it in session storage): switches to Apply and counts
- * the request for the Apply tab to carry out once.
+ * A view or a fill asked for by the dock on the page, the keyboard
+ * shortcut or the right-click menu (the background leaves it in session
+ * storage): switches to that view and counts a fill for the Apply tab to
+ * carry out once.
  */
-function usePendingFill(tabId: number | undefined, onFill: () => void): FillRequest {
+function usePendingFill(tabId: number | undefined, onView: (view: Tab) => void): FillRequest {
   const [count, setCount] = useState(0);
   const handled = useRef(0);
   useEffect(() => {
     if (tabId == null || !chrome.storage?.session) return;
     const take = (v: unknown) => {
-      const p = v as { tabId: number; at: number } | undefined;
-      if (!p || p.tabId !== tabId || Date.now() - p.at > 15_000) return;
-      void chrome.storage.session.remove(PENDING_FILL);
-      onFill();
-      setCount((c) => c + 1);
+      const p = v as Partial<PendingView> | undefined;
+      if (!p || p.tabId !== tabId || Date.now() - (p.at ?? 0) > 15_000) return;
+      void chrome.storage.session.remove(PENDING_VIEW);
+      onView(p.view ?? 'apply');
+      if (p.fill !== false) setCount((c) => c + 1);
     };
-    void chrome.storage.session.get(PENDING_FILL).then((r) => take(r[PENDING_FILL]));
+    void chrome.storage.session.get(PENDING_VIEW).then((r) => take(r[PENDING_VIEW]));
     const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area === 'session' && changes[PENDING_FILL]) take(changes[PENDING_FILL].newValue);
+      if (area === 'session' && changes[PENDING_VIEW]) take(changes[PENDING_VIEW].newValue);
     };
     chrome.storage.onChanged.addListener(onChanged);
     return () => chrome.storage.onChanged.removeListener(onChanged);
-  }, [tabId]); // eslint-disable-line react-hooks/exhaustive-deps -- onFill only switches the tab
+  }, [tabId]); // eslint-disable-line react-hooks/exhaustive-deps -- onView only switches the tab
   const claim = useCallback(() => {
     if (count <= handled.current) return false;
     handled.current = count;
@@ -85,7 +85,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
   const page = usePage(api, signOutLocal);
   const [tab, setTab] = useState<Tab>('job');
   const [settings, setSettings] = useSettings();
-  const autoFill = usePendingFill(page.tab?.id, () => setTab('apply'));
+  const autoFill = usePendingFill(page.tab?.id, setTab);
 
   // An application page opens on Apply; a posting on Job.
   const pageKey = page.page ? `${page.page.url}|${page.page.hasForm}` : '';
@@ -149,7 +149,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           </Notice>
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
-        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} settings={settings} />}
+        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} settings={settings} onNeedJob={() => setTab('job')} />}
         {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'resume' && <ResumeTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'settings' && <SettingsPanel api={api} session={session} settings={settings} onChange={setSettings} onSignOut={() => void signOut()} />}

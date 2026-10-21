@@ -4,6 +4,15 @@ import type { ContentEvent, PageInfo } from '../shared/types';
 import { bindTab, sameRole, tabHandoff } from '../shared/bridge';
 import { rememberTabJob, tabJob } from '../shared/storage';
 import { activeTab, NeedsPermission, readPage } from './page';
+import { dockJob } from '../shared/dock';
+
+/** Sent by the background when it changed the tab's job. */
+interface JobChanged {
+  type: 'wera:job-changed';
+  tabId: number;
+  job: WeraJob;
+  applied: boolean;
+}
 
 export interface PageState {
   tab: chrome.tabs.Tab | null;
@@ -18,6 +27,8 @@ export interface PageState {
   newStep: number;
   /** The page says the application went through. */
   submitted: boolean;
+  /** Wera moved the job to Applied on its own when the site confirmed it (the panel says so, with an undo). */
+  autoApplied: { previous: string | null } | null;
 }
 
 /** The fit score on the toolbar icon for this tab (cleared when there is no job). */
@@ -37,7 +48,7 @@ export function setBadge(tabId: number | undefined, job: WeraJob | null) {
  * switches tabs or a page finishes loading.
  */
 export function usePage(api: WeraApi, onUnauthorized: () => void) {
-  const [state, setState] = useState<PageState>({ tab: null, page: null, job: null, fromDashboard: false, loading: true, needsPermission: null, error: '', newStep: 0, submitted: false });
+  const [state, setState] = useState<PageState>({ tab: null, page: null, job: null, fromDashboard: false, loading: true, needsPermission: null, error: '', newStep: 0, submitted: false, autoApplied: null });
   const run = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -72,7 +83,7 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
         if (remembered) job = await api.job(remembered).catch(() => null);
       }
       setBadge(tab.id, job);
-      if (mine === run.current) setState({ tab, page, job, fromDashboard, loading: false, needsPermission: null, error: '', newStep: 0, submitted: !!page.submitted });
+      if (mine === run.current) setState({ tab, page, job, fromDashboard, loading: false, needsPermission: null, error: '', newStep: 0, submitted: !!page.submitted, autoApplied: null });
     } catch (e) {
       if (mine !== run.current) return;
       if (e instanceof ApiError && e.status === 401) {
@@ -80,7 +91,7 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
         return;
       }
       setState({
-        tab, page, job, fromDashboard, loading: false, newStep: 0, submitted: false,
+        tab, page, job, fromDashboard, loading: false, newStep: 0, submitted: false, autoApplied: null,
         needsPermission: e instanceof NeedsPermission ? e.origin : null,
         error: e instanceof NeedsPermission ? '' : e instanceof Error ? e.message : String(e),
       });
@@ -123,7 +134,18 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
   const tabId = state.tab?.id;
   useEffect(() => {
     if (!chrome.runtime?.onMessage) return;
-    const onMessage = (msg: ContentEvent, sender: chrome.runtime.MessageSender) => {
+    const onMessage = (msg: ContentEvent | JobChanged, sender: chrome.runtime.MessageSender) => {
+      // The background changed this tab's job (the dock saved it, or the site confirmed the application).
+      if (msg.type === 'wera:job-changed') {
+        if (msg.tabId !== tabId) return;
+        setBadge(tabId, msg.job);
+        setState((s) => ({
+          ...s, job: msg.job,
+          submitted: s.submitted || msg.applied,
+          autoApplied: msg.applied ? { previous: s.job?.id === msg.job.id ? s.job.application_status : null } : s.autoApplied,
+        }));
+        return;
+      }
       if (sender.tab?.id == null || sender.tab.id !== tabId) return;
       if (msg.type === 'wera:form-changed') setState((s) => ({ ...s, newStep: msg.fields }));
       else if (msg.type === 'wera:submitted') setState((s) => ({ ...s, submitted: true }));
@@ -170,7 +192,9 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
     setState((s) => {
       if (job && s.tab?.id != null && s.page) void rememberTabJob(s.tab.id, new URL(s.page.url).origin, job.id);
       setBadge(s.tab?.id, job);
-      return { ...s, job };
+      // The dock on the page shows the job as the panel has it.
+      if (job && s.tab?.id != null) void chrome.tabs.sendMessage?.(s.tab.id, { type: 'wera:dock-job', job: dockJob(job) }, { frameId: 0 })?.catch(() => {});
+      return { ...s, job, autoApplied: job?.application_status === 'applied' ? s.autoApplied : null };
     });
   };
   /** One loaded page: a reload or another page in the tab gives a new key. */

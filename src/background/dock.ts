@@ -1,0 +1,125 @@
+// The background's side of the Wera dock: it looks the page's job up in
+// Wera, saves a posting, and marks a job applied when the site confirms
+// the application. Signed-in calls happen here, never in the page.
+import { WeraApi, type WeraJob } from '../shared/api';
+import { notifyDashboard, sameRole, tabHandoff } from '../shared/bridge';
+import { dockJob, PAST_APPLIED, type DockHello, type DockRequest, type SubmitReply } from '../shared/dock';
+import { loadFlow } from '../shared/flow';
+import { loadSettings } from '../shared/settings';
+import { loadSession, notePage, rememberTabJob, tabJob, tabPages as pages } from '../shared/storage';
+
+const FORM_TTL = 3 * 3600_000;
+
+/** The signed-in API (null when signed out), telling open dashboards what changed. */
+export async function signedInApi(): Promise<WeraApi | null> {
+  const s = await loadSession();
+  return s ? new WeraApi(s.server, s.token, undefined, (path) => void notifyDashboard(s.server, path)) : null;
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The job a tab is on: by its address, else the one this tab showed on
+ * the same site (a posting before its form), else the one the dashboard
+ * opened it for, else the one an autofill in progress is for.
+ */
+export async function resolveJob(api: WeraApi, tabId: number, url: string, title = ''): Promise<WeraJob | null> {
+  const found = await api.lookup(url).then((r) => r.job).catch(() => null);
+  const origin = originOf(url);
+  let job = found;
+  if (!job) {
+    const remembered = await tabJob(tabId, origin);
+    if (remembered) job = await api.job(remembered).catch(() => null);
+  }
+  if (!job) {
+    const h = await tabHandoff(tabId);
+    const handed = h ? await api.job(h.jobId).catch(() => null) : null;
+    if (handed && (!title || sameRole(title, handed.title))) job = handed;
+  }
+  if (!job && origin) {
+    const flow = await loadFlow(tabId, new URL(url).host);
+    if (flow?.jobId) job = await api.job(flow.jobId).catch(() => null);
+  }
+  if (job && origin) await rememberTabJob(tabId, origin, job.id);
+  return job;
+}
+
+/** Tells the side panel (if open) and the tab's dock that the tab's job changed. */
+function broadcast(tabId: number, job: WeraJob, applied = false) {
+  void chrome.runtime.sendMessage({ type: 'wera:job-changed', tabId, job, applied }).catch(() => {});
+  void chrome.tabs.sendMessage(tabId, { type: 'wera:dock-job', job: dockJob(job) }, { frameId: 0 }).catch(() => {});
+}
+
+/** Answers one dock request from tab `tabId` (opening the panel is done by the caller, inside the click). */
+export async function handleDock(msg: DockRequest, tabId: number, tabUrl: string): Promise<unknown> {
+  const api = await signedInApi();
+  switch (msg.type) {
+    case 'wera:dock-hello': {
+      await notePage(tabId, msg.kind === 'form' ? { formAt: Date.now() } : msg.draft ? { draft: msg.draft } : {});
+      if (!api) return { signedIn: false, job: null } satisfies DockHello;
+      const job = await resolveJob(api, tabId, msg.url, msg.draft?.title);
+      return { signedIn: true, job: job && dockJob(job) } satisfies DockHello;
+    }
+    case 'wera:dock-save': {
+      if (!api) return null;
+      const job = await api.addJob(msg.draft);
+      await rememberTabJob(tabId, originOf(tabUrl), job.id);
+      broadcast(tabId, job);
+      return dockJob(job);
+    }
+    case 'wera:dock-status': {
+      if (!api) return null;
+      const job = await api.setStatus(msg.jobId, msg.status);
+      broadcast(tabId, job);
+      return dockJob(job);
+    }
+    case 'wera:dock-submitted':
+      return api ? submitted(api, tabId, msg.url) : ({ state: 'off' } satisfies SubmitReply);
+    case 'wera:dock-add-applied': {
+      const draft = (await pages())[tabId]?.draft;
+      if (!api || !draft) return null;
+      const added = await api.addJob(draft);
+      const job = await api.setStatus(added.id, 'applied');
+      await rememberTabJob(tabId, originOf(tabUrl), job.id);
+      broadcast(tabId, job, true);
+      return dockJob(job);
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * The site confirmed an application. When this tab showed a form lately
+ * (so it is the user's own application, not a page that merely says the
+ * words), the job moves to Applied.
+ */
+async function submitted(api: WeraApi, tabId: number, url: string): Promise<SubmitReply> {
+  const settings = await loadSettings();
+  const seen = (await pages())[tabId];
+  const host = (() => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return '';
+    }
+  })();
+  const flow = host ? await loadFlow(tabId, host) : null;
+  if (!settings.autoApplied || (!flow && !(seen?.formAt && Date.now() - seen.formAt < FORM_TTL))) return { state: 'off' };
+  const job = await resolveJob(api, tabId, url);
+  if (!job) {
+    const d = seen?.draft;
+    return { state: 'unknown', draft: d ? { title: d.title, company: d.company } : null };
+  }
+  if (job.application_status && PAST_APPLIED.has(job.application_status)) return { state: 'already', job: dockJob(job) };
+  const updated = await api.setStatus(job.id, 'applied');
+  await notePage(tabId, { formAt: 0 });
+  broadcast(tabId, updated, true);
+  return { state: 'marked', job: dockJob(updated), previous: job.application_status };
+}
