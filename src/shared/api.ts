@@ -1,5 +1,15 @@
 import type { SavedAnswer } from './answers';
-import type { Applicant, JobDraft } from './types';
+import type { Applicant, Education, Experience, JobDraft } from './types';
+
+export interface ApplicantView {
+  applicant: Applicant;
+  saved: boolean;
+  /** Details filled in (not saved) and where from: "resume" or "profile". */
+  sources: Record<string, string>;
+  experience: Experience[];
+  education: Education[];
+  skills: string[];
+}
 
 export interface WeraUser {
   id: number;
@@ -259,8 +269,14 @@ export class WeraApi {
     return this.call<WeraJob>('/api/ext/jobs', { method: 'POST', body: JSON.stringify(d) });
   }
 
-  applicant() {
-    return this.call<{ applicant: Applicant; saved: boolean }>('/api/applicant');
+  /**
+   * The application details, completed from the profile and the resume
+   * (sources says which came from where), with the resume's jobs, schools
+   * and skills. Older servers send only applicant and saved.
+   */
+  async applicant(): Promise<ApplicantView> {
+    const r = await this.call<Partial<ApplicantView> & { applicant: Applicant; saved: boolean }>('/api/applicant');
+    return { sources: {}, experience: [], education: [], skills: [], ...r };
   }
 
   coverLetter(jobId: number) {

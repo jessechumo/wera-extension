@@ -47,6 +47,7 @@ export function fakeChrome(opts: {
         if (msg.type === 'wera:snapshot') return typeof opts.snapshot === 'function' ? opts.snapshot() : (opts.snapshot ?? []);
         if (msg.type === 'wera:next') return opts.next ?? { ok: true, label: 'Next' };
         if (msg.type === 'wera:highlight') return { ok: true };
+        if (msg.type === 'wera:add-entries') return { added: (msg as unknown as { count: number }).count };
         return null;
       }),
       onActivated: { addListener: vi.fn(), removeListener: vi.fn() },

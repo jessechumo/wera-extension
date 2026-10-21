@@ -21,7 +21,11 @@ export interface Field {
   required: boolean;
   el: HTMLElement;
   options: Option[];
+  /** The repeating section it sits in (a job or school block), if any. */
+  section?: Section | null;
 }
+
+import { sectionOf, type Section } from './entries';
 
 const ID_ATTR = 'data-wera-id';
 let seq = 0;
@@ -270,5 +274,6 @@ export function collectFields(root: ParentNode): Field[] {
           : [],
     });
   }
+  for (const f of fields) f.section = sectionOf(f.el);
   return fields;
 }
