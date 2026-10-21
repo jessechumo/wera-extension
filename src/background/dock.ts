@@ -53,7 +53,7 @@ export async function resolveJob(api: WeraApi, tabId: number, url: string, title
 /** Tells the side panel (if open) and the tab's dock that the tab's job changed. */
 function broadcast(tabId: number, job: WeraJob, applied = false) {
   void chrome.runtime.sendMessage({ type: 'wera:job-changed', tabId, job, applied }).catch(() => {});
-  void chrome.tabs.sendMessage(tabId, { type: 'wera:dock-job', job: dockJob(job) }).catch(() => {});
+  void chrome.tabs.sendMessage(tabId, { type: 'wera:dock-job', job: dockJob(job) }, { frameId: 0 }).catch(() => {});
 }
 
 /** Answers one dock request from tab `tabId` (opening the panel is done by the caller, inside the click). */

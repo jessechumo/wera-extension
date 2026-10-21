@@ -63,11 +63,13 @@ async function inject(tab: chrome.tabs.Tab): Promise<number[]> {
   return ids.sort((a, b) => a - b);
 }
 
-/** Sends a request to one frame's content script. */
+/**
+ * Sends a request to one frame's content script. Always by frame id: sent
+ * to the tab, a request reaches every frame, and an embedded form's frame
+ * could answer for the top one (and fill the page's own fields).
+ */
 function sendTo<T>(tab: chrome.tabs.Tab, frameId: number, msg: ContentRequest): Promise<T> {
-  return (frameId === 0
-    ? chrome.tabs.sendMessage(tab.id!, msg)
-    : chrome.tabs.sendMessage(tab.id!, msg, { frameId }));
+  return chrome.tabs.sendMessage(tab.id!, msg, { frameId });
 }
 
 /** Sends a request to every frame; frames that do not answer are left out. */

@@ -71,7 +71,7 @@ describe('the dock in the background', () => {
     expect(calls).toContain('PUT /api/jobs/9/application');
     // The side panel and the page's dock hear of it.
     expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'wera:job-changed', tabId: TAB, applied: true }));
-    expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:dock-job' }));
+    expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:dock-job' }), { frameId: 0 });
     // Once is enough: the same confirmation again leaves it.
     expect(await handleDock({ type: 'wera:dock-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`)).toEqual({ state: 'off' });
   });

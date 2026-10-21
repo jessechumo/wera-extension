@@ -392,6 +392,8 @@ describe('side panel: guided autofill', () => {
     // No Next button: the last page is the user's to submit.
     expect(screen.getByText(/Check everything on the page, then submit it yourself/)).toBeInTheDocument();
 
+    // Every request names its frame: sent to the whole tab, an embedded form's frame could answer for the page.
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(7, expect.objectContaining({ type: 'wera:scan' }), { frameId: 0 });
     await userEvent.click(screen.getByRole('button', { name: 'Show Email on the page' }));
     expect(sentOf(sent, 'wera:highlight')).toEqual([{ type: 'wera:highlight', id: 'w1' }]);
   });

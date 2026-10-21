@@ -193,7 +193,7 @@ export function usePage(api: WeraApi, onUnauthorized: () => void) {
       if (job && s.tab?.id != null && s.page) void rememberTabJob(s.tab.id, new URL(s.page.url).origin, job.id);
       setBadge(s.tab?.id, job);
       // The dock on the page shows the job as the panel has it.
-      if (job && s.tab?.id != null) void chrome.tabs.sendMessage?.(s.tab.id, { type: 'wera:dock-job', job: dockJob(job) })?.catch(() => {});
+      if (job && s.tab?.id != null) void chrome.tabs.sendMessage?.(s.tab.id, { type: 'wera:dock-job', job: dockJob(job) }, { frameId: 0 })?.catch(() => {});
       return { ...s, job, autoApplied: job?.application_status === 'applied' ? s.autoApplied : null };
     });
   };
