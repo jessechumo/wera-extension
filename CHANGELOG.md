@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.3.0...wera-extension-v0.4.0) (2026-10-21)
+
+
+### Features
+
+* one big Autofill button, and fill jobs into Wera ([86ae999](https://github.com/jessechumo/wera-extension/commit/86ae999d45f9a7b9e7ca34f9afa652b91e1ae7a3))
+* put the cover letter and resume into the application ([391cde6](https://github.com/jessechumo/wera-extension/commit/391cde61bd61aa51b272dbbe0feae4a3aff731ed))
+* spot job pages on any site and slide in the Wera dock ([dbaa44a](https://github.com/jessechumo/wera-extension/commit/dbaa44a8d554f05e5beadba2b600d5b73405d96d))
+
+
+### Bug Fixes
+
+* send each page request to its frame only ([8d4472c](https://github.com/jessechumo/wera-extension/commit/8d4472c381218d1ac4eec05166936a218f7c0bd4))
+
 ## [0.3.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.2.2...wera-extension-v0.3.0) (2026-10-20)
 
 
