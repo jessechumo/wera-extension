@@ -378,7 +378,7 @@ describe('side panel: guided autofill', () => {
 
     await userEvent.type(screen.getByLabelText('Value for Phone'), '512 555 0142');
     expect(screen.getByLabelText('Fill Phone')).toBeChecked();
-    await userEvent.click(screen.getByRole('button', { name: 'Fill 3 fields' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Autofill 3 fields' }));
     await waitFor(() => expect(sentOf(sent, 'wera:apply')).toHaveLength(1));
     expect(sentOf(sent, 'wera:apply')[0]!.items).toEqual([
       { id: 'w1', value: 'ada@example.com' }, { id: 'w2', value: '512 555 0142' }, { id: 'w3', value: 'Terraform' },
@@ -416,7 +416,7 @@ describe('side panel: guided autofill', () => {
       'PUT /api/jobs/9/application': (init) => ((status = jsonBody<{ status: string }>(init).status), { ...job, application_status: status }),
     });
     render(<App />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Fill 1 field' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Autofill 1 field' }));
     await userEvent.click(await screen.findByRole('button', { name: /Approve & continue/ }));
     await waitFor(() => expect(sentOf(sent, 'wera:next')).toHaveLength(1));
     expect(await screen.findByText('Moving to the next page…')).toBeInTheDocument();
@@ -436,6 +436,28 @@ describe('side panel: guided autofill', () => {
     expect(await screen.findByText(/Looks like you submitted it/)).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Mark as applied' })[0]!);
     await waitFor(() => expect(status).toBe('applied'));
+  });
+
+  it('saves a job Wera lacks as it fills, so the application shows up in Wera', async () => {
+    const plan: PagePlan = { fields: [field('w1', 'Email', { purpose: 'email', value: 'a@x', source: 'details', group: 'details' })], next: null, errors: 0 };
+    const { chrome } = fakeChrome({ page: { ...page, hasForm: true }, plan });
+    signedIn(chrome);
+    let added: unknown = null;
+    let run: unknown = null;
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job: null }),
+      'GET /api/applicant': () => ({ applicant: { email: 'a@x' }, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'POST /api/ext/jobs': (init) => ((added = jsonBody(init)), { ...job, id: 9 }),
+      'POST /api/ext/autofill-runs': (init) => ((run = jsonBody(init)), { id: 1 }),
+    });
+    render(<App />);
+    expect(await screen.findByText(/not in your Wera lists yet/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Autofill 1 field' }));
+    await waitFor(() => expect(run).toMatchObject({ job_id: 9 }));
+    expect(added).toMatchObject({ company: 'Acme', title: 'SRE' });
+    expect(await screen.findByText(/Saved SRE at Acme to your Wera lists/)).toBeInTheDocument();
   });
 
   it('says when Wera marked the job applied after the site confirmed it, with an undo', async () => {

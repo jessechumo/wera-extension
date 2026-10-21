@@ -2,16 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import clsx from 'clsx';
 import {
   AlertTriangle, ArrowRight, Bot, CheckCircle2, ChevronDown, Circle, FileText, Flag, History, LoaderCircle, MessageSquareText,
-  PartyPopper, RotateCcw, ScanSearch, Sparkles, UserRound, Wand2,
+  PartyPopper, RotateCcw, ScanSearch, Sparkles, UserRound, Wand2, Zap,
 } from 'lucide-react';
 import { ApiError, type ApplicationStatus, type ResumeFile, type SuggestField, type Suggestion, type WeraApi } from '../shared/api';
+import { tabPages, type TabPage } from '../shared/storage';
 import { clearLegacyAnswers, loadLegacyAnswers, matchAnswers, type SavedAnswer } from '../shared/answers';
 import { loadFlow, saveFlow, type Flow } from '../shared/flow';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FieldPlan, FillResult, FillStatus, PagePlan, ValueSource } from '../shared/types';
 import { answersToLearn, detailsToLearn } from './learn';
 import { apply, frameField, highlightField, insert, pressNext, scan, snapshotForm } from './page';
-import { Button, Card, INPUT, Notice, errorText } from './ui';
+import { BigButton, Button, Card, INPUT, Notice, errorText } from './ui';
 import type { FillRequest } from './App';
 import type { usePage } from './usePage';
 
@@ -82,7 +83,7 @@ function host(url: string | undefined): string {
   }
 }
 
-export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page: Page; autoFill?: FillRequest; settings: Settings }) {
+export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: WeraApi; page: Page; autoFill?: FillRequest; settings: Settings; onNeedJob?: () => void }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [plan, setPlan] = useState<PagePlan | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -185,6 +186,29 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
     if (said.length) setNotice(`Saved for next time: ${said.join('; ')}.`);
   }, [api, tab, settings.learn, bank, posting]);
 
+  /**
+   * The job this application is for, in Wera: the page's job, else the
+   * posting it came from (this page's job data, or the posting the tab
+   * showed before), saved now so the application shows up in Wera.
+   */
+  const tabId = tab?.id;
+  const pageDraft = page.page?.draft;
+  const { setJob } = page;
+  const ensureJob = useCallback(async (): Promise<number | null> => {
+    if (jobId != null) return jobId;
+    const seen: Record<string, TabPage> = tabId != null ? await tabPages().catch(() => ({})) : {};
+    const draft = pageDraft ?? (tabId != null ? seen[tabId]?.draft : undefined);
+    if (!draft?.title || !draft.company) return null;
+    try {
+      const j = await api.addJob(draft);
+      setJob(j);
+      setNotice(`Saved ${j.title} at ${j.company} to your Wera lists, so this application shows up there.`);
+      return j.id;
+    } catch {
+      return null;
+    }
+  }, [api, jobId, pageDraft, setJob, tabId]);
+
   /** Fills the ticked rows one by one; each ticks off as the page reports it. */
   const fillRows = useCallback(async (list: Row[], forPlan: PagePlan | null) => {
     if (!tab) return;
@@ -199,7 +223,11 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
     const queued = new Set(items.map((i) => i.id));
     setRows((rs) => rs.map((r) => (queued.has(r.id) ? { ...r, status: 'filling', result: undefined } : r)));
     try {
-      const results = await apply(tab, items, resume ?? undefined, letter || undefined);
+      const forJob = await ensureJob();
+      // A cover letter upload gets the letter as a PDF.
+      const wantsLetterFile = list.some((r) => r.checked && r.value === LETTER && r.kind === 'file');
+      const letterFile = wantsLetterFile && forJob != null ? await api.coverLetterPdf(forJob).catch(() => null) : null;
+      const results = await apply(tab, items, resume ?? undefined, letter || undefined, undefined, letterFile ?? undefined);
       const by = new Map(results.map((x) => [x.id, x]));
       setRows((rs) => rs.map((r) => {
         const x = by.get(r.id);
@@ -211,11 +239,11 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
       // Count the page (once) in Wera's record of this application.
       if (tab.id != null && siteHost && filled.length && !counted.current) {
         counted.current = true;
-        const f = (await loadFlow(tab.id, siteHost)) ?? { runId: 0, host: siteHost, jobId, pages: 1, continuing: false, at: Date.now() };
+        const f = (await loadFlow(tab.id, siteHost)) ?? { runId: 0, host: siteHost, jobId: forJob, pages: 1, continuing: false, at: Date.now() };
         const runId = f.runId
           ? (await api.addRunPage(f.runId, filled.length, fromAI).catch(() => null), f.runId)
-          : (await api.startRun(siteHost, jobId, filled.length, fromAI).catch(() => ({ id: 0 }))).id;
-        const nextFlow = { ...f, runId, jobId, continuing: false };
+          : (await api.startRun(siteHost, forJob, filled.length, fromAI).catch(() => ({ id: 0 }))).id;
+        const nextFlow = { ...f, runId, jobId: forJob ?? f.jobId, continuing: false };
         setFlow(nextFlow);
         await saveFlow(tab.id, nextFlow);
       }
@@ -226,7 +254,7 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
       setRows((rs) => rs.map((r) => (r.status === 'filling' ? { ...r, status: undefined } : r)));
       setPhase('ready');
     }
-  }, [api, tab, resume, letter, page, siteHost, jobId, learn]);
+  }, [api, tab, resume, letter, page, siteHost, learn, ensureJob]);
 
   // Each field the page fills is reported as it lands.
   useEffect(() => {
@@ -316,6 +344,31 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
   }); // no deps: runs when a new request arrives
 
   const update = (id: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
+  /** Writes the cover letter for a form that asks for one, and ticks its field. */
+  const [writingLetter, setWritingLetter] = useState(false);
+  const writeLetter = async (row: Row) => {
+    setWritingLetter(true);
+    setError('');
+    try {
+      const forJob = await ensureJob();
+      if (forJob == null) {
+        setError('Save this job in Wera first (Job tab), then Wera can write its letter.');
+        return;
+      }
+      const l = await api.writeCoverLetter(forJob);
+      setLetter(l.body);
+      update(row.id, { value: LETTER, checked: true, source: 'letter', note: row.kind === 'file' ? 'your cover letter for this job, as a PDF' : 'your cover letter for this job', home: 'fill' });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setWritingLetter(false);
+    }
+  };
+  const rowProps = (r: Row) => ({
+    r, disabled: busy, onChange: (p: Partial<Row>) => update(r.id, p), onFind: () => tab && void highlightField(tab, r.id),
+    onWriteLetter: r.purpose === 'cover_letter' && r.value === '' ? () => void writeLetter(r) : undefined, writingLetter,
+  });
   const busy = phase === 'scanning' || phase === 'suggesting' || phase === 'filling' || phase === 'continuing';
 
   const toFill = rows.filter((r) => r.home === 'fill');
@@ -330,6 +383,14 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
   return (
     <div className="space-y-3 pb-16">
       {page.autoApplied && page.job && <AutoApplied api={api} page={page} />}
+      {plan && !page.job && phase !== 'scanning' && (
+        <Notice tone="warn">
+          <div className="flex items-center gap-2">
+            <span className="flex-1">This job is not in your Wera lists yet. Save it so this application shows up in Wera.</span>
+            {onNeedJob && <Button onClick={onNeedJob}>Save it</Button>}
+          </div>
+        </Notice>
+      )}
       {page.submitted && page.job && !page.autoApplied && (
         <MarkApplied api={api} page={page} lead={<span className="inline-flex items-center gap-1.5 font-medium text-text"><PartyPopper className="size-3.5 text-accent" /> Looks like you submitted it.</span>} />
       )}
@@ -353,11 +414,15 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
           <>
             <p className="mt-1 text-xs text-muted">
               {page.page?.hasForm
-                ? 'Wera reads the form and lists every field with what it would enter. You check the list, then it fills.'
-                : "No application form found yet. Open the job's Apply page, then fill."}
+                ? 'Wera fills what it knows from your details, earlier answers and resume, and lists the rest for you. It never submits.'
+                : "No application form found yet. Press the site's Apply button, then autofill."}
             </p>
-            <Button variant="primary" className="mt-3 w-full" onClick={() => void scanPage()} busy={busy} disabled={!tab}>
-              <ScanSearch className="size-3.5" /> Read the form
+            <BigButton className="mt-3 w-full" onClick={() => void scanAndMaybeFill(true)} busy={busy} disabled={!tab}>
+              {!busy && <Zap className="size-5" />}
+              {phase === 'scanning' ? 'Reading the form…' : phase === 'suggesting' ? 'Asking the AI…' : phase === 'filling' ? 'Filling…' : 'Autofill application'}
+            </BigButton>
+            <Button variant="ghost" className="mt-1.5 w-full" onClick={() => void scanPage()} disabled={busy || !tab}>
+              <ScanSearch className="size-3.5" /> Review the fields first
             </Button>
           </>
         ) : (
@@ -392,7 +457,7 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
         <>
           {toFill.length > 0 && (
             <Section icon={<CheckCircle2 className="size-3.5 text-good" />} title="Wera fills">
-              {toFill.map((r) => <FieldRow key={r.id} r={r} disabled={busy} onChange={(p) => update(r.id, p)} onFind={() => tab && void highlightField(tab, r.id)} />)}
+              {toFill.map((r) => <FieldRow key={r.id} {...rowProps(r)} />)}
             </Section>
           )}
           {questions.length > 0 && (
@@ -405,7 +470,7 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
           )}
           {needYou.length > 0 && (
             <Section icon={<Flag className="size-3.5 text-warn" />} title="Needs you">
-              {needYou.map((r) => <FieldRow key={r.id} r={r} disabled={busy} onChange={(p) => update(r.id, p)} onFind={() => tab && void highlightField(tab, r.id)} />)}
+              {needYou.map((r) => <FieldRow key={r.id} {...rowProps(r)} />)}
             </Section>
           )}
           {left.length > 0 && (
@@ -413,7 +478,7 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
               <ChevronDown className={clsx('size-3 transition-transform', showLeft && 'rotate-180')} /> {left.length} optional field{left.length === 1 ? '' : 's'} left alone
             </button>
           )}
-          {showLeft && <ul className="space-y-1.5">{left.map((r) => <FieldRow key={r.id} r={r} disabled={busy} onChange={(p) => update(r.id, p)} onFind={() => tab && void highlightField(tab, r.id)} />)}</ul>}
+          {showLeft && <ul className="space-y-1.5">{left.map((r) => <FieldRow key={r.id} {...rowProps(r)} />)}</ul>}
 
           {phase === 'final' && (
             <Notice tone="info">
@@ -436,9 +501,13 @@ export function ApplyTab({ api, page, autoFill, settings }: { api: WeraApi; page
             ) : (
               <>
                 <Button variant="ghost" onClick={() => void scanPage()} disabled={busy} title="Read the page again"><RotateCcw className="size-3.5" /></Button>
-                <Button variant="primary" className="flex-1" onClick={() => void fillRows(rows, plan)} busy={busy} disabled={!ticked}>
-                  {phase === 'final' || phase === 'filled' ? 'Fill again' : `Fill ${ticked} field${ticked === 1 ? '' : 's'}`}
-                </Button>
+                {phase === 'final' || phase === 'filled' ? (
+                  <Button variant="primary" className="flex-1" onClick={() => void fillRows(rows, plan)} busy={busy} disabled={!ticked}>Fill again</Button>
+                ) : (
+                  <BigButton className="flex-1" onClick={() => void fillRows(rows, plan)} busy={busy} disabled={!ticked}>
+                    {!busy && <Zap className="size-5" />} Autofill {ticked} field{ticked === 1 ? '' : 's'}
+                  </BigButton>
+                )}
               </>
             )}
           </div>
@@ -457,7 +526,9 @@ function StatusIcon({ r }: { r: Row }) {
 }
 
 /** One field: tick it, change what Wera enters, see where the value came from and how filling went. */
-function FieldRow({ r, onChange, onFind, disabled }: { r: Row; onChange: (p: Partial<Row>) => void; onFind: () => void; disabled: boolean }) {
+function FieldRow({ r, onChange, onFind, disabled, onWriteLetter, writingLetter }: {
+  r: Row; onChange: (p: Partial<Row>) => void; onFind: () => void; disabled: boolean; onWriteLetter?: () => void; writingLetter?: boolean;
+}) {
   const src = r.source ? SOURCE[r.source] : null;
   const file = r.value === RESUME || r.value === LETTER;
   const consent = r.group === 'consent';
@@ -481,7 +552,14 @@ function FieldRow({ r, onChange, onFind, disabled }: { r: Row; onChange: (p: Par
         )}
         <StatusIcon r={r} />
       </div>
-      {!consent && !file && (
+      {onWriteLetter && (
+        <div className="mt-1.5 pl-5.5">
+          <Button onClick={onWriteLetter} busy={writingLetter} disabled={disabled} title="Uses a little of your monthly AI budget">
+            <Sparkles className="size-3.5" /> Write my cover letter
+          </Button>
+        </div>
+      )}
+      {!consent && !file && !onWriteLetter && (
         <div className="mt-1.5 pl-5.5">
           {r.options.length > 0 ? (
             <select className={`${INPUT} py-1 text-xs`} value={r.value} disabled={disabled} onChange={(e) => set(e.target.value)} aria-label={`Value for ${r.label}`}>

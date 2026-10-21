@@ -118,7 +118,7 @@ test('sign in, save a job from its page, and fill its application', async () => 
   await expect(job.locator('#fn')).toHaveValue('');
   await expect(panel.getByLabel('Fill I agree to the privacy policy')).toBeDisabled();
   await shot(panel, 'apply-plan');
-  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
+  await panel.getByRole('button', { name: /Autofill \d+ fields?/ }).click();
   await expect(panel.getByLabel('Filled').first()).toBeVisible();
 
   await expect(job.locator('#fn')).not.toHaveValue('');
@@ -147,7 +147,7 @@ test('fill a multi-step application, then mark it applied', async () => {
   await job.goto(`${site}/jobs/${run}/sre/steps`);
   await job.bringToFront();
   await panel.reload();
-  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
+  await panel.getByRole('button', { name: /Autofill \d+ fields?/ }).click();
   await expect(job.locator('#fn')).not.toHaveValue('');
 
   // Approve the page: Wera presses "Save and continue", then reads and fills step 2 on its own.
@@ -173,7 +173,7 @@ test('fill an application embedded from another site, and read it again after a 
   await job.goto(`${site}/jobs/${run}/sre/embedded`);
   const panel = await openPanel();
   await expect(panel.getByRole('tab', { name: 'Apply' })).toHaveAttribute('aria-selected', 'true');
-  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
+  await panel.getByRole('button', { name: /Autofill \d+ fields?/ }).click();
   const form = job.frameLocator('#grnhse_iframe');
   await expect(form.locator('#fn')).not.toHaveValue('');
   await expect(form.locator('#em')).toHaveValue(/@/);
@@ -189,7 +189,7 @@ test('fill an application embedded from another site, and read it again after a 
   await expect(form.locator('#fn')).toHaveValue('');
   await job.bringToFront();
   await panel.reload();
-  await panel.getByRole('button', { name: /^Fill \d+ fields?$/ }).click();
+  await panel.getByRole('button', { name: /Autofill \d+ fields?/ }).click();
   await expect(form.locator('#fn')).not.toHaveValue('');
 });
 

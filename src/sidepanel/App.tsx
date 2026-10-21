@@ -149,7 +149,7 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
           </Notice>
         ) : null}
         {tab === 'job' && <JobTab api={api} page={page} />}
-        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} settings={settings} />}
+        {tab === 'apply' && <ApplyTab key={page.pageKey} api={api} page={page} autoFill={autoFill} settings={settings} onNeedJob={() => setTab('job')} />}
         {tab === 'letter' && <LetterTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'resume' && <ResumeTab key={page.job?.id ?? 0} api={api} page={page} onNeedJob={() => setTab('job')} />}
         {tab === 'settings' && <SettingsPanel api={api} session={session} settings={settings} onChange={setSettings} onSignOut={() => void signOut()} />}
