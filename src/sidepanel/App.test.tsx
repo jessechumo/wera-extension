@@ -139,8 +139,8 @@ describe('side panel', () => {
     await userEvent.type(editor, ' Thanks.');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Hello. Thanks.')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Insert into page' }));
-    expect(await screen.findByText('Inserted into the cover letter box.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add to application' }));
+    expect(await screen.findByText('Added to the cover letter box on the form.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: /Resume/ }));
     expect(await screen.findByText('50%')).toBeInTheDocument();

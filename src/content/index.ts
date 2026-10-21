@@ -3,7 +3,7 @@
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { classify } from './classify';
 import { byId, collectFields } from './fields';
-import { insertText } from './fill';
+import { attachFile, base64ToFile, insertText, mark } from './fill';
 import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
 import { pressNext } from './next';
@@ -53,13 +53,23 @@ if (!window.__weraContent) {
         reply({ ok: insertText(box?.el ?? null, msg.text) });
         return false;
       }
+      case 'wera:attach': {
+        // The form's resume or cover letter upload.
+        const input = collectFields(document).find((f) => f.kind === 'file' && classify(f) === msg.what);
+        if (input) {
+          attachFile(input.el as HTMLInputElement, base64ToFile(msg.file.base64, msg.file.name));
+          mark(input.el, 'filled');
+        }
+        reply({ ok: !!input });
+        return false;
+      }
       case 'wera:scan':
         reply(planForm(document, msg.applicant, { answers: msg.answers, resumeName: msg.resumeName, coverLetter: msg.coverLetter }));
         return false;
       case 'wera:apply':
         // Each field is reported as it lands, so the panel ticks it off live.
         applyItems(document, msg.items, {
-          resume: msg.resume, coverLetter: msg.coverLetter, pace: msg.pace,
+          resume: msg.resume, coverLetter: msg.coverLetter, letterFile: msg.letterFile, pace: msg.pace,
           onProgress: (result) => void chrome.runtime.sendMessage({ type: 'wera:fill-progress', result }).catch(() => {}),
         }).then(reply, () => reply([]));
         return true; // async reply

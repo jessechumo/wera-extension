@@ -99,8 +99,8 @@ export function planField(f: Field, a: Applicant, opts: PlanOptions = {}): Field
     return plan;
   }
   if (purpose === 'cover_letter') {
-    if (f.kind === 'textarea' && opts.coverLetter) propose(LETTER, 'letter', 'your cover letter for this job');
-    else plan.note = f.kind === 'file' ? 'attach your cover letter yourself' : 'write it on the Letter tab first';
+    if ((f.kind === 'textarea' || f.kind === 'file') && opts.coverLetter) propose(LETTER, 'letter', f.kind === 'file' ? 'your cover letter for this job, as a PDF' : 'your cover letter for this job');
+    else plan.note = f.kind === 'file' || f.kind === 'textarea' ? 'no cover letter for this job yet' : 'paste your cover letter yourself';
     return plan;
   }
   if (f.kind === 'file') {
@@ -143,6 +143,8 @@ export function planForm(root: ParentNode, a: Applicant, opts: PlanOptions = {})
 export interface ApplyOptions {
   resume?: { name: string; base64: string };
   coverLetter?: string;
+  /** The cover letter as a PDF, for a file input. */
+  letterFile?: { name: string; base64: string };
   /** Pause between fields (ms), so the page keeps up and the user sees each land. */
   pace?: number;
   onProgress?: (r: FillResult) => void;
@@ -178,6 +180,10 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
           setNativeValue(f.el as HTMLTextAreaElement, opts.coverLetter);
           res.status = 'filled';
           res.value = 'cover letter';
+        } else if (opts.letterFile && f.kind === 'file') {
+          attachFile(f.el as HTMLInputElement, base64ToFile(opts.letterFile.base64, opts.letterFile.name));
+          res.status = 'filled';
+          res.value = opts.letterFile.name;
         } else {
           res.note = 'write your cover letter first';
         }
