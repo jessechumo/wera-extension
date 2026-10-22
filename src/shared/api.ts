@@ -370,13 +370,17 @@ export class WeraApi {
 
   /**
    * Drafts an answer to an application question, for the saved job, or
-   * else for the posting on the page (company, title, description).
+   * else for the posting on the page (company, title, description). With
+   * a draft and the user's steer ("shorter", "mention the migration"), it
+   * reworks that draft instead.
    */
-  answer(question: string, jobId: number | null, maxWords = 150, posting?: { company: string; title: string; description: string }) {
+  answer(question: string, jobId: number | null, maxWords = 150, posting?: { company: string; title: string; description: string }, rework?: { draft?: string; instructions?: string }) {
     return this.call<{ answer?: string; needs_input?: string }>('/api/ext/answer', {
       method: 'POST',
       body: JSON.stringify({
         question, job_id: jobId ?? 0, max_words: maxWords,
+        ...(rework?.draft ? { draft: rework.draft.slice(0, 8000) } : {}),
+        ...(rework?.instructions ? { instructions: rework.instructions.slice(0, 600) } : {}),
         ...(jobId == null && posting ? { company: posting.company, title: posting.title, description: posting.description.slice(0, 8000) } : {}),
       }),
     });

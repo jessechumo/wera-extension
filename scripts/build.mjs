@@ -1,4 +1,4 @@
-// Builds the extension into dist/: the five Vite targets plus the
+// Builds the extension into dist/: the four Vite targets plus the
 // manifest (with the version from package.json) and icons.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { build } from 'vite';
@@ -7,7 +7,7 @@ const watch = process.argv.includes('--watch');
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist', { recursive: true });
 
-for (const target of ['sidepanel', 'background', 'content', 'bridge', 'launcher']) {
+for (const target of ['background', 'page', 'panel', 'bridge']) {
   process.env.WERA_TARGET = target;
   await build({ configFile: 'vite.config.ts', mode: watch ? 'development' : 'production', build: { watch: watch ? {} : null } });
 }
@@ -20,7 +20,7 @@ manifest.version = pkg.version;
 if (process.env.WERA_E2E) manifest.host_permissions = ['http://127.0.0.1/*', 'http://localhost/*'];
 writeFileSync('dist/manifest.json', JSON.stringify(manifest, null, 2));
 cpSync('public', 'dist', { recursive: true });
-// Geist for the dock on job pages (the side panel bundles its own copy).
+// Geist for what Wera draws on job pages (the panel and the answer button).
 mkdirSync('dist/fonts', { recursive: true });
 cpSync('node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2', 'dist/fonts/geist.woff2');
 cpSync('node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2', 'dist/fonts/geist-mono.woff2');

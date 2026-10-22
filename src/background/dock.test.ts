@@ -63,15 +63,30 @@ describe('the dock in the background', () => {
     expect(await handleDock({ type: 'wera:dock-hello', url: URL1, kind: 'posting', draft: null }, TAB, URL1)).toEqual({ signedIn: false, job: null });
   });
 
+  it('knows an application by the posting that led to it, and remembers the job a panel saved', async () => {
+    setup();
+    // Only the posting's address is in Wera: the form page finds its job through the page it came from.
+    const lookups = fetch as unknown as ReturnType<typeof vi.fn<(url: string) => Promise<Response>>>;
+    lookups.mockImplementation((url) => Promise.resolve(new Response(JSON.stringify(url.includes(encodeURIComponent(URL1)) ? { job: base } : { job: null }), { status: 200 })));
+    const apply = 'https://jobs.example/acme/1/apply';
+    expect(await handleDock({ type: 'wera:dock-resolve', url: apply, title: '', referrer: URL1 }, TAB, apply)).toMatchObject({ id: 9 });
+    // A page from another site is no evidence.
+    expect(await handleDock({ type: 'wera:dock-resolve', url: 'https://other.example/x', title: '', referrer: URL1 }, 4, 'https://other.example/x')).toBeNull();
+    // The panel saved a job on tab 5: the tab's next page on that site is for it.
+    await handleDock({ type: 'wera:dock-remember', jobId: 9 }, 5, 'https://jobs.example/acme/2');
+    lookups.mockImplementation((url) => Promise.resolve(new Response(JSON.stringify(url.includes('/api/jobs/9') ? base : { job: null }), { status: 200 })));
+    expect(await handleDock({ type: 'wera:dock-resolve', url: 'https://jobs.example/acme/2/apply', title: '' }, 5, 'https://jobs.example/acme/2/apply')).toMatchObject({ id: 9 });
+  });
+
   it('marks the job applied when the site confirms an application it showed the form for', async () => {
-    const { calls, broadcast, toTab } = setup();
+    const { calls, toTab } = setup();
     await handleDock({ type: 'wera:dock-hello', url: `${URL1}/apply`, kind: 'form', draft: null }, TAB, `${URL1}/apply`);
     const r = await handleDock({ type: 'wera:dock-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`);
     expect(r).toMatchObject({ state: 'marked', previous: 'saved', job: { id: 9, status: 'applied' } });
     expect(calls).toContain('PUT /api/jobs/9/application');
     // The side panel and the page's dock hear of it.
-    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'wera:job-changed', tabId: TAB, applied: true }));
-    expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:dock-job' }), { frameId: 0 });
+    // The tab's Wera panel hears it (in the top frame).
+    expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:job-changed', applied: true }), { frameId: 0 });
     // Once is enough: the same confirmation again leaves it.
     expect(await handleDock({ type: 'wera:dock-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`)).toEqual({ state: 'off' });
   });
