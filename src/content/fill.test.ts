@@ -422,3 +422,14 @@ describe('not waiting for nothing', () => {
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 });
+
+describe('follow-ups and accents', () => {
+  const first = (html: string) => {
+    document.body.innerHTML = html;
+    return classify(collectFields(document)[0]!);
+  };
+  it('leaves follow-up questions to the user and reads accented labels', () => {
+    expect(first('<label for="e">If yes, please mention your CloudFactory email address.</label><input id="e" type="email">')).toBeNull();
+    expect(first('<label for="r">Résumé*</label><input id="r" type="file">')).toBe('resume');
+  });
+});
