@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.2](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.5.1...wera-extension-v0.5.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* **autofill:** never fill or keep a start date that has passed ([ede51f8](https://github.com/jessechumo/wera-extension/commit/ede51f888bbd3aede67dc9c59e3f20f1da40551b))
+* dock on Greenhouse job boards, faster dock, no past start dates ([1a10d90](https://github.com/jessechumo/wera-extension/commit/1a10d90a293d9d09372602bd78cc8b823d286791))
+* **launcher:** keep the dock on pages that rebuild themselves, and show it sooner ([4b79411](https://github.com/jessechumo/wera-extension/commit/4b79411546cea15ed64eeb1256eccc36874e7099))
+
 ## [0.5.1](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.5.0...wera-extension-v0.5.1) (2026-10-22)
 
 
