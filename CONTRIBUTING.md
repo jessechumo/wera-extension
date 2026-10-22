@@ -20,9 +20,13 @@ npm run e2e         # the real extension in Chromium against a Wera API
 
 ## Layout
 
-- `src/sidepanel`: the React side panel; `src/content`: the content script
-  that reads and fills pages; `src/background`: the service worker.
-- `src/shared`: the API client and types used by all three.
+- `src/page`: the page script in every frame; `src/content`: the form engine it
+  uses, with per-site rules in `src/content/sites`; `src/panel`: the Wera panel
+  (React, in the page); `src/background`: the service worker that relays the
+  panel's calls to Wera and to the page's frames.
+- `src/shared`: the API client, messages and types they all use.
+- A new site rule goes in `src/content/sites` (its field names, and its widgets
+  in a separate filler if the general one misses them), with a fixture test.
 - The extension never submits a form or ticks a consent box; keep it that way.
 
 ## Branches and pull requests
