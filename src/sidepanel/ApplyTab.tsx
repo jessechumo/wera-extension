@@ -466,7 +466,7 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
                 : "No application form found yet. Press the site's Apply button, then autofill."}
             </p>
             <BigButton className="mt-3 w-full" onClick={() => void scanAndMaybeFill(true)} busy={busy} disabled={!tab}>
-              {!busy && <Zap className="size-5" />}
+              {!busy && <Zap className="size-4" />}
               {phase === 'scanning' ? 'Reading the form…' : phase === 'suggesting' ? 'Asking the AI…' : phase === 'filling' ? 'Filling…' : 'Autofill application'}
             </BigButton>
             <Button variant="ghost" className="mt-1.5 w-full" onClick={() => void scanPage()} disabled={busy || !tab}>
@@ -553,7 +553,7 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
                   <Button variant="primary" className="flex-1" onClick={() => void fillRows(rows, plan)} busy={busy} disabled={!ticked}>Fill again</Button>
                 ) : (
                   <BigButton className="flex-1" onClick={() => void fillRows(rows, plan)} busy={busy} disabled={!ticked}>
-                    {!busy && <Zap className="size-5" />} Autofill {ticked} field{ticked === 1 ? '' : 's'}
+                    {!busy && <Zap className="size-4" />} Autofill {ticked} field{ticked === 1 ? '' : 's'}
                   </BigButton>
                 )}
               </>
