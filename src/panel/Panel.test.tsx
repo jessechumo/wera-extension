@@ -89,7 +89,7 @@ function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?:
 }
 
 const handle = (kind: 'form' | 'posting'): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, subscribe: () => () => {} });
-const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, opens: 0, toggles: 0, fills: 0, ...over });
+const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, collapsedHere: false, opens: 0, toggles: 0, fills: 0, ...over });
 
 afterEach(() => {
   cleanup(); // before the fake chrome goes: unmounting unhooks its listeners
@@ -116,6 +116,16 @@ describe('the Wera panel', () => {
     await userEvent.click(tab);
     expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Collapse the Wera panel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens when an application loads after the page, unless collapsed on this site before', async () => {
+    fakeBackground({ job, info: { hasForm: true } });
+    const { unmount } = render(<App handle={handle('posting')} show={show({ initial: false })} />);
+    expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
+    unmount();
+    render(<App handle={handle('posting')} show={show({ initial: false, collapsedHere: true })} />);
+    expect(await screen.findByRole('button', { name: 'Show the Wera panel' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 

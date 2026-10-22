@@ -62,6 +62,8 @@ export interface Show {
   tabId: number;
   /** Open at first (an application, or asked to). */
   initial: boolean;
+  /** The user collapsed the panel on this site before: an application appearing later does not open it. */
+  collapsedHere: boolean;
   opens: number;
   toggles: number;
   fills: number;
@@ -79,6 +81,13 @@ export function App({ handle, show }: { handle: PageHandle; show: Show }) {
     setSeen(show);
     if (show.opens > seen.opens || show.fills > seen.fills) setOpen(true);
     else if (show.toggles > seen.toggles) setOpen((o) => !o);
+  }
+  // An application that loads after the page (Ashby, a form embedded from an ATS) opens the panel once.
+  const isForm = page.info?.hasForm || page.handle.kind === 'form';
+  const [formSeen, setFormSeen] = useState(show.initial);
+  if (isForm && !formSeen) {
+    setFormSeen(true);
+    if (!show.collapsedHere) setOpen(true);
   }
   const onOpen = useCallback((v: boolean) => {
     setOpen(v);
@@ -124,13 +133,13 @@ function mount(handle: PageHandle, first: { tabId: number; open?: boolean; fill?
   });
 
   const root = createRoot(box);
-  let show: Show = { tabId: first.tabId, initial: false, opens: 0, toggles: 0, fills: 0 };
+  let show: Show = { tabId: first.tabId, initial: false, collapsedHere: false, opens: 0, toggles: 0, fills: 0 };
   const render = () => root.render(<StrictMode><App handle={handle} show={show} /></StrictMode>);
 
   // Open at first on an application (unless collapsed on this site before), or when asked.
   void chrome.storage.local.get(COLLAPSED).then((g) => {
     const collapsed = !!(g[COLLAPSED] as Record<string, number> | undefined)?.[location.host];
-    show = { ...show, initial: !!first.open || !!first.fill || (handle.kind === 'form' && !collapsed) || !!handle.submitted, fills: first.fill ? 1 : 0 };
+    show = { ...show, collapsedHere: collapsed, initial: !!first.open || !!first.fill || (handle.kind === 'form' && !collapsed) || !!handle.submitted, fills: first.fill ? 1 : 0 };
     render();
   }, () => render());
 
