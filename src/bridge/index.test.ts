@@ -6,6 +6,7 @@ describe('dashboard bridge script', () => {
     const sendMessage = vi.fn(async () => undefined);
     vi.stubGlobal('chrome', {
       runtime: {
+        id: 'x',
         getManifest: () => ({ version: '0.3.0' }),
         sendMessage,
         onMessage: { addListener: (f: (m: unknown) => void) => (onMessage = f) },
@@ -32,7 +33,7 @@ describe('dashboard bridge script', () => {
 describe('the dashboard theme', () => {
   it('passes the theme picked in the dashboard to the extension, and changes with it', async () => {
     const set = vi.fn(async () => {});
-    vi.stubGlobal('chrome', { storage: { local: { set } } });
+    vi.stubGlobal('chrome', { runtime: { id: 'x' }, storage: { local: { set } } });
     const { syncTheme } = await import('./index');
     localStorage.setItem('wera-theme', 'light');
     const stop = syncTheme(document);
@@ -46,5 +47,19 @@ describe('the dashboard theme', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(set).toHaveBeenLastCalledWith({ 'wera.theme': 'system' });
     stop();
+  });
+
+  it('stops following once the extension is reloaded', async () => {
+    const set = vi.fn(async () => {});
+    const runtime: { id?: string } = { id: 'x' };
+    vi.stubGlobal('chrome', { runtime, storage: { local: { set } } });
+    const { syncTheme } = await import('./index');
+    syncTheme(document);
+    set.mockClear();
+    delete runtime.id;
+    localStorage.setItem('wera-theme', 'dark');
+    document.documentElement.dataset.theme = 'dark';
+    await new Promise((r) => setTimeout(r, 0));
+    expect(set).not.toHaveBeenCalled();
   });
 });
