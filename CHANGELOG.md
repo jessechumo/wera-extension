@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.5.2...wera-extension-v0.6.0) (2026-10-22)
+
+
+### Features
+
+* **content:** site rules for Workday, Greenhouse, Lever and Ashby ([4a868ab](https://github.com/jessechumo/wera-extension/commit/4a868ab40f2e4e089a0bcad50e00067383f6d587))
+* one Wera panel in the page replaces the side panel and the dock ([7f3a68b](https://github.com/jessechumo/wera-extension/commit/7f3a68b49a8c4de3f75f3d6289cad9be95a61abc))
+* one Wera panel in the page, site rules, and the Wera button ([fcde353](https://github.com/jessechumo/wera-extension/commit/fcde3535b338876f9e199debb2982e49790bc7d6))
+* **page:** the Wera button in open questions ([b12988e](https://github.com/jessechumo/wera-extension/commit/b12988ef1654f3fc1e8b0f4e9e7efe2342a1a866))
+
+
+### Bug Fixes
+
+* **content:** look site rules up afresh for each field ([426eed7](https://github.com/jessechumo/wera-extension/commit/426eed72a74b6e83c42ee3698e5f6556cd4ecfdd))
+* **content:** tell job applications from contact, demo and checkout forms ([de4b495](https://github.com/jessechumo/wera-extension/commit/de4b495d68e6f1e70996a04caf5f66c0e792fec6))
+* **panel:** open when an application loads after the page ([fb50f9c](https://github.com/jessechumo/wera-extension/commit/fb50f9ccfcbf9a3d983dc6eed8c4b29b97cc77ec))
+
+
+### Documentation
+
+* describe the Wera panel, site rules and the Wera button ([901d859](https://github.com/jessechumo/wera-extension/commit/901d859e5d96a8abb6163803e02b034f8d5fb2ff))
+
 ## [0.5.2](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.5.1...wera-extension-v0.5.2) (2026-10-22)
 
 
