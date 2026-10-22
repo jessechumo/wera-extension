@@ -3,12 +3,15 @@
 // dashboard says which job it is opening and when it changed something;
 // the extension says when it did. Only job ids and URLs pass through.
 import { BRIDGE_FROM_DASHBOARD, BRIDGE_FROM_EXTENSION, type BridgeMessage } from '../shared/bridge';
+import { extensionAlive, sendSafe } from '../shared/alive';
 import { asPref, DASHBOARD_THEME_KEY, THEME_KEY } from '../shared/theme';
 
 /** Keeps the extension on the theme picked in the dashboard (system, light or dark). */
 export function syncTheme(doc: Document): () => void {
   let last = '';
+  const obs = new MutationObserver(() => save());
   const save = () => {
+    if (!extensionAlive()) return obs.disconnect(); // the extension was reloaded
     let pref = 'system';
     try {
       pref = asPref(localStorage.getItem(DASHBOARD_THEME_KEY));
@@ -21,7 +24,6 @@ export function syncTheme(doc: Document): () => void {
   };
   save();
   // Changing it in Settings re-themes the page: data-theme changes.
-  const obs = new MutationObserver(save);
   obs.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   return () => obs.disconnect();
 }
@@ -43,7 +45,7 @@ if (!window.__weraBridge) {
     if (e.source !== window || e.origin !== location.origin || e.data?.source !== BRIDGE_FROM_DASHBOARD) return;
     const { type } = e.data;
     if (type === 'open-job' || type === 'changed') {
-      void chrome.runtime.sendMessage({ ...e.data, type: `wera:dashboard-${type}` }).catch(() => {});
+      void sendSafe({ ...e.data, type: `wera:dashboard-${type}` });
     }
   });
 

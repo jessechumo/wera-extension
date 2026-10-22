@@ -195,6 +195,21 @@ describe('on a page', () => {
     expect(learn.entries.some((e) => e.purpose === 'question')).toBe(false);
   });
 
+  it('goes quietly when the extension is reloaded under it', async () => {
+    fakeChrome({ signedIn: true, job });
+    document.body.innerHTML = fixture('greenhouse.html');
+    run(document, 5);
+    await vi.waitFor(() => expect(dockText()).toBe('shown'));
+    // What Chrome does to scripts left in open tabs: the runtime is gone and every call throws.
+    const runtime = chrome.runtime as unknown as { id?: string; sendMessage: () => never };
+    delete runtime.id;
+    runtime.sendMessage = () => {
+      throw new Error('Extension context invalidated.');
+    };
+    document.body.append(document.createElement('div'));
+    await vi.waitFor(() => expect(document.querySelector('wera-launcher')).toBeNull());
+  });
+
   it('tells Wera when the form gives way to a thank-you message', async () => {
     const sent = fakeChrome({ signedIn: true, job }, { state: 'marked', job: { ...job, status: 'applied' }, previous: 'saved' });
     document.body.innerHTML = fixture('greenhouse.html');
