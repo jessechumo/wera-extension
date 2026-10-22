@@ -90,6 +90,24 @@ describe('planForm', () => {
   });
 });
 
+describe('a start date', () => {
+  it('is never one that has gone by, saved or answered before', () => {
+    document.body.innerHTML = `<form><label for="sd">Earliest start date</label><input id="sd">
+      <label for="av">When are you available to start?</label><input id="av"></form>`;
+    const plan = planForm(document, { ...ada, start_date: '2025-01-15' }, { answers: [{ question: 'When are you available to start?', answer: 'January 2025' }] });
+    const sd = byLabel(plan.fields, 'Earliest start date');
+    expect(sd.value).toBe('');
+    expect(sd.note).toMatch(/has passed/);
+    expect(byLabel(plan.fields, 'When are you available').value).toBe('');
+  });
+
+  it('still fills one that is ahead', () => {
+    document.body.innerHTML = `<form><label for="sd">Earliest start date</label><input id="sd"></form>`;
+    const next = `${new Date().getFullYear() + 1}-02-01`;
+    expect(byLabel(planForm(document, { ...ada, start_date: next }).fields, 'Earliest start date').value).toBe(next);
+  });
+});
+
 describe('applyItems', () => {
   beforeEach(() => {
     document.body.innerHTML = FORM;

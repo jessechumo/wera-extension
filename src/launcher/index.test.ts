@@ -76,7 +76,7 @@ describe('telling job pages from other pages', () => {
 });
 
 describe('the dock', () => {
-  const actions = (): DockActions => ({ open: vi.fn(), save: vi.fn(), minimize: vi.fn(), expand: vi.fn(), hide: vi.fn() });
+  const actions = (): DockActions => ({ open: vi.fn(), save: vi.fn(), minimize: vi.fn(), expand: vi.fn() });
   const state = (p: Partial<DockState> = {}): DockState => ({
     kind: 'form', title: 'SRE', company: 'Acme', hello: { signedIn: true, job }, canSave: true, open: true, busy: false, error: '', ...p,
   });
@@ -193,6 +193,19 @@ describe('on a page', () => {
     expect(learn.entries).toEqual(expect.arrayContaining([{ purpose: 'gender', value: 'Woman' }, { purpose: 'phone', value: '512 555 0142' }]));
     // Open questions are answers for that job, not details.
     expect(learn.entries.some((e) => e.purpose === 'question')).toBe(false);
+  });
+
+  it('comes back when the page rebuilds itself and wipes it (Greenhouse job boards)', async () => {
+    fakeChrome({ signedIn: true, job });
+    document.body.innerHTML = fixture('greenhouse.html');
+    run(document, 5);
+    await vi.waitFor(() => expect(dockText()).toBe('shown'));
+    // What a framework re-rendering the whole document does: a new body, and nothing it did not render.
+    const html = document.body.innerHTML;
+    document.querySelector('wera-launcher')!.remove();
+    document.documentElement.replaceChild(document.createElement('body'), document.body);
+    document.body.innerHTML = html;
+    await vi.waitFor(() => expect(dockText()).toBe('shown'));
   });
 
   it('goes quietly when the extension is reloaded under it', async () => {
