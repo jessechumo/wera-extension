@@ -1,7 +1,7 @@
 import type { Applicant, FieldPurpose, FillResult, Profile } from '../shared/types';
 import { ENTRY_PURPOSES } from './entries';
 import { classify } from './classify';
-import { collectFields, isHidden, isPressed, listboxValue, scopeOf, type Field, type Option } from './fields';
+import { collectFields, isHidden, isPressed, isWorkdayPrompt, listboxValue, promptChoice, scopeOf, type Field, type Option } from './fields';
 
 const US_STATES: Record<string, string> = {
   AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
@@ -371,13 +371,20 @@ export function wait(ms: number) {
 /** The visible options of an open dropdown: its own list when it names one, else any listbox on the page. */
 function openOptions(el: HTMLElement): (Option & { node: HTMLElement })[] {
   const scope = scopeOf(el);
+  const doc = el.ownerDocument;
   const ref = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
   const lists: ParentNode[] = [];
-  const own = ref ? scope.getElementById(ref) ?? el.ownerDocument.getElementById(ref) : null;
+  const own = ref ? scope.getElementById(ref) ?? doc.getElementById(ref) : null;
   if (own) lists.push(own);
-  else lists.push(...el.ownerDocument.querySelectorAll('[role="listbox"]'), scope);
+  else {
+    // The list beside the field (a Workday prompt's results), then the newest popup
+    // (Workday adds it at the end of the page), then any list on the page.
+    const field = el.closest('[data-uxi-widget-type], [data-automation-id^="formField"]');
+    if (field) lists.push(field);
+    lists.push(...[...doc.querySelectorAll('[data-automation-widget="wd-popup"]')].reverse(), ...[...doc.querySelectorAll('[role="listbox"]')].reverse(), scope);
+  }
   for (const list of lists) {
-    const nodes = [...list.querySelectorAll<HTMLElement>('[role="option"]')].filter((o) => o.getAttribute('aria-disabled') !== 'true' && !isHidden(o));
+    const nodes = [...list.querySelectorAll<HTMLElement>('[role="option"], [data-automation-id="promptOption"]')].filter((o) => o.getAttribute('aria-disabled') !== 'true' && !isHidden(o));
     if (nodes.length) return nodes.map((node) => ({ label: (node.textContent ?? '').trim(), value: '', node }));
   }
   return [];
@@ -421,6 +428,7 @@ async function pickOpen(el: HTMLElement, value: string, purpose: FieldPurpose | 
 
 /** react-select and friends show the choice beside the input, which stays empty. */
 export function comboboxChoice(el: HTMLInputElement): string {
+  if (isWorkdayPrompt(el)) return promptChoice(el);
   if (el.value.trim()) return el.value.trim();
   let n: Element | null = el.parentElement;
   for (let i = 0; n && i < 4; i++, n = n.parentElement) {
@@ -456,10 +464,13 @@ async function fillCombobox(el: HTMLInputElement, value: string, purpose: FieldP
   // A long answer ("No, I do not have a disability") is rarely worded the same in the list:
   // look through the whole list first, then search.
   const search = searchText(value, purpose);
+  const prompt = isWorkdayPrompt(el);
   for (const typed of [...new Set(search.length > 24 ? ['', search] : [search, ''])]) {
     focusField(el);
     typeSearch(el, typed);
-    arrowDown(el);
+    // A Workday prompt searches when Enter is pressed; elsewhere Enter would pick the first choice.
+    if (prompt) for (const type of ['keydown', 'keyup']) el.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+    else arrowDown(el);
     const got = await pickOpen(el, value, purpose);
     if (got) return got;
   }
@@ -682,6 +693,10 @@ export async function enterValue(f: Field, purpose: FieldPurpose | null, value: 
         return;
       }
       setNativeValue(el, shaped);
+      // Date part boxes (Workday's month and year) also listen for the digits being typed.
+      if (el.getAttribute('role') === 'spinbutton') {
+        for (const key of shaped) for (const type of ['keydown', 'keypress', 'keyup']) el.dispatchEvent(new KeyboardEvent(type, { key, code: /\d/.test(key) ? `Digit${key}` : key, bubbles: true }));
+      }
       // The page may refuse a value (a date box, a mask): check it took.
       if (!el.value.trim()) {
         res.status = 'review';

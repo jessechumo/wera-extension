@@ -207,6 +207,17 @@ function yesNoButtons(button: HTMLElement): Field | null {
   };
 }
 
+/** Workday's "prompt": a search box that lists matches on Enter and shows the pick as a pill beside it. */
+export function isWorkdayPrompt(el: Element): boolean {
+  return el.getAttribute('data-automation-id') === 'searchBox' || !!el.closest('[data-uxi-widget-type="multiselect"], [data-automation-id="multiselectInputContainer"]');
+}
+
+/** The pill(s) a Workday prompt shows for what is picked ('' when none). */
+export function promptChoice(el: Element): string {
+  const box = el.closest('[data-uxi-widget-type="multiselect"], [data-automation-id^="formField"]') ?? el.parentElement;
+  return [...(box?.querySelectorAll('[data-automation-id="selectedItem"]') ?? [])].map((p) => (p.textContent ?? '').trim()).filter(Boolean).join(' | ');
+}
+
 /** All fillable fields in document order, radio and checkbox groups merged. */
 export function collectFields(root: ParentNode): Field[] {
   const fields: Field[] = [];
@@ -257,7 +268,7 @@ export function collectFields(root: ParentNode): Field[] {
       : node.tagName === 'TEXTAREA' ? 'textarea'
       : type === 'file' ? 'file'
       : type === 'checkbox' ? 'checkbox'
-      : node.getAttribute('role') === 'combobox' || node.getAttribute('aria-autocomplete') === 'list' ? 'combobox'
+      : node.getAttribute('role') === 'combobox' || node.getAttribute('aria-autocomplete') === 'list' || isWorkdayPrompt(node) ? 'combobox'
       : 'text';
     fields.push({
       id: idFor(node),
