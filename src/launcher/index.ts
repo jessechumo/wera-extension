@@ -10,6 +10,7 @@ import { bodyText, looksSubmitted } from '../content/watch';
 import type { ApplicationStatus } from '../shared/api';
 import type { DockHello, DockJob, DockRequest, PanelView, SubmitReply } from '../shared/dock';
 import { SETTINGS_KEY } from '../shared/settings';
+import { followTheme } from '../shared/theme';
 import { mountRoot, renderDock, renderToast, type DockState, type ToastSpec } from './dock';
 
 declare global {
@@ -54,15 +55,15 @@ export function submitToast(r: SubmitReply, act: { undo: (j: DockJob, to: Applic
   if (r.state === 'marked') {
     const back = (r.previous ?? 'saved') as ApplicationStatus;
     return {
-      emoji: '🎉', title: 'Marked as applied',
+      tone: 'success', title: 'Marked as applied',
       text: `${r.job.title} at ${r.job.company} is in Applied in your Wera tracker. Good luck!`,
       actions: [{ label: 'Undo', run: () => act.undo(r.job, back) }, { label: 'View in Wera', run: () => act.open('job') }],
     };
   }
   if (r.state === 'unknown') {
     return r.draft
-      ? { emoji: '📝', title: 'Applied? Track it in Wera', text: `${r.draft.title}${r.draft.company ? ` at ${r.draft.company}` : ''} is not in your Wera lists yet.`, actions: [{ label: 'Add as applied', run: act.add }] }
-      : { emoji: '📝', title: 'Applied? Track it in Wera', text: 'This job is not in your Wera lists yet. Save it to keep your tracker current.', actions: [{ label: 'Open Wera', run: () => act.open('job') }] };
+      ? { tone: 'info', title: 'Applied? Track it in Wera', text: `${r.draft.title}${r.draft.company ? ` at ${r.draft.company}` : ''} is not in your Wera lists yet.`, actions: [{ label: 'Add as applied', run: act.add }] }
+      : { tone: 'info', title: 'Applied? Track it in Wera', text: 'This job is not in your Wera lists yet. Save it to keep your tracker current.', actions: [{ label: 'Open Wera', run: () => act.open('job') }] };
   }
   return null;
 }
@@ -70,6 +71,10 @@ export function submitToast(r: SubmitReply, act: { undo: (j: DockJob, to: Applic
 /** Watches the page (single-page job boards change without loading) and keeps the dock in step; returns a stop. */
 export function start(doc: Document, delay = 1200): () => void {
   const { host, box } = mountRoot(doc);
+  // The theme the user picked in the dashboard.
+  const stopTheme = followTheme((t) => {
+    box.dataset.theme = t;
+  });
   host.hidden = true;
   let state: DockState | null = null;
   let shownFor = ''; // url|kind the dock was built for
@@ -152,7 +157,7 @@ export function start(doc: Document, delay = 1200): () => void {
         undo: (j, to) => void ask<DockJob>({ type: 'wera:dock-status', jobId: j.id, status: to }).then((u) => u && setJob(u)),
         open: actions.open,
         add: () => void ask<DockJob>({ type: 'wera:dock-add-applied' }).then((j) => {
-          if (j) toast({ emoji: '🎉', title: 'Added as applied', text: `${j.title} at ${j.company} is in Applied in your Wera tracker.`, actions: [] });
+          if (j) toast({ tone: 'success', title: 'Added as applied', text: `${j.title} at ${j.company} is in Applied in your Wera tracker.`, actions: [] });
         }),
       }));
     });
@@ -199,6 +204,7 @@ export function start(doc: Document, delay = 1200): () => void {
   };
   chrome.runtime.onMessage?.addListener(onMessage);
   return () => {
+    stopTheme();
     obs.disconnect();
     doc.removeEventListener('visibilitychange', schedule);
     chrome.runtime.onMessage?.removeListener(onMessage);
