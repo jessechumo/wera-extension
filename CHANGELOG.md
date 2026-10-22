@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.4.0...wera-extension-v0.4.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* fill everything Wera knows, the way a person would ([ea769cd](https://github.com/jessechumo/wera-extension/commit/ea769cde4753530bb5b4ef20f7ddb64b893615c8))
+
 ## [0.4.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.3.0...wera-extension-v0.4.0) (2026-10-21)
 
 

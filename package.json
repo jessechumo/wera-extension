@@ -1,7 +1,7 @@
 {
   "name": "wera-extension",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Wera for Chrome: save jobs, write cover letters, tailor resumes and fill applications.",
   "type": "module",
   "scripts": {
