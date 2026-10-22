@@ -9,6 +9,7 @@ import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
 import { snapshot } from '../content/plan';
 import { bodyText, looksSubmitted } from '../content/watch';
+import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ApplicationStatus } from '../shared/api';
 import type { DockHello, DockJob, DockRequest, PanelView, SubmitReply } from '../shared/dock';
 import { SETTINGS_KEY } from '../shared/settings';
@@ -28,7 +29,7 @@ const COLLAPSED = 'wera.dockCollapsed';
 const DISMISS_FOR = 7 * 86_400_000;
 
 function ask<T>(msg: DockRequest): Promise<T | null> {
-  return chrome.runtime.sendMessage<DockRequest, T | null>(msg).catch(() => null);
+  return sendSafe<T>(msg);
 }
 
 async function local<T>(key: string): Promise<T | undefined> {
@@ -204,9 +205,10 @@ export function start(doc: Document, delay = 1200): () => void {
     if (shownFor === key && state) patch({ hello: hello ?? { signedIn: true, job: null } });
   };
   const schedule = () => {
-    if (!timer) timer = window.setTimeout(() => void check(), delay);
+    // The extension was reloaded: this dock can no longer reach it, so it goes.
+    if (!extensionAlive()) return stop();
+    if (!timer) timer = window.setTimeout(() => void check().catch(() => {}), delay);
   };
-  schedule();
   // Moving an application on (Next, Submit): Wera keeps the details it lacked, self-identification included.
   const onClick = (e: Event) => {
     const b = (e.target as Element | null)?.closest?.('button, input[type="submit"], [role="button"], a');
@@ -226,16 +228,22 @@ export function start(doc: Document, delay = 1200): () => void {
     if (msg?.type === 'wera:dock-job' && msg.job) setJob(msg.job);
   };
   chrome.runtime.onMessage?.addListener(onMessage);
-  return () => {
+  schedule();
+  function stop() {
     doc.removeEventListener('click', onClick, true);
-    stopTheme();
     obs.disconnect();
     doc.removeEventListener('visibilitychange', schedule);
-    chrome.runtime.onMessage?.removeListener(onMessage);
+    try {
+      stopTheme();
+      chrome.runtime.onMessage?.removeListener(onMessage);
+    } catch {
+      // Cut off from a reloaded extension: nothing left to unhook.
+    }
     window.clearTimeout(timer);
     window.clearTimeout(toastTimer);
     host.remove();
-  };
+  }
+  return stop;
 }
 
 if (typeof window !== 'undefined' && !window.__weraLauncher && typeof chrome !== 'undefined' && chrome.runtime?.id) {

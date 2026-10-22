@@ -7,7 +7,6 @@ import { loadSession, saveSession, type Session } from '../shared/storage';
 import { ApplyTab } from './ApplyTab';
 import { JobTab } from './JobTab';
 import { LetterTab } from './LetterTab';
-import { Logo } from './Logo';
 import { ResumeTab } from './ResumeTab';
 import { SettingsPanel } from './SettingsPanel';
 import { SignIn } from './SignIn';
@@ -111,8 +110,9 @@ function Main({ session, onSignOut }: { session: Session; onSignOut: () => void 
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b border-border bg-bg/90 backdrop-blur">
         <div className="flex items-center gap-2 px-3 py-2.5">
-          <Logo small />
-          <a href={api.dashboardUrl('/')} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-text">
+          {/* Chrome's side panel bar already shows Wera's icon and name above this. */}
+          <span className="min-w-0 truncate text-[11px] text-muted" title="Signed in">{session.user.email}</span>
+          <a href={api.dashboardUrl('/')} target="_blank" rel="noreferrer" className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-muted hover:text-text">
             Dashboard <ExternalLink className="size-3" />
           </a>
           <button onClick={() => setTab(tab === 'settings' ? 'job' : 'settings')} title={`Settings (signed in as ${session.user.email})`} aria-label="Settings"

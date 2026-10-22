@@ -1,5 +1,6 @@
 // Injected into the active tab when the user opens Wera on it. It reads the
 // page and fills forms only when the side panel asks; it never submits.
+import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { classify } from './classify';
 import { byId, collectFields } from './fields';
@@ -40,8 +41,12 @@ if (!window.__weraContent) {
   // Set once per loaded document, so the side panel can tell a reload from a tab switch.
   window.__weraDocId = Math.random().toString(36).slice(2);
   // Tell the side panel about new form steps and confirmations (it may
-  // be closed; then nobody listens and the message is dropped).
-  watchPage(document, (e) => void chrome.runtime.sendMessage(e).catch(() => {}));
+  // be closed; then nobody listens and the message is dropped). Once the
+  // extension is reloaded this copy is cut off, and stops watching.
+  const stopWatching = watchPage(document, (e) => {
+    if (extensionAlive()) void sendSafe(e);
+    else stopWatching();
+  });
   chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, reply) => {
     switch (msg.type) {
       case 'wera:read-page':
@@ -72,7 +77,7 @@ if (!window.__weraContent) {
         // Each field is reported as it lands, so the panel ticks it off live.
         applyItems(document, msg.items, {
           resume: msg.resume, coverLetter: msg.coverLetter, letterFile: msg.letterFile, pace: msg.pace,
-          onProgress: (result) => void chrome.runtime.sendMessage({ type: 'wera:fill-progress', result }).catch(() => {}),
+          onProgress: (result) => void sendSafe({ type: 'wera:fill-progress', result }),
         }).then(reply, () => reply([]));
         return true; // async reply
       case 'wera:add-entries':
