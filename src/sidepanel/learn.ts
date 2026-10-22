@@ -1,11 +1,11 @@
 // What Wera learns from a page the user finished: answers to remember
-// for the next form, and application details it did not have. It never
-// learns self-identification, consents or files, and never relearns what
-// it filled from the details itself.
+// for the next form, and application details it did not have, including
+// self-identification the user answered on the form (saved to their own
+// Wera, in the dashboard's values; never sent to the AI). It never learns
+// consents or files, and never relearns what it filled itself.
 import { answerKey, type SavedAnswer } from '../shared/answers';
+import { SELF_ID_KEYS as SELF_ID, selfIdValue } from '../shared/selfId';
 import type { Applicant, ApplicantKey, FieldPlan, FieldPurpose, FieldSnapshot } from '../shared/types';
-
-const SELF_ID = new Set<FieldPurpose>(['gender', 'pronouns', 'transgender', 'sexual_orientation', 'race', 'hispanic', 'veteran', 'disability']);
 // Purposes that are not one detail each.
 const DERIVED = new Set<FieldPurpose>(['full_name', 'authorized_no_sponsorship', 'location', 'resume', 'cover_letter', 'question', 'consent', 'phone_type', 'phone_code', 'skills']);
 const YES_NO = new Set<string>(['authorized_to_work', 'needs_sponsorship', 'willing_to_relocate', 'willing_to_travel', 'over_18']);
@@ -45,11 +45,13 @@ export function detailsToLearn(plan: FieldPlan[], snap: FieldSnapshot[], applica
   for (const s of snap) {
     const p = byId.get(s.id);
     const key = p?.purpose;
-    if (!p || !key || DERIVED.has(key) || SELF_ID.has(key) || !(key in applicant)) continue;
+    if (!p || !key || DERIVED.has(key) || !(key in applicant)) continue;
     const k = key as ApplicantKey;
     if ((applicant[k] ?? '').trim() || out[k]) continue;
     let value = s.value.trim();
-    if (YES_NO.has(k)) {
+    if (SELF_ID.has(key)) {
+      value = selfIdValue(key, value);
+    } else if (YES_NO.has(k)) {
       value = /^yes\b/i.test(value) ? 'yes' : /^no\b/i.test(value) ? 'no' : '';
     }
     if (value && value.length <= 300) out[k] = value;

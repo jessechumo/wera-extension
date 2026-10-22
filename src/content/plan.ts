@@ -157,7 +157,11 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
       }
     }
   }
-  if (!plan.note) plan.note = purpose === 'question' ? 'draft it, or write your own' : purpose ? 'not in your application details' : '';
+  if (!plan.note) {
+    plan.note = purpose === 'question' ? 'draft it, or write your own'
+      : purpose && SELF_ID.has(purpose) ? 'not in your profile yet: pick it here or on the form, and Wera saves it for next time'
+      : purpose ? 'not in your application details' : '';
+  }
   return plan;
 }
 

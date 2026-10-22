@@ -20,4 +20,8 @@ manifest.version = pkg.version;
 if (process.env.WERA_E2E) manifest.host_permissions = ['http://127.0.0.1/*', 'http://localhost/*'];
 writeFileSync('dist/manifest.json', JSON.stringify(manifest, null, 2));
 cpSync('public', 'dist', { recursive: true });
+// Geist for the dock on job pages (the side panel bundles its own copy).
+mkdirSync('dist/fonts', { recursive: true });
+cpSync('node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2', 'dist/fonts/geist.woff2');
+cpSync('node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2', 'dist/fonts/geist-mono.woff2');
 console.log(`built wera-extension ${pkg.version} into dist/`);

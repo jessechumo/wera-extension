@@ -102,4 +102,23 @@ describe('the dock in the background', () => {
     expect(await handleDock({ type: 'wera:dock-save', draft }, TAB, draft.url)).toMatchObject({ id: 12, title: 'Data Engineer' });
     expect(calls).toContain('POST /api/ext/jobs');
   });
+
+  it('learns details the profile lacks from a form the user moved on from, and keeps the rest', async () => {
+    setup();
+    let saved: Record<string, string> | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+      const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (url.endsWith('/api/applicant') && init.method === 'PUT') {
+        saved = JSON.parse(init.body as string) as Record<string, string>;
+        return json({ applicant: saved, saved: true });
+      }
+      if (url.endsWith('/api/applicant')) return json({ applicant: { first_name: 'Ada', gender: '', race: 'White', veteran: '', phone: '' }, saved: true });
+      return json({});
+    }));
+    const keys = await handleDock({ type: 'wera:dock-learn', entries: [
+      { purpose: 'gender', value: 'Woman' }, { purpose: 'race', value: 'Asian' }, { purpose: 'veteran', value: 'I am on active duty' }, { purpose: 'phone', value: '512 555 0142' },
+    ] }, TAB, URL1);
+    expect(keys).toEqual(['gender', 'phone']);
+    expect(saved).toMatchObject({ first_name: 'Ada', gender: 'Female', race: 'White', veteran: '', phone: '512 555 0142' });
+  });
 });

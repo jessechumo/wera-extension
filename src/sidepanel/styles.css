@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-/* Wera's design tokens (dark), with the light palette when the browser is light. */
+/* Wera's design tokens, the same values as the dashboard (wera-frontend
+   src/index.css): dark by default, light when the user picked light there
+   (data-theme is set from their dashboard choice, see shared/theme.ts). */
 @theme {
   --color-bg: #0A0B0F;
   --color-surface: #12141A;
@@ -16,28 +18,27 @@
   --color-bad: #FF5C7A;
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
-  --radius-card: 12px;
+  --radius-card: 14px;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --color-bg: #F7F6F2;
-    --color-surface: #FFFFFF;
-    --color-surface-2: #F1F0EB;
-    --color-border: #E5E3DC;
-    --color-text: #1D1F24;
-    --color-muted: #5F6470;
-    --color-faint: #8E929C;
-    --color-accent: #D9653F;
-    --color-accent-2: #4A63C8;
-    --color-good: #1E8A5F;
-    --color-warn: #9C6B14;
-    --color-bad: #C2445A;
-  }
+:root[data-theme="light"] {
+  --color-bg: #F7F6F2;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #F1F0EB;
+  --color-border: #E5E3DC;
+  --color-text: #1D1F24;
+  --color-muted: #5F6470;
+  --color-faint: #8E929C;
+  --color-accent: #D9653F;
+  --color-accent-2: #4A63C8;
+  --color-good: #1E8A5F;
+  --color-warn: #9C6B14;
+  --color-bad: #C2445A;
 }
 
 @layer base {
-  html { color-scheme: light dark; }
+  html { color-scheme: dark; }
+  html[data-theme="light"] { color-scheme: light; }
   body {
     background: var(--color-bg);
     color: var(--color-text);
