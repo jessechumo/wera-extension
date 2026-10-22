@@ -13,9 +13,11 @@ export interface Settings {
   learn: boolean;
   /** Draft answers to open questions ("Tell me about a time...") while autofilling. */
   aiQuestions: boolean;
+  /** The Wera button in open questions, to draft and rework an answer. */
+  assist: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true, aiQuestions: true };
+export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true, aiQuestions: true, assist: true };
 
 export const SETTINGS_KEY = 'wera.settings';
 

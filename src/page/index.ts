@@ -1,8 +1,8 @@
 // Runs in every frame of every page. It answers the Wera panel (read the
-// page, fill the form) and puts the panel on job postings and application
-// forms. When the site then says "thank you for applying", it tells the
-// background, which marks the job applied. Nothing leaves the page unless
-// Wera is on it.
+// page, fill the form), puts the panel on job postings and application
+// forms, and adds Wera's answer button to open questions. When the site
+// then says "thank you for applying", it tells the background, which
+// marks the job applied. Nothing leaves the page unless Wera is on it.
 import { jobSummary, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
@@ -13,6 +13,7 @@ import { extensionAlive, sendSafe } from '../shared/alive';
 import type { DockRequest, SubmitReply } from '../shared/dock';
 import { SETTINGS_KEY } from '../shared/settings';
 import type { JobDraft } from '../shared/types';
+import { startAssist } from './assist';
 
 export { pageKind } from '../content/detect';
 
@@ -157,4 +158,5 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
 if (typeof window !== 'undefined' && !window.__weraPage && typeof chrome !== 'undefined' && chrome.runtime?.id) {
   listen();
   watchForJobs(document);
+  startAssist(document);
 }

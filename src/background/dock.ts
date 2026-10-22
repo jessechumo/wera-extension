@@ -3,7 +3,7 @@
 // the application. Signed-in calls happen here, never in the page.
 import { WeraApi, type WeraJob } from '../shared/api';
 import { notifyDashboard, sameRole, tabHandoff } from '../shared/bridge';
-import { dockJob, PAST_APPLIED, type DockHello, type DockRequest, type SubmitReply } from '../shared/dock';
+import { dockJob, PAST_APPLIED, type DockHello, type DockRequest, type JobContext, type SubmitReply } from '../shared/dock';
 import { loadFlow } from '../shared/flow';
 import { loadSettings } from '../shared/settings';
 import { SELF_ID_KEYS, selfIdValue } from '../shared/selfId';
@@ -102,6 +102,12 @@ export async function handleDock(msg: DockRequest, tabId: number, tabUrl: string
       const job = api ? await resolveJob(api, tabId, msg.url, msg.title, msg.referrer) : null;
       setBadge(tabId, job);
       return job;
+    }
+    case 'wera:dock-context': {
+      const draft = (await pages())[tabId]?.draft;
+      const job = api ? await resolveJob(api, tabId, tabUrl, draft?.title).catch(() => null) : null;
+      const posting = draft ? { company: draft.company, title: draft.title, description: draft.description } : null;
+      return { jobId: job?.id ?? null, posting: job ? { company: job.company, title: job.title, description: '' } : posting } satisfies JobContext;
     }
     case 'wera:dock-add-applied': {
       const draft = (await pages())[tabId]?.draft;

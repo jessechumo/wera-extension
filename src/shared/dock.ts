@@ -27,6 +27,11 @@ export function dockJob(j: WeraJob): DockJob {
   };
 }
 
+export interface JobContext {
+  jobId: number | null;
+  posting: { company: string; title: string; description: string } | null;
+}
+
 export interface DockHello {
   signedIn: boolean;
   job: DockJob | null;
@@ -46,6 +51,8 @@ export type DockRequest =
   | { type: 'wera:dock-submitted'; url: string }
   | { type: 'wera:dock-status'; jobId: number; status: ApplicationStatus }
   | { type: 'wera:dock-add-applied' }
+  /** Which job the tab's application is for, and its posting: what drafted answers are written for. */
+  | { type: 'wera:dock-context' }
   /** The job the tab is on, as Wera has it (the panel's job card); null when not in Wera or signed out. */
   | { type: 'wera:dock-resolve'; url: string; title: string; referrer?: string }
   /** The panel saved or found the tab's job: remember it for the tab's next pages (the application after its posting). */
