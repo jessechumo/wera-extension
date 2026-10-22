@@ -2,6 +2,7 @@
 // typed: every field, what it shows now, and what Wera would enter and
 // why. Then fills exactly the values the user approved, one at a time,
 // reporting each as it lands.
+import { startHasPassed } from '../shared/dates';
 import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, FillItem, FillResult, KnownAnswer, PagePlan, Profile, ValueSource } from '../shared/types';
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
 import { bestAnswer } from '../shared/answers';
@@ -134,6 +135,11 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
   // The user's details first (never for open questions), then answers they gave before.
   if (purpose && purpose !== 'question') {
     let raw = valueFor(purpose, a);
+    // A saved start date that has gone by would tell the employer you start in the past.
+    if (purpose === 'start_date' && startHasPassed(raw)) {
+      plan.note = `your saved start date (${raw}) has passed: update it in Wera`;
+      raw = '';
+    }
     // A city picker lists every Dallas: search with the state to pick the right one.
     if (purpose === 'city' && raw && a.state && (f.kind === 'combobox' || f.kind === 'listbox')) raw = `${raw}, ${a.state}`;
     // Typed into a box, a yes/no answer reads as a person writes it.
@@ -149,7 +155,8 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
   }
   if (!SELF_ID.has(purpose as FieldPurpose)) {
     const hit = bestAnswer(opts.answers ?? [], f.label);
-    if (hit) {
+    // An earlier form's start date is as stale as a saved one.
+    if (hit && !(/\bstart|availab/i.test(f.label) && startHasPassed(hit.answer))) {
       const shown = asOption(f, hit.answer, purpose);
       if (shown != null) {
         propose(shown, 'saved', 'your earlier answer');

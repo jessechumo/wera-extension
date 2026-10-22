@@ -111,7 +111,8 @@ export async function learnDetails(api: WeraApi, entries: { purpose: FieldPurpos
   const a = view.applicant as unknown as Record<string, string>;
   const learned: Record<string, string> = {};
   for (const { purpose, value } of entries.slice(0, 80)) {
-    if (!(purpose in a) || (a[purpose] ?? '').trim() || learned[purpose]) continue;
+    // A start date belongs to one application; kept, it goes stale.
+    if (purpose === 'start_date' || !(purpose in a) || (a[purpose] ?? '').trim() || learned[purpose]) continue;
     let v = value.trim();
     if (SELF_ID_KEYS.has(purpose)) v = selfIdValue(purpose, v);
     else if (YES_NO.has(purpose)) v = /^yes\b/i.test(v) ? 'yes' : /^no\b/i.test(v) ? 'no' : '';

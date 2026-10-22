@@ -152,7 +152,6 @@ export interface DockActions {
   save: () => void;
   minimize: () => void;
   expand: () => void;
-  hide: () => void;
 }
 
 // The dashboard's tracker statuses and their badge colors (src/components/JobBadges.tsx).
@@ -211,8 +210,7 @@ export function renderDock(doc: Document, s: DockState, act: DockActions): HTMLE
   const head = el(doc, 'div', { class: 'head' },
     logoMark(doc, 20), el(doc, 'span', { class: 'word mono' }, 'wera'),
     el(doc, 'span', { class: 'badge b-neutral' }, s.kind === 'form' ? 'Application' : 'Job posting'),
-    iconButton('minus', 'Minimize Wera', 'Minimize', act.minimize),
-    iconButton('x', 'Hide Wera on this site', 'Hide on this site for a week', act.hide));
+    iconButton('minus', 'Minimize Wera', 'Minimize', act.minimize));
 
   const chips = el(doc, 'div', { class: 'chips' });
   if (job?.status) {
