@@ -1,6 +1,7 @@
 import type { FieldPurpose } from '../shared/types';
 import { entryPurpose } from './entries';
 import type { Field } from './fields';
+import { siteFor } from './sites';
 
 // Browser autocomplete tokens say exactly what a field is.
 const AUTOCOMPLETE: Record<string, FieldPurpose> = {
@@ -40,6 +41,7 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['work_preference', /work (arrangement|preference|setting|model|style)|(remote|hybrid|on-?site) (or|preference)|prefer to work (remotely|from)|preferred work (location|mode|type)/],
   ['notice_period', /notice period|weeks.? notice|how much notice/],
   ['salary_expectation', /salary|compensation|pay (expectation|range)|desired pay|expected pay/],
+  ['today', /today'?s date|date (signed|of signature)|signature date|^date$/],
   ['start_date', /start date|available to start|earliest (possible )?start|when can you start|date available|availability date/],
   ['how_heard', /how (did )?you (first )?(hear|heard|find|found|learn|learned|come across)|where (did )?you (hear|heard|find|found|learn)|referral source|^source\b|how were you referred|hear about (us|this)/],
   ['skills', /^(technical |key |relevant |your )?skills\b|^skill set|list (your )?skills/],
@@ -84,6 +86,9 @@ const CONTACT = new Set<FieldPurpose>(['city', 'state', 'country', 'location', '
 
 /** What a field asks for, or null when Wera cannot tell. */
 export function classify(f: Field): FieldPurpose | null {
+  // The site's own name for the field says it best (Workday's "legalNameSection_firstName").
+  const named = siteFor(f.el.ownerDocument)?.purpose?.(f);
+  if (named !== undefined) return named;
   if (f.section) {
     const e = entryPurpose(f, f.section);
     if (e) return e;

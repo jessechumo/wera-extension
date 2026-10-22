@@ -87,7 +87,9 @@ export type FieldPurpose =
   | 'resume'
   | 'cover_letter'
   | 'question'
-  | 'consent';
+  | 'consent'
+  /** Today's date, as a signed form asks for it ("Date", "Today's date"). */
+  | 'today';
 
 /** One job from the resume, as the Wera API sends it. */
 export interface Experience {
@@ -165,6 +167,12 @@ export interface PagePlan {
   errors: number;
   /** Sections with fewer job or school blocks than the resume has, and an Add button to make more. */
   adders?: { section: 'experience' | 'education'; missing: number; frameId?: number }[];
+  /** The application system Wera recognized (Workday, Greenhouse...). */
+  site?: string;
+  /** Where the user is in a multi-step application. */
+  step?: { name: string; index: number; total: number };
+  /** The page wants something first (a Workday account): what to do. */
+  gate?: string;
 }
 
 /** An answer the user gave before, as the content script matches it. */
@@ -177,6 +185,9 @@ export interface KnownAnswer {
 export interface FillItem {
   id: string;
   value: string;
+  /** The field's label and kind when read: finds it again if the page re-rendered it (Ashby does after each answer). */
+  label?: string;
+  kind?: string;
 }
 
 /** A field's value as the user left it (to learn answers from). */
@@ -216,6 +227,10 @@ export interface PageInfo {
   docId?: string;
   /** The page looks like a job posting or an application, even without job data. */
   jobLike?: boolean;
+  /** The application system Wera recognized, the step the user is on, and what it wants first (see PagePlan). */
+  site?: string;
+  step?: { name: string; index: number; total: number };
+  gate?: string;
 }
 
 // Messages from the side panel to the content script.

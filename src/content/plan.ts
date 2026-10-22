@@ -7,9 +7,11 @@ import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, Fil
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
 import { bestAnswer } from '../shared/answers';
 import { classify, SELF_ID } from './classify';
-import { byId, collectFields, isPressed, listboxValue, type Field } from './fields';
+import { byId, collectFields, isPressed, isWorkdayPrompt, listboxValue, type Field } from './fields';
 import { attachFile, base64ToFile, comboboxChoice, enterValue, isPlaceholderOption, mark, matchOption, setNativeValue, valueFor, wait } from './fill';
 import { findNext, invalidCount } from './next';
+import { siteFor } from './sites';
+import { siteFiller } from './sites/fill';
 
 /** The value marker for "attach the resume" (a file input). */
 export const RESUME = '__resume__';
@@ -128,7 +130,8 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
   }
 
   // A skills picker takes one tag at a time: the user picks them.
-  if (purpose === 'skills' && f.kind !== 'text' && f.kind !== 'textarea') {
+  // A list of skills to pick from: Wera picks them on Workday (one pill each); elsewhere the user does.
+  if (purpose === 'skills' && f.kind !== 'text' && f.kind !== 'textarea' && !(f.kind === 'combobox' && isWorkdayPrompt(f.el))) {
     plan.note = 'pick your skills from its list';
     return plan;
   }
@@ -217,7 +220,12 @@ export function planForm(root: ParentNode, a: Applicant | Profile, opts: PlanOpt
   const all = collectFields(root);
   const placed = placeFields(all);
   const fields = all.map((f) => planField(f, a, opts, placed.get(f.id))).filter((p) => p.purpose !== null || p.label !== '' || p.required);
-  return { fields, next: findNext(root), errors: invalidCount(root), adders: adders(root, fields, a) };
+  const doc = root instanceof Document ? root : (root as Node).ownerDocument;
+  const site = doc ? siteFor(doc) : null;
+  return {
+    fields, next: findNext(root), errors: invalidCount(root), adders: adders(root, fields, a),
+    site: site?.name, step: (doc && site?.step?.(doc)) || undefined, gate: (doc && site?.gate?.(doc)) || undefined,
+  };
 }
 
 export interface ApplyOptions {
@@ -237,9 +245,17 @@ export interface ApplyOptions {
  */
 export async function applyItems(root: ParentNode, items: FillItem[], opts: ApplyOptions = {}): Promise<FillResult[]> {
   const fields = new Map(collectFields(root).map((f) => [f.id, f]));
+  const doc = root instanceof Document ? root : (root as Node).ownerDocument;
+  // Some sites need time between fields to keep up (Workday re-renders after each one).
+  const pace = Math.max(opts.pace ?? 0, (doc && siteFor(doc)?.pace) || 0);
   const out: FillResult[] = [];
   for (const item of items) {
-    const f = fields.get(item.id) ?? null;
+    // A field the page re-rendered since it was read has lost Wera's mark: find it by its label and kind.
+    let f = fields.get(item.id) ?? null;
+    if ((!f || !f.el.isConnected) && item.label) {
+      const again = collectFields(root).filter((x) => x.label.slice(0, 200) === item.label && (!item.kind || x.kind === item.kind));
+      if (again.length === 1) f = again[0]!;
+    }
     const purpose = f ? classify(f) : null;
     const res: FillResult = { id: item.id, label: f?.label.slice(0, 160) ?? '', purpose, status: 'review', required: f?.required ?? false };
     try {
@@ -268,7 +284,16 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
           res.note = 'write your cover letter first';
         }
       } else if (item.value.trim()) {
-        await enterValue(f, purpose, item.value.trim(), res, true);
+        // The site's own widgets (Workday's dropdowns and prompts) are filled its way.
+        const own = siteFiller(f.el.ownerDocument);
+        const got = own ? await own(f, purpose, item.value.trim()) : undefined;
+        if (got === undefined) await enterValue(f, purpose, item.value.trim(), res, true);
+        else if (got) {
+          res.status = 'filled';
+          res.value = got;
+        } else {
+          res.note = `pick "${item.value.trim()}" yourself: the page did not take it`;
+        }
       } else {
         res.status = 'skipped';
       }
@@ -280,7 +305,7 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
     else if (f && res.status === 'review') mark(f.el, 'review');
     out.push(res);
     opts.onProgress?.(res);
-    if (opts.pace) await wait(opts.pace);
+    if (pace) await wait(pace);
   }
   return out;
 }

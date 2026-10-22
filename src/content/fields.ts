@@ -81,7 +81,7 @@ function textOf(el: Element | null, groupName?: string): string {
       if (i.id) clone.querySelector(`label[for="${CSS.escape(i.id)}"]`)?.remove();
     });
   }
-  clone.querySelectorAll(`input, select, textarea, option, script, style, button, [aria-hidden="true"], ${LISTBOX}`).forEach((n) => n.remove());
+  clone.querySelectorAll(`input, select, textarea, option, script, style, button, [aria-hidden="true"], [role="radio"], ${LISTBOX}`).forEach((n) => n.remove());
   return clean(clone.textContent);
 }
 
@@ -128,6 +128,9 @@ export function labelFor(el: HTMLElement, groupName?: string): string {
     const fs = el.closest('fieldset');
     const legend = fs?.querySelector('legend');
     if (legend && textOf(legend)) return textOf(legend);
+    // A question title drawn as a label of the group itself (Ashby): not any option's label.
+    const title = fs ? [...fs.querySelectorAll<HTMLLabelElement>(':scope > label')].find((l) => !l.querySelector('input') && !(l.htmlFor && fs.querySelector(`#${CSS.escape(l.htmlFor)}`))) : null;
+    if (title && textOf(title)) return textOf(title);
     const group = el.closest('[role="radiogroup"], [role="group"]');
     const gl = group?.getAttribute('aria-labelledby');
     if (gl) {
@@ -283,6 +286,18 @@ export function collectFields(root: ParentNode): Field[] {
         kind === 'select'
           ? [...(node as HTMLSelectElement).options].map((o) => ({ label: clean(o.textContent), value: o.value, el: o }))
           : [],
+    });
+  }
+  // Radio groups drawn without radio inputs (Workday, design systems): role="radiogroup" of role="radio".
+  for (const group of deepQueryAll<HTMLElement>(root, '[role="radiogroup"]')) {
+    if (group.querySelector('input[type="radio"]') || isHidden(group)) continue;
+    const radios = [...group.querySelectorAll<HTMLElement>('[role="radio"]')].filter((r) => !isHidden(r) && r.getAttribute('aria-disabled') !== 'true');
+    if (radios.length < 2) continue;
+    const label = labelFor(group);
+    fields.push({
+      id: idFor(group), kind: 'buttons', label, hints: clean(`${group.getAttribute('name') ?? ''} ${group.id}`).toLowerCase(), autocomplete: '', inputType: 'radiogroup',
+      required: isRequired(group, label), el: group,
+      options: radios.map((r) => ({ label: clean(r.getAttribute('aria-label') || r.textContent), value: clean(r.getAttribute('aria-label') || r.textContent), el: r })),
     });
   }
   for (const f of fields) f.section = sectionOf(f.el);

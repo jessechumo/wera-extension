@@ -90,6 +90,20 @@ describe('planForm', () => {
   });
 });
 
+describe('a page that re-renders a field after it was read (Ashby)', () => {
+  it('finds the field again by its label and fills it', async () => {
+    document.body.innerHTML = `<form><div id="box"><label for="sp">Will you require sponsorship?</label>
+      <select id="sp"><option value="">Select</option><option>Yes</option><option>No</option></select></div></form>`;
+    const plan = planForm(document, ada);
+    const f = byLabel(plan.fields, 'Will you require sponsorship?');
+    // The page draws the field anew: same label, without Wera's mark.
+    document.querySelector('#box')!.innerHTML = document.querySelector('#box')!.innerHTML.replace(/ data-wera-id="[^"]*"/, '');
+    const [r] = await applyItems(document, [{ id: f.id, value: 'No', label: f.label, kind: f.kind }]);
+    expect(r).toMatchObject({ status: 'filled', value: 'No' });
+    expect(document.querySelector<HTMLSelectElement>('#sp')!.value).toBe('No');
+  });
+});
+
 describe('a start date', () => {
   it('is never one that has gone by, saved or answered before', () => {
     document.body.innerHTML = `<form><label for="sd">Earliest start date</label><input id="sd">
