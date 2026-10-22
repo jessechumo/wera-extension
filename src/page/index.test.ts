@@ -1,0 +1,172 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isJobUrl, jobSummary, pageKind } from '../content/detect';
+import type { SubmitReply } from '../shared/dock';
+import { watchForJobs } from './index';
+
+const fixture = (name: string) => readFileSync(join(__dirname, '..', 'content', '__fixtures__', name), 'utf8');
+const posting = `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'JobPosting', title: 'SRE', hiringOrganization: { name: 'Acme' }, description: 'Run things.' })}</script><h1>SRE</h1>`;
+// A company's own careers page: no job data, but it reads like a posting.
+const plain = `<h1>Senior Registered Nurse, ICU</h1><a href="/apply">Apply now</a>
+  <h2>About the role</h2><p>Care for patients.</p><h2>Responsibilities</h2><ul><li>Rounds</li></ul>
+  <h2>Qualifications</h2><p>3+ years of experience</p><h2>Benefits</h2><p>Good ones.</p>`;
+
+function at(url: string) {
+  window.history.replaceState(null, '', url);
+}
+
+let stops: (() => void)[] = [];
+const run = (doc: Document, delay: number) => stops.push(watchForJobs(doc, delay));
+
+afterEach(() => {
+  stops.forEach((s) => s());
+  stops = [];
+  at('/');
+  delete window.__weraPage;
+  vi.unstubAllGlobals();
+});
+
+describe('telling job pages from other pages', () => {
+  it('knows application forms, postings with job data, and everything else', () => {
+    document.body.innerHTML = fixture('greenhouse.html');
+    expect(pageKind(document)).toBe('form');
+    document.body.innerHTML = posting;
+    expect(pageKind(document)).toBe('posting');
+    document.body.innerHTML = '<form><label>Search <input name="q"></label><label>Email <input type="email"></label></form>';
+    expect(pageKind(document)).toBeNull();
+  });
+
+  it('reads a posting without job data by what is on it', () => {
+    at('/careers/icu-nurse-4411');
+    document.body.innerHTML = plain;
+    expect(pageKind(document)).toBe('posting');
+    // The same words in a blog post, without an Apply button or a job address, are not a posting.
+    at('/blog/what-nurses-do');
+    document.body.innerHTML = '<h1>What ICU nurses do</h1><p>Responsibilities and qualifications vary.</p>';
+    expect(pageKind(document)).toBeNull();
+  });
+
+  it('knows the addresses of job boards', () => {
+    for (const url of [
+      'https://boards.greenhouse.io/acme/jobs/123', 'https://jobs.lever.co/acme/2f1c3b0e-4b8f-4c55-9a7e-5c0d1e2f3a4b',
+      'https://acme.wd5.myworkdayjobs.com/en-US/Careers/job/Austin-TX/SRE_R123', 'https://www.linkedin.com/jobs/view/4012345678/',
+      'https://www.indeed.com/viewjob?jk=abc', 'https://apply.workable.com/acme/j/1A2B3C4D5E/',
+    ]) expect(isJobUrl(url), url).toBe(true);
+    expect(isJobUrl('https://www.linkedin.com/feed/')).toBe(false);
+  });
+
+  it('names the job and company', () => {
+    document.body.innerHTML = posting;
+    expect(jobSummary(document)).toEqual({ title: 'SRE', company: 'Acme' });
+  });
+
+  it('stays off the Wera dashboard (its own forms are not applications)', () => {
+    document.body.innerHTML = fixture('greenhouse.html');
+    document.documentElement.dataset.weraExtension = '0.3.0';
+    expect(pageKind(document)).toBeNull();
+    delete document.documentElement.dataset.weraExtension;
+  });
+});
+
+describe('on a page', () => {
+  function fakeChrome(submit: SubmitReply = { state: 'off' }, storage: Record<string, unknown> = {}) {
+    const sent: { type: string }[] = [];
+    vi.stubGlobal('chrome', {
+      runtime: {
+        id: 'x',
+        sendMessage: vi.fn(async (m: { type: string }) => {
+          sent.push(m);
+          return m.type === 'wera:dock-submitted' ? submit : null;
+        }),
+        onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+      storage: { local: { get: vi.fn(async () => storage) } },
+    });
+    return sent;
+  }
+
+  it('asks for the Wera panel on an application, and says what the page is', async () => {
+    const sent = fakeChrome();
+    document.body.innerHTML = fixture('greenhouse.html');
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:panel-ensure')).toBe(true));
+    expect(sent.find((m) => m.type === 'wera:dock-hello')).toMatchObject({ kind: 'form' });
+    expect(window.__weraPage?.kind).toBe('form');
+    // Once per page, however much the page changes.
+    document.body.append(document.createElement('div'));
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sent.filter((m) => m.type === 'wera:panel-ensure')).toHaveLength(1);
+  });
+
+  it('tells the panel when a single-page job board moves to another job', async () => {
+    fakeChrome();
+    document.body.innerHTML = posting;
+    run(document, 5);
+    await vi.waitFor(() => expect(window.__weraPage?.kind).toBe('posting'));
+    const seen = vi.fn();
+    window.__weraPage!.subscribe(seen);
+    at('/jobs/2');
+    document.body.innerHTML = fixture('greenhouse.html');
+    await vi.waitFor(() => expect(seen).toHaveBeenCalledWith(expect.objectContaining({ kind: 'form' })));
+  });
+
+  it('stays away when turned off, and on the Wera server', async () => {
+    let sent = fakeChrome({ state: 'off' }, { 'wera.settings': { launcher: false } });
+    document.body.innerHTML = posting;
+    run(document, 5);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sent.some((m) => m.type === 'wera:panel-ensure')).toBe(false);
+    stops.forEach((s) => s());
+    stops = [];
+    sent = fakeChrome({ state: 'off' }, { 'wera.session': { server: location.origin } });
+    run(document, 5);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sent.some((m) => m.type === 'wera:panel-ensure')).toBe(false);
+  });
+
+  it('keeps what the user answered (self-identification too) when they move the application on', async () => {
+    const sent = fakeChrome();
+    document.body.innerHTML = `<form><label for="fn">First name</label><input id="fn" value="Ada">
+      <label for="em">Email</label><input id="em" type="email" value="ada@example.com">
+      <label for="ph">Phone</label><input id="ph" value="512 555 0142">
+      <label for="g">Gender</label><select id="g"><option value="">Select</option><option selected>Woman</option></select>
+      <label for="w">Why us?</label><textarea id="w">Robots.</textarea>
+      <button type="button" id="next">Save and Continue</button></form>`;
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-hello')).toBe(true));
+    document.querySelector<HTMLButtonElement>('#next')!.click();
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-learn')).toBe(true));
+    const learn = sent.find((m) => m.type === 'wera:dock-learn') as unknown as { entries: { purpose: string; value: string }[] };
+    expect(learn.entries).toEqual(expect.arrayContaining([{ purpose: 'gender', value: 'Woman' }, { purpose: 'phone', value: '512 555 0142' }]));
+    expect(learn.entries.some((e) => e.purpose === 'question')).toBe(false);
+  });
+
+  it('tells Wera when the form gives way to a thank-you message, and brings the panel to say so', async () => {
+    const sent = fakeChrome({ state: 'marked', job: { id: 4, title: 'SRE', company: 'Acme', score: 80, estimate: false, verdict: null, status: 'applied', autofilled: true }, previous: 'saved' });
+    document.body.innerHTML = fixture('greenhouse.html');
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-hello')).toBe(true));
+    document.body.innerHTML = '<h1>Thank you for applying!</h1><p>We will be in touch.</p>';
+    await vi.waitFor(() => expect(window.__weraPage?.submitted?.state).toBe('marked'));
+    expect(sent.filter((m) => m.type === 'wera:dock-submitted')).toHaveLength(1);
+    expect(sent.filter((m) => m.type === 'wera:panel-ensure').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('goes quietly when the extension is reloaded under it', async () => {
+    const sent = fakeChrome();
+    document.body.innerHTML = posting;
+    run(document, 5);
+    await vi.waitFor(() => expect(window.__weraPage?.kind).toBe('posting'));
+    const runtime = chrome.runtime as unknown as { id?: string; sendMessage: () => never };
+    delete runtime.id;
+    runtime.sendMessage = () => {
+      throw new Error('Extension context invalidated.');
+    };
+    const before = sent.length;
+    document.body.innerHTML = fixture('greenhouse.html');
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sent.length).toBe(before);
+    expect(window.__weraPage?.kind).toBe('posting');
+  });
+});

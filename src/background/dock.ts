@@ -1,4 +1,4 @@
-// The background's side of the Wera dock: it looks the page's job up in
+// The background's side of the job page: it looks the page's job up in
 // Wera, saves a posting, and marks a job applied when the site confirms
 // the application. Signed-in calls happen here, never in the page.
 import { WeraApi, type WeraJob } from '../shared/api';
@@ -27,14 +27,15 @@ function originOf(url: string): string {
 }
 
 /**
- * The job a tab is on: by its address, else the one this tab showed on
- * the same site (a posting before its form), else the one the dashboard
- * opened it for, else the one an autofill in progress is for.
+ * The job a tab is on: by its address, else by the page it came from on
+ * the same site (the posting whose Apply button led here), else the one
+ * this tab showed on the same site, else the one the dashboard opened it
+ * for, else the one an autofill in progress is for.
  */
-export async function resolveJob(api: WeraApi, tabId: number, url: string, title = ''): Promise<WeraJob | null> {
-  const found = await api.lookup(url).then((r) => r.job).catch(() => null);
+export async function resolveJob(api: WeraApi, tabId: number, url: string, title = '', referrer = ''): Promise<WeraJob | null> {
   const origin = originOf(url);
-  let job = found;
+  let job = await api.lookup(url).then((r) => r.job).catch(() => null);
+  if (!job && referrer && referrer !== url && originOf(referrer) === origin) job = await api.lookup(referrer).then((r) => r.job).catch(() => null);
   if (!job) {
     const remembered = await tabJob(tabId, origin);
     if (remembered) job = await api.job(remembered).catch(() => null);
@@ -52,10 +53,18 @@ export async function resolveJob(api: WeraApi, tabId: number, url: string, title
   return job;
 }
 
-/** Tells the side panel (if open) and the tab's dock that the tab's job changed. */
+/** The fit score on the toolbar icon for the tab (a check for a job without one, nothing without a job). */
+export function setBadge(tabId: number, job: WeraJob | null) {
+  if (!chrome.action?.setBadgeText) return;
+  const score = job ? (job.fit_score ?? job.estimated_score) : null;
+  void chrome.action.setBadgeText({ tabId, text: score != null ? String(score) : job ? '✓' : '' }).catch(() => {});
+  if (score != null) void chrome.action.setBadgeBackgroundColor({ tabId, color: score >= 80 ? '#1e7a3c' : score >= 65 ? '#3157c4' : '#6b7180' }).catch(() => {});
+}
+
+/** Tells the tab's Wera panel that the tab's job changed (saved, moved on the tracker, applied). */
 function broadcast(tabId: number, job: WeraJob, applied = false) {
-  void chrome.runtime.sendMessage({ type: 'wera:job-changed', tabId, job, applied }).catch(() => {});
-  void chrome.tabs.sendMessage(tabId, { type: 'wera:dock-job', job: dockJob(job) }, { frameId: 0 }).catch(() => {});
+  setBadge(tabId, job);
+  void chrome.tabs.sendMessage(tabId, { type: 'wera:job-changed', job, applied }, { frameId: 0 }).catch(() => {});
 }
 
 /** Answers one dock request from tab `tabId` (opening the panel is done by the caller, inside the click). */
@@ -65,7 +74,8 @@ export async function handleDock(msg: DockRequest, tabId: number, tabUrl: string
     case 'wera:dock-hello': {
       await notePage(tabId, msg.kind === 'form' ? { formAt: Date.now() } : msg.draft ? { draft: msg.draft } : {});
       if (!api) return { signedIn: false, job: null } satisfies DockHello;
-      const job = await resolveJob(api, tabId, msg.url, msg.draft?.title);
+      const job = await resolveJob(api, tabId, msg.url, msg.draft?.title, msg.referrer);
+      setBadge(tabId, job);
       return { signedIn: true, job: job && dockJob(job) } satisfies DockHello;
     }
     case 'wera:dock-save': {
@@ -85,6 +95,14 @@ export async function handleDock(msg: DockRequest, tabId: number, tabUrl: string
       return api ? submitted(api, tabId, msg.url) : ({ state: 'off' } satisfies SubmitReply);
     case 'wera:dock-learn':
       return api ? learnDetails(api, msg.entries) : null;
+    case 'wera:dock-remember':
+      await rememberTabJob(tabId, originOf(tabUrl), msg.jobId);
+      return true;
+    case 'wera:dock-resolve': {
+      const job = api ? await resolveJob(api, tabId, msg.url, msg.title, msg.referrer) : null;
+      setBadge(tabId, job);
+      return job;
+    }
     case 'wera:dock-add-applied': {
       const draft = (await pages())[tabId]?.draft;
       if (!api || !draft) return null;

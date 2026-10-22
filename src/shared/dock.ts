@@ -1,11 +1,10 @@
-// What the Wera dock (the panel that slides in on job pages, launcher.js)
-// and the background say to each other. The dock reads the page; the
+// What the page script and the Wera panel (both inside the job page) ask
+// the background about the page's job. The page reads itself; the
 // background holds the sign-in and talks to Wera.
 import type { ApplicationStatus, WeraJob } from './api';
 import type { FieldPurpose, JobDraft } from './types';
 
 export type DockKind = 'form' | 'posting';
-export type PanelView = 'job' | 'apply' | 'letter' | 'resume';
 
 /** The job as the dock shows it. */
 export interface DockJob {
@@ -42,12 +41,15 @@ export type SubmitReply =
   | { state: 'off' };
 
 export type DockRequest =
-  | { type: 'wera:dock-hello'; url: string; kind: DockKind; draft: JobDraft | null }
-  | { type: 'wera:dock-open'; view: PanelView; fill?: boolean }
+  | { type: 'wera:dock-hello'; url: string; kind: DockKind; draft: JobDraft | null; referrer?: string }
   | { type: 'wera:dock-save'; draft: JobDraft }
   | { type: 'wera:dock-submitted'; url: string }
   | { type: 'wera:dock-status'; jobId: number; status: ApplicationStatus }
   | { type: 'wera:dock-add-applied' }
+  /** The job the tab is on, as Wera has it (the panel's job card); null when not in Wera or signed out. */
+  | { type: 'wera:dock-resolve'; url: string; title: string; referrer?: string }
+  /** The panel saved or found the tab's job: remember it for the tab's next pages (the application after its posting). */
+  | { type: 'wera:dock-remember'; jobId: number }
   /** What the user left in a form's detail fields when moving on (Next, Submit). */
   | { type: 'wera:dock-learn'; entries: { purpose: FieldPurpose; value: string }[] };
 
@@ -56,12 +58,3 @@ export const isDockRequest = (m: unknown): m is DockRequest =>
 
 /** Statuses past applying: a confirmation page never moves a job back to Applied. */
 export const PAST_APPLIED = new Set(['applied', 'interviewing', 'offer', 'rejected']);
-
-/** The panel view a dock button asked for (session storage: read once by the side panel). */
-export const PENDING_VIEW = 'wera.pendingFill';
-export interface PendingView {
-  tabId: number;
-  at: number;
-  view: PanelView;
-  fill: boolean;
-}

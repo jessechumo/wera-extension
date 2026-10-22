@@ -12,14 +12,11 @@
     "128": "icons/128.png"
   },
   "action": {
-    "default_title": "Open Wera",
+    "default_title": "Wera (Alt+Shift+W)",
     "default_icon": {
       "16": "icons/16.png",
       "32": "icons/32.png"
     }
-  },
-  "side_panel": {
-    "default_path": "sidepanel.html"
   },
   "background": {
     "service_worker": "background.js",
@@ -32,9 +29,10 @@
         "http://*/*"
       ],
       "js": [
-        "launcher.js"
+        "page.js"
       ],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [
@@ -50,7 +48,6 @@
   ],
   "permissions": [
     "storage",
-    "sidePanel",
     "activeTab",
     "scripting",
     "contextMenus"
@@ -63,11 +60,11 @@
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
   },
   "commands": {
-    "_execute_action": {
+    "toggle-panel": {
       "suggested_key": {
         "default": "Alt+Shift+W"
       },
-      "description": "Open Wera"
+      "description": "Show or hide Wera"
     },
     "fill-form": {
       "suggested_key": {

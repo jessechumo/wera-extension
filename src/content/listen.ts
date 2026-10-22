@@ -1,5 +1,6 @@
-// Injected into the active tab when the user opens Wera on it. It reads the
-// page and fills forms only when the side panel asks; it never submits.
+// What every frame's page script does when the Wera panel asks: read the
+// page, plan and fill the form, press Next (never Submit). The panel's
+// requests come through the background, by frame.
 import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { classify } from './classify';
@@ -8,6 +9,7 @@ import { attachFile, base64ToFile, insertText, mark } from './fill';
 import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
 import { pageKind } from './detect';
+import { siteFor } from './sites';
 import { pressNext } from './next';
 import { addEntries, applyItems, highlight, planForm, snapshot } from './plan';
 import { mainText } from './text';
@@ -15,7 +17,6 @@ import { bodyText, looksSubmitted, watchPage } from './watch';
 
 declare global {
   interface Window {
-    __weraContent?: boolean;
     __weraDocId?: string;
   }
 }
@@ -23,6 +24,7 @@ declare global {
 function readPage(): PageInfo {
   const url = location.href;
   const fields = collectFields(document);
+  const site = siteFor(document);
   return {
     url,
     title: document.title,
@@ -33,21 +35,29 @@ function readPage(): PageInfo {
     frameOrigins: formFrameOrigins(document),
     jobLike: pageKind(document) !== null,
     docId: window.__weraDocId,
+    site: site?.name,
+    step: site?.step?.(document) ?? undefined,
+    gate: site?.gate?.(document) ?? undefined,
   };
 }
 
-if (!window.__weraContent) {
-  window.__weraContent = true;
-  // Set once per loaded document, so the side panel can tell a reload from a tab switch.
+export function listen() {
+  // Set once per loaded document, so the panel can tell a reload from a step of the same form.
   window.__weraDocId = Math.random().toString(36).slice(2);
-  // Tell the side panel about new form steps and confirmations (it may
-  // be closed; then nobody listens and the message is dropped). Once the
+  // Once the panel works with this frame, tell it about new form steps and
+  // confirmations (pages Wera is not used on are never watched). Once the
   // extension is reloaded this copy is cut off, and stops watching.
-  const stopWatching = watchPage(document, (e) => {
-    if (extensionAlive()) void sendSafe(e);
-    else stopWatching();
-  });
+  let watching = false;
+  const watch = () => {
+    if (watching) return;
+    watching = true;
+    const stopWatching = watchPage(document, (e) => {
+      if (extensionAlive()) void sendSafe(e);
+      else stopWatching();
+    });
+  };
   chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, reply) => {
+    if (typeof msg?.type === 'string' && msg.type.startsWith('wera:')) watch();
     switch (msg.type) {
       case 'wera:read-page':
         reply(readPage());
