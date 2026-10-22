@@ -6,6 +6,8 @@
 // from any other; only the dock's own requests leave the page, to Wera.
 import { jobSummary, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
+import { ENTRY_PURPOSES } from '../content/entries';
+import { snapshot } from '../content/plan';
 import { bodyText, looksSubmitted } from '../content/watch';
 import type { ApplicationStatus } from '../shared/api';
 import type { DockHello, DockJob, DockRequest, PanelView, SubmitReply } from '../shared/dock';
@@ -66,6 +68,17 @@ export function submitToast(r: SubmitReply, act: { undo: (j: DockJob, to: Applic
       : { tone: 'info', title: 'Applied? Track it in Wera', text: 'This job is not in your Wera lists yet. Save it to keep your tracker current.', actions: [{ label: 'Open Wera', run: () => act.open('job') }] };
   }
   return null;
+}
+
+// The buttons that move an application on: what the user entered on the page is final then.
+const MOVES_ON = /^(submit|submit application|send|send application|apply|apply now|next|continue|save and continue|save & continue|review|review application|finish)\b/i;
+const NOT_DETAILS = new Set(['question', 'consent', 'resume', 'cover_letter', 'skills', 'full_name', 'location', 'authorized_no_sponsorship', 'phone_type', 'phone_code']);
+
+/** The details a form holds now (name, contact, eligibility, self-identification): what Wera can learn from. */
+export function formDetails(doc: Document): { purpose: NonNullable<ReturnType<typeof snapshot>[number]['purpose']>; value: string }[] {
+  return snapshot(doc)
+    .filter((f) => f.purpose && !NOT_DETAILS.has(f.purpose) && !ENTRY_PURPOSES.has(f.purpose) && f.kind !== 'checkbox')
+    .map((f) => ({ purpose: f.purpose!, value: f.value }));
 }
 
 /** Watches the page (single-page job boards change without loading) and keeps the dock in step; returns a stop. */
@@ -194,6 +207,16 @@ export function start(doc: Document, delay = 1200): () => void {
     if (!timer) timer = window.setTimeout(() => void check(), delay);
   };
   schedule();
+  // Moving an application on (Next, Submit): Wera keeps the details it lacked, self-identification included.
+  const onClick = (e: Event) => {
+    const b = (e.target as Element | null)?.closest?.('button, input[type="submit"], [role="button"], a');
+    if (!b || !sawForm) return;
+    const text = (b instanceof HTMLInputElement ? b.value : b.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!MOVES_ON.test(text)) return;
+    const entries = formDetails(doc);
+    if (entries.length) void ask({ type: 'wera:dock-learn', entries });
+  };
+  doc.addEventListener('click', onClick, true);
   const obs = new MutationObserver(schedule);
   obs.observe(doc.body ?? doc.documentElement, { childList: true, subtree: true });
   doc.addEventListener('visibilitychange', schedule);
@@ -204,6 +227,7 @@ export function start(doc: Document, delay = 1200): () => void {
   };
   chrome.runtime.onMessage?.addListener(onMessage);
   return () => {
+    doc.removeEventListener('click', onClick, true);
     stopTheme();
     obs.disconnect();
     doc.removeEventListener('visibilitychange', schedule);

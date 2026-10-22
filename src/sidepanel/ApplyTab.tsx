@@ -46,6 +46,8 @@ const SOURCE: Record<ValueSource, { label: string; cls: string; Icon: typeof Bot
 function homeOf(f: FieldPlan): Row['home'] {
   if (f.group === 'questions' && f.kind === 'textarea') return 'questions';
   if (f.value !== '' && f.group !== 'questions' && f.group !== 'consent') return 'fill';
+  // Self-identification not in the profile: the user answers it once, never hidden among optional fields.
+  if (f.group === 'self_id') return 'needs';
   if (f.required || f.group === 'consent' || f.group === 'other' || f.note === 'not in your application details') return 'needs';
   return 'left';
 }

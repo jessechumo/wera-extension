@@ -2,7 +2,7 @@
 // and the background say to each other. The dock reads the page; the
 // background holds the sign-in and talks to Wera.
 import type { ApplicationStatus, WeraJob } from './api';
-import type { JobDraft } from './types';
+import type { FieldPurpose, JobDraft } from './types';
 
 export type DockKind = 'form' | 'posting';
 export type PanelView = 'job' | 'apply' | 'letter' | 'resume';
@@ -47,7 +47,9 @@ export type DockRequest =
   | { type: 'wera:dock-save'; draft: JobDraft }
   | { type: 'wera:dock-submitted'; url: string }
   | { type: 'wera:dock-status'; jobId: number; status: ApplicationStatus }
-  | { type: 'wera:dock-add-applied' };
+  | { type: 'wera:dock-add-applied' }
+  /** What the user left in a form's detail fields when moving on (Next, Submit). */
+  | { type: 'wera:dock-learn'; entries: { purpose: FieldPurpose; value: string }[] };
 
 export const isDockRequest = (m: unknown): m is DockRequest =>
   !!m && typeof m === 'object' && typeof (m as { type?: unknown }).type === 'string' && (m as { type: string }).type.startsWith('wera:dock-');

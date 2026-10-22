@@ -177,6 +177,24 @@ describe('on a page', () => {
     expect(dockText()).toBe('');
   });
 
+  it('keeps what the user answered (self-identification too) when they move the application on', async () => {
+    const sent = fakeChrome({ signedIn: true, job });
+    document.body.innerHTML = `<form><label for="fn">First name</label><input id="fn" value="Ada">
+      <label for="em">Email</label><input id="em" type="email" value="ada@example.com">
+      <label for="ph">Phone</label><input id="ph" value="512 555 0142">
+      <label for="g">Gender</label><select id="g"><option value="">Select</option><option selected>Woman</option></select>
+      <label for="w">Why us?</label><textarea id="w">Robots.</textarea>
+      <button type="button" id="next">Save and Continue</button></form>`;
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-hello')).toBe(true));
+    document.querySelector<HTMLButtonElement>('#next')!.click();
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-learn')).toBe(true));
+    const learn = sent.find((m) => m.type === 'wera:dock-learn') as unknown as { entries: { purpose: string; value: string }[] };
+    expect(learn.entries).toEqual(expect.arrayContaining([{ purpose: 'gender', value: 'Woman' }, { purpose: 'phone', value: '512 555 0142' }]));
+    // Open questions are answers for that job, not details.
+    expect(learn.entries.some((e) => e.purpose === 'question')).toBe(false);
+  });
+
   it('tells Wera when the form gives way to a thank-you message', async () => {
     const sent = fakeChrome({ signedIn: true, job }, { state: 'marked', job: { ...job, status: 'applied' }, previous: 'saved' });
     document.body.innerHTML = fixture('greenhouse.html');
