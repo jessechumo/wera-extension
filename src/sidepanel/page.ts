@@ -183,7 +183,7 @@ export async function addEntries(tab: chrome.tabs.Tab, frameId: number, section:
 }
 
 /** Fills the approved values, each frame's fields in its frame; results come back as each frame finishes. */
-export async function apply(tab: chrome.tabs.Tab, items: FillItem[], resume?: { name: string; base64: string }, coverLetter?: string, pace = 90, letterFile?: { name: string; base64: string }): Promise<FillResult[]> {
+export async function apply(tab: chrome.tabs.Tab, items: FillItem[], resume?: { name: string; base64: string }, coverLetter?: string, pace = 30, letterFile?: { name: string; base64: string }): Promise<FillResult[]> {
   await inject(tab);
   const byFrame = new Map<number, FillItem[]>();
   for (const it of items) {

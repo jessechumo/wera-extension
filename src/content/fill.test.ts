@@ -406,3 +406,19 @@ describe('places', () => {
     expect(matchOption(list, 'Dallas, WA', 'location')).toBeNull();
   });
 });
+
+describe('not waiting for nothing', () => {
+  it('fills a plain city box at once, and gives up quickly on a list without the answer', async () => {
+    document.body.innerHTML = `<form><label for="c">City</label><input id="c">
+      <label for="v">Veteran status</label><input id="v" role="combobox" aria-controls="vl"><div id="vl" role="listbox"></div></form>`;
+    const input = document.querySelector<HTMLInputElement>('#v')!;
+    input.addEventListener('keyup', () => {
+      document.querySelector('#vl')!.innerHTML = '<div role="option">I am on active duty</div><div role="option">I have never served</div>';
+    });
+    const t0 = Date.now();
+    const out = await fillForm(document, { ...ada, city: 'Dallas', veteran: 'I am not a protected veteran' }, { passes: 1 });
+    expect(out.find((r) => r.purpose === 'city')).toMatchObject({ status: 'filled', value: 'Dallas' });
+    expect(out.find((r) => r.purpose === 'veteran')).toMatchObject({ status: 'review' });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});

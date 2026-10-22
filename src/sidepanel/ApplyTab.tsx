@@ -122,8 +122,38 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
     return info ? { company: page.job?.company ?? info.draft?.company ?? '', title: page.job?.title ?? (info.draft?.title || info.title), description: info.draft?.description || info.text } : undefined;
   }, [page.page, page.job]);
 
-  /** Reads the page into rows, then asks the AI about what is left (if allowed). */
-  const scanPage = useCallback(async (): Promise<{ plan: PagePlan; rows: Row[] } | null> => {
+  /**
+   * Asks the AI about the rows Wera's details and earlier answers left
+   * empty (once per site and field), shows its answers in the list, sure
+   * ones ticked, and returns the rows it answered.
+   */
+  const suggestFor = useCallback(async (list: Row[]): Promise<Row[]> => {
+    const ask = list.filter(needsSuggestion);
+    if (!settings.aiSuggest || !ask.length) return [];
+    setPhase('suggesting');
+    const fresh = ask.filter((r) => !suggested.has(suggestKey(siteHost, r)));
+    if (fresh.length) {
+      const fields: SuggestField[] = fresh.map((r) => ({ id: r.id, label: r.label, kind: r.kind, options: r.options.length ? r.options : undefined, required: r.required || undefined, max_length: r.maxLength }));
+      const got = await api.suggest(fields, jobId, posting).then((x) => x.answers).catch(() => null);
+      if (got) {
+        const byId = new Map(got.map((s) => [s.id, s]));
+        for (const r of fresh) suggested.set(suggestKey(siteHost, r), byId.get(r.id) ?? null);
+      }
+    }
+    const answered: Row[] = [];
+    for (const r of ask) {
+      const s = suggested.get(suggestKey(siteHost, r));
+      if (!s) continue;
+      const filled = { ...r, value: s.value, source: 'ai' as const, confidence: s.confidence, note: s.why || (s.confidence === 'low' ? 'a guess: check it' : ''), checked: s.confidence === 'high' };
+      answered.push({ ...filled, home: homeOf(filled) });
+    }
+    const byId = new Map(answered.map((r) => [r.id, r]));
+    if (answered.length) setRows((rs) => rs.map((r) => byId.get(r.id) ?? r));
+    return answered;
+  }, [api, jobId, posting, settings.aiSuggest, siteHost]);
+
+  /** Reads the page into rows, then (unless filling at once) asks the AI about what is left. */
+  const scanPage = useCallback(async (opts: { ai?: boolean } = {}): Promise<{ plan: PagePlan; rows: Row[] } | null> => {
     if (!tab) return null;
     setPhase('scanning');
     setError('');
@@ -163,25 +193,9 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
       let next = rowsFor(p, view.sources);
       setPlan(p);
       setRows(next);
-      const ask = next.filter(needsSuggestion);
-      if (settings.aiSuggest && ask.length) {
-        setPhase('suggesting');
-        const fresh = ask.filter((r) => !suggested.has(suggestKey(siteHost, r)));
-        if (fresh.length) {
-          const fields: SuggestField[] = fresh.map((r) => ({ id: r.id, label: r.label, kind: r.kind, options: r.options.length ? r.options : undefined, required: r.required || undefined, max_length: r.maxLength }));
-          const got = await api.suggest(fields, jobId, posting).then((x) => x.answers).catch(() => null);
-          if (got) {
-            const byId = new Map(got.map((s) => [s.id, s]));
-            for (const r of fresh) suggested.set(suggestKey(siteHost, r), byId.get(r.id) ?? null);
-          }
-        }
-        next = next.map((r) => {
-          const s = suggested.get(suggestKey(siteHost, r));
-          if (!s) return r;
-          const filled = { ...r, value: s.value, source: 'ai' as const, confidence: s.confidence, note: s.why || (s.confidence === 'low' ? 'a guess: check it' : ''), checked: s.confidence === 'high' };
-          return { ...filled, home: homeOf(filled) };
-        });
-        setRows(next);
+      if (opts.ai !== false) {
+        const answered = new Map((await suggestFor(next)).map((r) => [r.id, r]));
+        next = next.map((r) => answered.get(r.id) ?? r);
       }
       setPhase('ready');
       return { plan: p, rows: next };
@@ -190,7 +204,7 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
       setPhase('idle');
       return null;
     }
-  }, [api, tab, jobId, posting, settings.aiSuggest, siteHost]);
+  }, [api, tab, jobId, suggestFor]);
 
   /** Learns from the page as the user left it: answers for next time, and details Wera lacked. */
   const learn = useCallback(async (list: Row[]) => {
@@ -344,25 +358,50 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
     }
   }, [tab, plan, rows, learn, flow, siteHost, jobId, page]);
 
+  /**
+   * Reads the page; to fill, fills what Wera knows at once, then asks the
+   * AI about the rest and fills its sure answers as they come, instead of
+   * making the user wait for the AI first.
+   */
   const scanAndMaybeFill = useCallback(async (fill: boolean) => {
-    const got = await scanPage();
-    if (got && fill) await fillRows(got.rows, got.plan);
-  }, [scanPage, fillRows]);
+    const got = await scanPage({ ai: !fill });
+    if (!got || !fill) return;
+    await fillRows(got.rows, got.plan);
+    const sure = (await suggestFor(got.rows)).filter((r) => r.checked && r.value !== '');
+    await fillRows(sure, got.plan);
+  }, [scanPage, fillRows, suggestFor]);
 
   // On a form page: read it at once. After Continue (the page reloaded or
   // moved on), fill it too when the user asked for that.
   const started = useRef(false);
+  // While the page is being read, a fill request waits for that read instead of starting another.
+  const reading = useRef(false);
+  const fillWhenRead = useRef(false);
+  const latest = useRef({ rows, plan });
+  useEffect(() => {
+    latest.current = { rows, plan };
+  });
   useEffect(() => {
     if (started.current || !tab || page.loading || !page.page?.hasForm) return;
     started.current = true;
+    reading.current = true;
     void (async () => {
-      const f = tab.id != null && siteHost ? await loadFlow(tab.id, siteHost) : null;
-      setFlow(f);
-      const fillNow = !!f?.continuing && settings.autoContinue;
-      if (f?.continuing && tab.id != null) await saveFlow(tab.id, { ...f, continuing: false });
-      await scanAndMaybeFill(fillNow);
+      try {
+        const f = tab.id != null && siteHost ? await loadFlow(tab.id, siteHost) : null;
+        setFlow(f);
+        const fillNow = !!f?.continuing && settings.autoContinue;
+        if (f?.continuing && tab.id != null) await saveFlow(tab.id, { ...f, continuing: false });
+        await scanAndMaybeFill(fillNow || fillWhenRead.current);
+      } finally {
+        reading.current = false;
+      }
+      // Asked to fill while the list was still being read: fill it now.
+      if (fillWhenRead.current && latest.current.plan) {
+        fillWhenRead.current = false;
+        await fillRows(latest.current.rows, latest.current.plan);
+      }
     })();
-  }, [tab, page.loading, page.page?.hasForm, siteHost, settings.autoContinue, scanAndMaybeFill]);
+  }, [tab, page.loading, page.page?.hasForm, siteHost, settings.autoContinue, scanAndMaybeFill, fillRows]);
 
   // A single-page app showed its next step without a page load.
   useEffect(() => {
@@ -387,6 +426,10 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay
   // The keyboard shortcut, the right-click menu or the page's Wera button asked to fill.
   useEffect(() => {
     if (autoFill && tab && !page.loading && autoFill.claim()) {
+      if (reading.current) {
+        fillWhenRead.current = true;
+        return;
+      }
       // A request from outside React (via session storage).
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void (plan ? fillRows(rows, plan) : scanAndMaybeFill(true));
