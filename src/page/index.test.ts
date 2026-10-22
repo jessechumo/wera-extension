@@ -37,6 +37,25 @@ describe('telling job pages from other pages', () => {
     expect(pageKind(document)).toBeNull();
   });
 
+  it('does not take a contact, demo-request or checkout form for an application', () => {
+    at('/contact');
+    document.body.innerHTML = `<h1>Contact us</h1><form><label for="a">First name</label><input id="a"><label for="b">Last name</label><input id="b">
+      <label for="c">Email</label><input id="c" type="email"><label for="d">Phone</label><input id="d" type="tel"><label for="e">Message</label><textarea id="e"></textarea></form>`;
+    expect(pageKind(document)).toBeNull();
+    at('/demo');
+    document.body.innerHTML = `<h1>Book a demo</h1><form><label for="a">Full name</label><input id="a"><label for="c">Work email</label><input id="c" type="email">
+      <label for="d">Company</label><input id="d"><label for="t">Job title</label><input id="t"><label for="h">How did you hear about us?</label><input id="h"></form>`;
+    expect(pageKind(document)).toBeNull();
+    at('/checkout');
+    document.body.innerHTML = `<h1>Checkout</h1><form><label for="a">First name</label><input id="a"><label for="b">Last name</label><input id="b">
+      <label for="c">Email</label><input id="c" type="email"><label for="s">Street address</label><input id="s"><label for="z">ZIP code</label><input id="z"></form>`;
+    expect(pageKind(document)).toBeNull();
+    // The same who-you-are fields with something only an application asks: an application.
+    at('/apply');
+    document.body.innerHTML += '<label for="li">LinkedIn profile</label><input id="li">';
+    expect(pageKind(document)).toBe('form');
+  });
+
   it('reads a posting without job data by what is on it', () => {
     at('/careers/icu-nurse-4411');
     document.body.innerHTML = plain;
