@@ -35,10 +35,7 @@ export interface Site {
 
 const SITES: Site[] = [workday, greenhouse, lever, ashby];
 
-const known = new WeakMap<Document, Site | null>();
-
-/** The site rules for a document, if Wera has some (worked out once per page). */
+/** The site rules for a document, if Wera has some. Not remembered: a single-page site can change what it shows. */
 export function siteFor(doc: Document): Site | null {
-  if (!known.has(doc)) known.set(doc, SITES.find((s) => s.matches(doc)) ?? null);
-  return known.get(doc) ?? null;
+  return SITES.find((s) => s.matches(doc)) ?? null;
 }
