@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Applicant, FillResult, PageInfo, PagePlan } from '../shared/types';
-import { apply, highlightField, insert, pressNext, readPage, scan, snapshotForm } from './page';
+import { apply, highlight, insert, pressNext, readPage, scan, snapshot } from './frames';
 
-const tab = { id: 7, url: 'https://acme.example/careers/sre', active: true } as chrome.tabs.Tab;
-const top: PageInfo = { url: tab.url!, title: 'SRE', text: 'About us', draft: null, hasForm: false, frameOrigins: ['https://job-boards.greenhouse.io', 'https://other.example'] };
+const tab = 7;
+const top: PageInfo = { url: 'https://acme.example/careers/sre', title: 'SRE', text: 'About us', draft: null, hasForm: false, frameOrigins: ['https://job-boards.greenhouse.io', 'https://other.example'] };
 const framed: PageInfo = { url: 'https://job-boards.greenhouse.io/embed/job_app', title: '', text: '', draft: null, hasForm: true, submitted: true };
 
 /** A tab whose top frame (0) is a careers page and frame 4 an embedded Greenhouse form. */
@@ -29,7 +29,8 @@ function stubFrames() {
     return null;
   };
   vi.stubGlobal('chrome', {
-    scripting: { executeScript: vi.fn(async () => [{ frameId: 0 }, { frameId: 4 }]) },
+    // Both frames have Wera's page script (the background checks before working them).
+    scripting: { executeScript: vi.fn(async () => [{ frameId: 0, result: true }, { frameId: 4, result: true }]) },
     tabs: {
       sendMessage: vi.fn(async (_tab: number, msg: { type: string }, opts?: { frameId: number }) => {
         const frameId = opts?.frameId ?? 0;
@@ -42,6 +43,14 @@ function stubFrames() {
 }
 
 describe('pages with embedded forms', () => {
+  it('adds the page script to frames opened before Wera was installed, once', async () => {
+    stubFrames();
+    const exec = chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn<(o: unknown) => Promise<unknown>>>;
+    exec.mockImplementationOnce(() => Promise.resolve([{ frameId: 0, result: true }, { frameId: 4, result: false }]));
+    await readPage(tab);
+    expect(exec.mock.calls.some(([o]) => (o as { files?: string[] }).files?.[0] === 'page.js')).toBe(true);
+  });
+
   it('merges what the frames report and drops prompts for frames it already reads', async () => {
     stubFrames();
     const p = await readPage(tab);
@@ -62,10 +71,10 @@ describe('pages with embedded forms', () => {
     const out = await apply(tab, [{ id: 'f4/w1', value: 'a@x' }]);
     expect(out).toEqual([expect.objectContaining({ id: 'f4/w1', status: 'filled' })]);
     expect(sent.find((s) => s.msg.type === 'wera:apply')).toMatchObject({ frameId: 4, msg: { items: [{ id: 'w1', value: 'a@x' }] } });
-    expect(await snapshotForm(tab)).toEqual([expect.objectContaining({ id: 'f4/w1', value: 'a@x' })]);
+    expect(await snapshot(tab)).toEqual([expect.objectContaining({ id: 'f4/w1', value: 'a@x' })]);
     expect(await pressNext(tab, 'f4/n1')).toEqual({ ok: true, label: 'Next' });
     expect(sent.at(-1)).toMatchObject({ frameId: 4, msg: { type: 'wera:next' } });
-    await highlightField(tab, 'f4/w1');
+    await highlight(tab, 'f4/w1');
     expect(sent.at(-1)).toEqual({ frameId: 4, msg: { type: 'wera:highlight', id: 'w1' } });
     await insert(tab, 'f4/w1', 'hello');
     expect(sent.at(-1)).toEqual({ frameId: 4, msg: { type: 'wera:insert', id: 'w1', text: 'hello' } });

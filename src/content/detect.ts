@@ -2,10 +2,13 @@
 // address of a known job board, the page's schema.org JobPosting, or what
 // is on it (a job title, an Apply button and a description with
 // requirements). Reads the page only; sends nothing anywhere.
+import type { FieldPurpose } from '../shared/types';
 import { classify } from './classify';
+import { ENTRY_PURPOSES } from './entries';
 import { collectFields } from './fields';
 import { formFrameOrigins } from './frames';
 import { readJobPosting } from './jsonld';
+import { siteFor } from './sites';
 
 export type PageKind = 'form' | 'posting' | null;
 
@@ -85,12 +88,22 @@ export function jobSignals(doc: Document): number {
   return score;
 }
 
+// What only a job application asks (not a contact, demo-request or checkout form).
+const APPLICATION = new Set<FieldPurpose>([
+  'resume', 'cover_letter', 'linkedin', 'authorized_to_work', 'needs_sponsorship', 'authorized_no_sponsorship', 'visa_status',
+  'school', 'degree', 'major', 'graduation_year', 'gpa', 'years_experience', 'salary_expectation', 'start_date', 'notice_period',
+  'willing_to_relocate', 'gender', 'race', 'hispanic', 'veteran', 'disability', ...ENTRY_PURPOSES,
+]);
+
 /** Whether the page holds an application form (here or in an embedded ATS frame). */
 export function hasApplicationForm(doc: Document): boolean {
   const fields = collectFields(doc).map(classify);
   const known = fields.filter((p) => p !== null && p !== 'question' && p !== 'consent').length;
-  // An application asks who you are: a name or an email, and more.
-  if (known >= 3 && fields.some((p) => p === 'email' || p === 'first_name' || p === 'full_name' || p === 'resume')) return true;
+  // An application asks who you are (a name or an email, and more), and shows it is an
+  // application: something only an application asks, a job site Wera knows, or a page
+  // that reads like a job's. A contact, demo or checkout form asks who you are too.
+  const identity = fields.some((p) => p === 'email' || p === 'first_name' || p === 'full_name' || p === 'resume');
+  if (known >= 3 && identity && (fields.some((p) => p !== null && APPLICATION.has(p)) || !!siteFor(doc) || isJobUrl(doc.location.href) || jobSignals(doc) >= 2)) return true;
   // A careers page with the application embedded from its ATS.
   const embedded = new Set(formFrameOrigins(doc));
   return [...doc.querySelectorAll('iframe')].some((f) => {

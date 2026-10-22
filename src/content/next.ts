@@ -5,6 +5,7 @@
 import type { NextButton } from '../shared/types';
 import { deepQueryAll, isHidden } from './fields';
 import { press } from './fill';
+import { siteFor } from './sites';
 
 const ID_ATTR = 'data-wera-next';
 
@@ -30,9 +31,12 @@ function disabled(el: HTMLElement): boolean {
  * the page has neither.
  */
 export function findNext(root: ParentNode): NextButton | null {
-  let next: HTMLElement | null = null;
+  const doc = root instanceof Document ? root : (root as Node).ownerDocument;
+  // The site's own Next button (Workday's footer) when it has one.
+  const own = doc ? siteFor(doc)?.next?.(doc) ?? null : null;
+  let next: HTMLElement | null = own && !isHidden(own) && !disabled(own) ? own : null;
   let final: HTMLElement | null = null;
-  for (const el of deepQueryAll<HTMLElement>(root, CANDIDATES)) {
+  for (const el of next ? [] : deepQueryAll<HTMLElement>(root, CANDIDATES)) {
     if (isHidden(el) || disabled(el)) continue;
     const t = textOf(el);
     if (!t || t.length > 40 || NOT.test(t)) continue;

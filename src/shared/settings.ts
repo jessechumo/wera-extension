@@ -1,7 +1,7 @@
 // The user's choices for how the extension behaves (this browser only).
 
 export interface Settings {
-  /** Show the Wera dock on job postings and application forms. */
+  /** Show the Wera panel on job postings and application forms. */
   launcher: boolean;
   /** Move the job to Applied when the site confirms the application. */
   autoApplied: boolean;
@@ -11,9 +11,13 @@ export interface Settings {
   autoContinue: boolean;
   /** Remember answers typed into forms (in Wera, for every browser). */
   learn: boolean;
+  /** Draft answers to open questions ("Tell me about a time...") while autofilling. */
+  aiQuestions: boolean;
+  /** The Wera button in open questions, to draft and rework an answer. */
+  assist: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true };
+export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true, aiQuestions: true, assist: true };
 
 export const SETTINGS_KEY = 'wera.settings';
 

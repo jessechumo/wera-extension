@@ -100,3 +100,94 @@ export function wireWorkday(doc: Document) {
     doc.querySelector('#jobs')!.insertAdjacentHTML('beforeend', workdayJob(++n));
   });
 }
+
+// A newer Workday tenant: ids like "name--legalName--firstName", a progress
+// bar, a radio group drawn without radio inputs, "How did you hear" as a
+// menu of categories, skills as several pills, and the self-identification
+// form's split month/day/year date.
+const prompt2 = (id: string, wrap: string, label: string) => `
+  <div data-automation-id="formField-${wrap}" data-uxi-widget-type="multiselect"><label for="${id}">${label}</label>
+    <div data-automation-id="multiselectInputContainer"><div data-automation-id="selectedItemList"></div>
+      <input id="${id}" data-automation-id="searchBox" placeholder="Search"></div></div>`;
+
+export const WORKDAY_NEW = `<div data-automation-id="applyFlowPage">
+  <ol data-automation-id="progressBar">
+    <li data-automation-id="progressBarCompletedStep">My Information</li>
+    <li data-automation-id="progressBarActiveStep">current step 2 of 4 My Experience</li>
+    <li data-automation-id="progressBarInactiveStep">Voluntary Disclosures</li>
+    <li data-automation-id="progressBarInactiveStep">Review</li>
+  </ol>
+  <h2 data-automation-id="pageHeader">My Experience</h2>
+  <div data-automation-id="formField-legalName--firstName"><label for="name--legalName--firstName">First Name</label><input id="name--legalName--firstName"></div>
+  <div data-automation-id="formField-legalName--lastName"><label for="name--legalName--lastName">Last Name</label><input id="name--legalName--lastName"></div>
+  <div data-automation-id="formField-candidateIsPreviousWorker">
+    <div role="radiogroup" aria-labelledby="pw-l"><span id="pw-l">Have you previously worked for Acme?</span>
+      <div role="radio" aria-checked="false" tabindex="0">Yes</div><div role="radio" aria-checked="false" tabindex="-1">No</div></div></div>
+  ${prompt2('source--source', 'source', 'How Did You Hear About Us?')}
+  ${prompt2('skills--skills', 'skills', 'Type to Add Skills')}
+  <div data-automation-id="formField-selfIdentifiedDisabilityData--dateSignedOn"><label>Date</label>
+    <div data-automation-id="dateInputWrapper">
+      <input role="spinbutton" aria-label="Month" data-automation-id="dateSectionMonth-input">
+      <input role="spinbutton" aria-label="Day" data-automation-id="dateSectionDay-input">
+      <input role="spinbutton" aria-label="Year" data-automation-id="dateSectionYear-input"></div></div>
+  <div data-automation-id="bottom-navigation"><button type="button" data-automation-id="bottom-navigation-previous-button">Back</button>
+    <button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button></div>
+</div>`;
+
+const SOURCES: Record<string, string[]> = { 'Job Board': ['Indeed', 'Glassdoor'], 'Social Media': ['LinkedIn', 'Twitter'], 'Company Website': [] };
+const SKILLS = ['Python', 'SQL', 'Go', 'Tableau', 'Kubernetes'];
+
+/** Wires the newer page the way Workday behaves. */
+export function wireWorkdayNew(doc: Document) {
+  // The radio group: a click checks one.
+  const group = doc.querySelector('[role="radiogroup"]')!;
+  for (const r of group.querySelectorAll('[role="radio"]')) {
+    r.addEventListener('click', () => group.querySelectorAll('[role="radio"]').forEach((x) => x.setAttribute('aria-checked', String(x === r))));
+  }
+  const show = (input: HTMLInputElement, labels: string[], onPick: (l: string) => void) => {
+    const box = input.closest('[data-uxi-widget-type="multiselect"]')!;
+    box.querySelector('[data-automation-id="activeListContainer"]')?.remove();
+    const list = doc.createElement('div');
+    list.setAttribute('data-automation-id', 'activeListContainer');
+    list.setAttribute('role', 'listbox');
+    if (!labels.length) list.textContent = 'No Items.';
+    for (const l of labels) {
+      const o = doc.createElement('div');
+      o.setAttribute('role', 'option');
+      o.setAttribute('data-automation-label', l);
+      o.textContent = l;
+      o.addEventListener('click', () => onPick(l));
+      list.append(o);
+    }
+    box.append(list);
+  };
+  const pillIn = (input: HTMLInputElement, l: string, many: boolean) => {
+    const pills = input.closest('[data-uxi-widget-type="multiselect"]')!.querySelector('[data-automation-id="selectedItemList"]')!;
+    const p = `<div data-automation-id="selectedItem">${l}</div>`;
+    pills.innerHTML = many ? pills.innerHTML + p : p;
+    input.value = '';
+    input.closest('[data-uxi-widget-type="multiselect"]')!.querySelector('[data-automation-id="activeListContainer"]')?.remove();
+  };
+  // How did you hear: Enter on nothing lists the categories; a category opens its sources; a search lists matching sources.
+  const source = doc.querySelector<HTMLInputElement>('#source--source')!;
+  const pickSource = (l: string) => (SOURCES[l]?.length ? show(source, SOURCES[l], pickSource) : pillIn(source, l, false));
+  source.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const q = source.value.toLowerCase();
+    const leaves = Object.entries(SOURCES).flatMap(([cat, kids]) => (kids.length ? kids : [cat]));
+    show(source, q ? leaves.filter((l) => l.toLowerCase().includes(q)) : Object.keys(SOURCES), pickSource);
+  });
+  // Skills: each pick adds a pill.
+  const skills = doc.querySelector<HTMLInputElement>('#skills--skills')!;
+  skills.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const q = skills.value.toLowerCase();
+    show(skills, SKILLS.filter((s) => s.toLowerCase().includes(q)), (l) => pillIn(skills, l, true));
+  });
+}
+
+/** The page Workday shows before an application when the user has no account for that company. */
+export const WORKDAY_ACCOUNT = `<div data-automation-id="signInContent"><h2>Create Account</h2>
+  <div data-automation-id="formField-email"><label for="em">Email Address</label><input id="em" data-automation-id="email" type="email"></div>
+  <div><label for="pw">Password</label><input id="pw" type="password" data-automation-id="password"></div>
+  <button data-automation-id="createAccountSubmitButton">Create Account</button></div>`;

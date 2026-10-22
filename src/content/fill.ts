@@ -37,6 +37,10 @@ export function valueFor(p: FieldPurpose, a: Applicant | Profile): string {
     case 'authorized_no_sponsorship':
       if (!a.authorized_to_work || !a.needs_sponsorship) return '';
       return a.authorized_to_work === 'yes' && a.needs_sponsorship === 'no' ? 'yes' : 'no';
+    case 'today': {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
     case 'resume':
     case 'cover_letter':
     case 'question':
@@ -292,7 +296,7 @@ export function formatFor(el: HTMLInputElement | HTMLTextAreaElement, value: str
     const n = Number(m[1]!.replace(/,/g, '')) * (m[2] ? 1000 : 1);
     return Number.isFinite(n) ? String(n) : null;
   }
-  if (purpose === 'start_date' || purpose === 'graduation_year') {
+  if (purpose === 'start_date' || purpose === 'graduation_year' || purpose === 'today') {
     const ph = (el.getAttribute('placeholder') ?? '').toLowerCase();
     const d = /\b(mm|dd)\b.*\byyyy\b/.test(ph) ? parseDate(value) : null;
     if (d) return ph.indexOf('dd') < ph.indexOf('mm') ? `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}` : `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()}`;
