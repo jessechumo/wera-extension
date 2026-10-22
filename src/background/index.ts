@@ -37,8 +37,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes['wera.session']) void syncAll();
 });
 
-// Older installs registered the Wera button per site; the dock now runs everywhere from the manifest.
-chrome.runtime.onInstalled.addListener(() => void chrome.scripting.unregisterContentScripts({ ids: ['wera-launcher'] }).catch(() => {}));
+// Older installs registered the Wera button per site (the dock now runs everywhere from the
+// manifest), and could hide the dock on a site for a week (closing it only minimizes now).
+chrome.runtime.onInstalled.addListener(() => {
+  void chrome.scripting.unregisterContentScripts({ ids: ['wera-launcher'] }).catch(() => {});
+  void chrome.storage.local.remove('wera.launcherDismissed').catch(() => {});
+});
 
 /**
  * Opens the panel (this must happen inside the user's gesture) and leaves

@@ -24,9 +24,7 @@ declare global {
 
 export { pageKind } from '../content/detect';
 
-const DISMISSED = 'wera.launcherDismissed';
 const COLLAPSED = 'wera.dockCollapsed';
-const DISMISS_FOR = 7 * 86_400_000;
 
 function ask<T>(msg: DockRequest): Promise<T | null> {
   return sendSafe<T>(msg);
@@ -36,20 +34,17 @@ async function local<T>(key: string): Promise<T | undefined> {
   return ((await chrome.storage.local.get(key))[key] as T | undefined) ?? undefined;
 }
 
-/** Whether the dock may show on this site: turned on, not hidden here, not the user's own Wera. */
+/** Whether the dock may show on this site: turned on, and not the user's own Wera. */
 async function allowed(doc: Document): Promise<boolean> {
-  const got = await chrome.storage.local.get([SETTINGS_KEY, DISMISSED, 'wera.session']);
+  const got = await chrome.storage.local.get([SETTINGS_KEY, 'wera.session']);
   if ((got[SETTINGS_KEY] as { launcher?: boolean } | undefined)?.launcher === false) return false;
-  if ((got['wera.session'] as { server?: string } | undefined)?.server === doc.location.origin) return false;
-  const until = (got[DISMISSED] as Record<string, number> | undefined)?.[doc.location.host] ?? 0;
-  return until < Date.now();
+  return (got['wera.session'] as { server?: string } | undefined)?.server !== doc.location.origin;
 }
 
 async function setHostFlag(key: string, host: string, value: number | null) {
   const map = { ...(await local<Record<string, number>>(key)) };
   if (value == null) delete map[host];
   else map[host] = value;
-  if (key === DISMISSED) for (const [k, v] of Object.entries(map)) if (v < Date.now()) delete map[k];
   await chrome.storage.local.set({ [key]: map });
 }
 
@@ -104,6 +99,8 @@ export function start(doc: Document, delay = 1200): () => void {
     .then((g) => (g['wera.session'] as { server?: string } | undefined)?.server === doc.location.origin, () => false);
 
   const draw = () => {
+    // Some sites (Greenhouse job boards) rebuild the whole page once loaded, which removes the dock.
+    if (!host.isConnected) doc.documentElement.append(host);
     box.querySelector('.card, .tab')?.remove();
     if (!state) {
       host.hidden = !box.querySelector('.toast');
@@ -139,11 +136,6 @@ export function start(doc: Document, delay = 1200): () => void {
     expand: () => {
       patch({ open: true });
       void setHostFlag(COLLAPSED, siteHost, null);
-    },
-    hide: () => {
-      state = null;
-      draw();
-      void setHostFlag(DISMISSED, siteHost, Date.now() + DISMISS_FOR);
     },
   };
 
@@ -204,10 +196,16 @@ export function start(doc: Document, delay = 1200): () => void {
     const hello = await ask<DockHello>({ type: 'wera:dock-hello', url: doc.location.href, kind, draft });
     if (shownFor === key && state) patch({ hello: hello ?? { signedIn: true, job: null } });
   };
+  let first = true;
   const schedule = () => {
     // The extension was reloaded: this dock can no longer reach it, so it goes.
     if (!extensionAlive()) return stop();
-    if (!timer) timer = window.setTimeout(() => void check().catch(() => {}), delay);
+    // The page rebuilt itself and took the dock with it: put it back as it was.
+    if (!host.isConnected && state) draw();
+    if (timer) return;
+    // The first look comes at once; later ones wait for the page to settle.
+    timer = window.setTimeout(() => void check().catch(() => {}), first ? Math.min(delay, 150) : delay);
+    first = false;
   };
   // Moving an application on (Next, Submit): Wera keeps the details it lacked, self-identification included.
   const onClick = (e: Event) => {
@@ -219,8 +217,9 @@ export function start(doc: Document, delay = 1200): () => void {
     if (entries.length) void ask({ type: 'wera:dock-learn', entries });
   };
   doc.addEventListener('click', onClick, true);
+  // Watched from the document itself: a page that swaps its body or <html> is still seen.
   const obs = new MutationObserver(schedule);
-  obs.observe(doc.body ?? doc.documentElement, { childList: true, subtree: true });
+  obs.observe(doc, { childList: true, subtree: true });
   doc.addEventListener('visibilitychange', schedule);
 
   // The side panel changed the job (saved it, moved it on the tracker): show it as Wera has it now.
