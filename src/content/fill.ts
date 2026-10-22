@@ -1,7 +1,7 @@
 import type { Applicant, FieldPurpose, FillResult, Profile } from '../shared/types';
 import { ENTRY_PURPOSES } from './entries';
 import { classify } from './classify';
-import { collectFields, isHidden, isPressed, listboxValue, scopeOf, type Field, type Option } from './fields';
+import { collectFields, isHidden, isPressed, isWorkdayPrompt, listboxValue, promptChoice, scopeOf, type Field, type Option } from './fields';
 
 const US_STATES: Record<string, string> = {
   AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
@@ -371,34 +371,64 @@ export function wait(ms: number) {
 /** The visible options of an open dropdown: its own list when it names one, else any listbox on the page. */
 function openOptions(el: HTMLElement): (Option & { node: HTMLElement })[] {
   const scope = scopeOf(el);
+  const doc = el.ownerDocument;
   const ref = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
   const lists: ParentNode[] = [];
-  const own = ref ? scope.getElementById(ref) ?? el.ownerDocument.getElementById(ref) : null;
+  const own = ref ? scope.getElementById(ref) ?? doc.getElementById(ref) : null;
   if (own) lists.push(own);
-  else lists.push(...el.ownerDocument.querySelectorAll('[role="listbox"]'), scope);
+  else {
+    // The list beside the field (a Workday prompt's results), then the newest popup
+    // (Workday adds it at the end of the page), then any list on the page.
+    const field = el.closest('[data-uxi-widget-type], [data-automation-id^="formField"]');
+    if (field) lists.push(field);
+    lists.push(...[...doc.querySelectorAll('[data-automation-widget="wd-popup"]')].reverse(), ...[...doc.querySelectorAll('[role="listbox"]')].reverse(), scope);
+  }
   for (const list of lists) {
-    const nodes = [...list.querySelectorAll<HTMLElement>('[role="option"]')].filter((o) => o.getAttribute('aria-disabled') !== 'true' && !isHidden(o));
+    const nodes = [...list.querySelectorAll<HTMLElement>('[role="option"], [data-automation-id="promptOption"]')].filter((o) => o.getAttribute('aria-disabled') !== 'true' && !isHidden(o));
     if (nodes.length) return nodes.map((node) => ({ label: (node.textContent ?? '').trim(), value: '', node }));
   }
   return [];
 }
 
+/** Whether an open list says it has nothing for the search (react-select's "No options", "No results found"). */
+function saysNoOptions(el: HTMLElement): boolean {
+  const ref = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+  const scopes: ParentNode[] = [];
+  const own = ref ? scopeOf(el).getElementById(ref) ?? el.ownerDocument.getElementById(ref) : null;
+  if (own) scopes.push(own);
+  let n: HTMLElement | null = el.parentElement;
+  for (let i = 0; n && i < 5; i++, n = n.parentElement) scopes.push(n);
+  return scopes.some((sc) => [...sc.querySelectorAll<HTMLElement>('[class*="no-options"], [class*="noOptions"], [class*="no-results"], [class*="menu-notice"]')]
+    .some((m) => !isHidden(m) && /^no (options|results|matches)|nothing found/i.test((m.textContent ?? '').trim())));
+}
+
 /** Waits up to ~2s (lists that search as you type load late) for an option that means value to show, then picks it. */
 async function pickOpen(el: HTMLElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
-  for (let i = 0; i < 20; i++) {
-    await wait(100);
+  const start = Date.now();
+  let shownSince = 0;
+  while (Date.now() - start < 2000) {
+    await wait(50);
     const options = openOptions(el);
     const hit = matchOption(options, value, purpose) as (Option & { node: HTMLElement }) | null;
     if (hit) {
       press(hit.node);
       return hit.label;
     }
+    // A list that has shown its choices for a while without this one does not have it
+    // ("Loading..." and "Searching..." rows are not choices yet).
+    const real = options.filter((o) => !/^(loading|searching)\b/i.test(o.label));
+    // The list says it has nothing for this search ("No options"): no point waiting.
+    if (!real.length && saysNoOptions(el)) return null;
+    if (!real.length) shownSince = 0;
+    else if (!shownSince) shownSince = Date.now();
+    else if (Date.now() - shownSince > 500) return null;
   }
   return null;
 }
 
 /** react-select and friends show the choice beside the input, which stays empty. */
 export function comboboxChoice(el: HTMLInputElement): string {
+  if (isWorkdayPrompt(el)) return promptChoice(el);
   if (el.value.trim()) return el.value.trim();
   let n: Element | null = el.parentElement;
   for (let i = 0; n && i < 4; i++, n = n.parentElement) {
@@ -431,10 +461,16 @@ function arrowDown(el: HTMLElement) {
 
 /** Searchable dropdowns: type, then pick the option that appears; else list everything and look. */
 async function fillCombobox(el: HTMLInputElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
-  for (const typed of [...new Set([searchText(value, purpose), ''])]) {
+  // A long answer ("No, I do not have a disability") is rarely worded the same in the list:
+  // look through the whole list first, then search.
+  const search = searchText(value, purpose);
+  const prompt = isWorkdayPrompt(el);
+  for (const typed of [...new Set(search.length > 24 ? ['', search] : [search, ''])]) {
     focusField(el);
     typeSearch(el, typed);
-    arrowDown(el);
+    // A Workday prompt searches when Enter is pressed; elsewhere Enter would pick the first choice.
+    if (prompt) for (const type of ['keydown', 'keyup']) el.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+    else arrowDown(el);
     const got = await pickOpen(el, value, purpose);
     if (got) return got;
   }
@@ -590,6 +626,22 @@ function suggestionsNear(el: HTMLElement): (Option & { node: HTMLElement })[] {
   return [];
 }
 
+/**
+ * Whether a text box suggests as you type (so a suggestion must be
+ * picked): it says so (aria), or its name or the list beside it does.
+ * Plain boxes are filled at once instead of waiting for a list.
+ */
+export function looksSuggesting(el: HTMLInputElement): boolean {
+  if (el.getAttribute('aria-autocomplete') || el.getAttribute('role') === 'combobox' || el.getAttribute('aria-haspopup')) return true;
+  if (/location|autocomplete|typeahead|places|suggest|geo/i.test(`${el.className} ${el.id} ${el.name} ${el.getAttribute('data-qa') ?? ''}`)) return true;
+  // A list in the box's own wrapper (one holding no other field), as Lever has.
+  let n: HTMLElement | null = el.parentElement;
+  for (let i = 0; n && i < 3 && n.querySelectorAll('input, select, textarea').length === 1; i++, n = n.parentElement) {
+    if (n.querySelector('[class*="dropdown"], [class*="autocomplete"], [class*="suggest"], [class*="results"], [role="listbox"]')) return true;
+  }
+  return !!el.ownerDocument.querySelector('.pac-container');
+}
+
 /** Types into a suggesting box and picks the suggestion that means value; null when none shows. */
 async function pickSuggestion(el: HTMLInputElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
   focusField(el);
@@ -626,7 +678,7 @@ export async function enterValue(f: Field, purpose: FieldPurpose | null, value: 
         res.value = el.value;
         return;
       }
-      if (purpose && SUGGESTING.has(purpose) && f.kind === 'text') {
+      if (purpose && SUGGESTING.has(purpose) && f.kind === 'text' && looksSuggesting(el)) {
         const picked = await pickSuggestion(el, value, purpose);
         if (picked) {
           res.status = 'filled';
@@ -641,6 +693,10 @@ export async function enterValue(f: Field, purpose: FieldPurpose | null, value: 
         return;
       }
       setNativeValue(el, shaped);
+      // Date part boxes (Workday's month and year) also listen for the digits being typed.
+      if (el.getAttribute('role') === 'spinbutton') {
+        for (const key of shaped) for (const type of ['keydown', 'keypress', 'keyup']) el.dispatchEvent(new KeyboardEvent(type, { key, code: /\d/.test(key) ? `Digit${key}` : key, bubbles: true }));
+      }
       // The page may refuse a value (a date box, a mask): check it took.
       if (!el.value.trim()) {
         res.status = 'review';

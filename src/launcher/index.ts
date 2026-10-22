@@ -6,10 +6,13 @@
 // from any other; only the dock's own requests leave the page, to Wera.
 import { jobSummary, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
+import { ENTRY_PURPOSES } from '../content/entries';
+import { snapshot } from '../content/plan';
 import { bodyText, looksSubmitted } from '../content/watch';
 import type { ApplicationStatus } from '../shared/api';
 import type { DockHello, DockJob, DockRequest, PanelView, SubmitReply } from '../shared/dock';
 import { SETTINGS_KEY } from '../shared/settings';
+import { followTheme } from '../shared/theme';
 import { mountRoot, renderDock, renderToast, type DockState, type ToastSpec } from './dock';
 
 declare global {
@@ -54,22 +57,37 @@ export function submitToast(r: SubmitReply, act: { undo: (j: DockJob, to: Applic
   if (r.state === 'marked') {
     const back = (r.previous ?? 'saved') as ApplicationStatus;
     return {
-      emoji: '🎉', title: 'Marked as applied',
+      tone: 'success', title: 'Marked as applied',
       text: `${r.job.title} at ${r.job.company} is in Applied in your Wera tracker. Good luck!`,
       actions: [{ label: 'Undo', run: () => act.undo(r.job, back) }, { label: 'View in Wera', run: () => act.open('job') }],
     };
   }
   if (r.state === 'unknown') {
     return r.draft
-      ? { emoji: '📝', title: 'Applied? Track it in Wera', text: `${r.draft.title}${r.draft.company ? ` at ${r.draft.company}` : ''} is not in your Wera lists yet.`, actions: [{ label: 'Add as applied', run: act.add }] }
-      : { emoji: '📝', title: 'Applied? Track it in Wera', text: 'This job is not in your Wera lists yet. Save it to keep your tracker current.', actions: [{ label: 'Open Wera', run: () => act.open('job') }] };
+      ? { tone: 'info', title: 'Applied? Track it in Wera', text: `${r.draft.title}${r.draft.company ? ` at ${r.draft.company}` : ''} is not in your Wera lists yet.`, actions: [{ label: 'Add as applied', run: act.add }] }
+      : { tone: 'info', title: 'Applied? Track it in Wera', text: 'This job is not in your Wera lists yet. Save it to keep your tracker current.', actions: [{ label: 'Open Wera', run: () => act.open('job') }] };
   }
   return null;
+}
+
+// The buttons that move an application on: what the user entered on the page is final then.
+const MOVES_ON = /^(submit|submit application|send|send application|apply|apply now|next|continue|save and continue|save & continue|review|review application|finish)\b/i;
+const NOT_DETAILS = new Set(['question', 'consent', 'resume', 'cover_letter', 'skills', 'full_name', 'location', 'authorized_no_sponsorship', 'phone_type', 'phone_code']);
+
+/** The details a form holds now (name, contact, eligibility, self-identification): what Wera can learn from. */
+export function formDetails(doc: Document): { purpose: NonNullable<ReturnType<typeof snapshot>[number]['purpose']>; value: string }[] {
+  return snapshot(doc)
+    .filter((f) => f.purpose && !NOT_DETAILS.has(f.purpose) && !ENTRY_PURPOSES.has(f.purpose) && f.kind !== 'checkbox')
+    .map((f) => ({ purpose: f.purpose!, value: f.value }));
 }
 
 /** Watches the page (single-page job boards change without loading) and keeps the dock in step; returns a stop. */
 export function start(doc: Document, delay = 1200): () => void {
   const { host, box } = mountRoot(doc);
+  // The theme the user picked in the dashboard.
+  const stopTheme = followTheme((t) => {
+    box.dataset.theme = t;
+  });
   host.hidden = true;
   let state: DockState | null = null;
   let shownFor = ''; // url|kind the dock was built for
@@ -152,7 +170,7 @@ export function start(doc: Document, delay = 1200): () => void {
         undo: (j, to) => void ask<DockJob>({ type: 'wera:dock-status', jobId: j.id, status: to }).then((u) => u && setJob(u)),
         open: actions.open,
         add: () => void ask<DockJob>({ type: 'wera:dock-add-applied' }).then((j) => {
-          if (j) toast({ emoji: '🎉', title: 'Added as applied', text: `${j.title} at ${j.company} is in Applied in your Wera tracker.`, actions: [] });
+          if (j) toast({ tone: 'success', title: 'Added as applied', text: `${j.title} at ${j.company} is in Applied in your Wera tracker.`, actions: [] });
         }),
       }));
     });
@@ -189,6 +207,16 @@ export function start(doc: Document, delay = 1200): () => void {
     if (!timer) timer = window.setTimeout(() => void check(), delay);
   };
   schedule();
+  // Moving an application on (Next, Submit): Wera keeps the details it lacked, self-identification included.
+  const onClick = (e: Event) => {
+    const b = (e.target as Element | null)?.closest?.('button, input[type="submit"], [role="button"], a');
+    if (!b || !sawForm) return;
+    const text = (b instanceof HTMLInputElement ? b.value : b.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!MOVES_ON.test(text)) return;
+    const entries = formDetails(doc);
+    if (entries.length) void ask({ type: 'wera:dock-learn', entries });
+  };
+  doc.addEventListener('click', onClick, true);
   const obs = new MutationObserver(schedule);
   obs.observe(doc.body ?? doc.documentElement, { childList: true, subtree: true });
   doc.addEventListener('visibilitychange', schedule);
@@ -199,6 +227,8 @@ export function start(doc: Document, delay = 1200): () => void {
   };
   chrome.runtime.onMessage?.addListener(onMessage);
   return () => {
+    doc.removeEventListener('click', onClick, true);
+    stopTheme();
     obs.disconnect();
     doc.removeEventListener('visibilitychange', schedule);
     chrome.runtime.onMessage?.removeListener(onMessage);

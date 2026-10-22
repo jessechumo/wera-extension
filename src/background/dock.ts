@@ -6,7 +6,9 @@ import { notifyDashboard, sameRole, tabHandoff } from '../shared/bridge';
 import { dockJob, PAST_APPLIED, type DockHello, type DockRequest, type SubmitReply } from '../shared/dock';
 import { loadFlow } from '../shared/flow';
 import { loadSettings } from '../shared/settings';
+import { SELF_ID_KEYS, selfIdValue } from '../shared/selfId';
 import { loadSession, notePage, rememberTabJob, tabJob, tabPages as pages } from '../shared/storage';
+import type { FieldPurpose } from '../shared/types';
 
 const FORM_TTL = 3 * 3600_000;
 
@@ -81,6 +83,8 @@ export async function handleDock(msg: DockRequest, tabId: number, tabUrl: string
     }
     case 'wera:dock-submitted':
       return api ? submitted(api, tabId, msg.url) : ({ state: 'off' } satisfies SubmitReply);
+    case 'wera:dock-learn':
+      return api ? learnDetails(api, msg.entries) : null;
     case 'wera:dock-add-applied': {
       const draft = (await pages())[tabId]?.draft;
       if (!api || !draft) return null;
@@ -93,6 +97,29 @@ export async function handleDock(msg: DockRequest, tabId: number, tabUrl: string
     default:
       return null;
   }
+}
+
+const YES_NO = new Set<FieldPurpose>(['authorized_to_work', 'needs_sponsorship', 'willing_to_relocate', 'willing_to_travel', 'over_18']);
+
+/**
+ * Saves the details a form had that Wera lacked, as the user entered
+ * them, self-identification in the dashboard's values. Nothing already in
+ * the profile is replaced. Returns the keys saved.
+ */
+export async function learnDetails(api: WeraApi, entries: { purpose: FieldPurpose; value: string }[]): Promise<string[]> {
+  const view = await api.applicant();
+  const a = view.applicant as unknown as Record<string, string>;
+  const learned: Record<string, string> = {};
+  for (const { purpose, value } of entries.slice(0, 80)) {
+    if (!(purpose in a) || (a[purpose] ?? '').trim() || learned[purpose]) continue;
+    let v = value.trim();
+    if (SELF_ID_KEYS.has(purpose)) v = selfIdValue(purpose, v);
+    else if (YES_NO.has(purpose)) v = /^yes\b/i.test(v) ? 'yes' : /^no\b/i.test(v) ? 'no' : '';
+    if (v && v.length <= 300) learned[purpose] = v;
+  }
+  const keys = Object.keys(learned);
+  if (keys.length) await api.saveApplicant({ ...view.applicant, ...learned });
+  return keys;
 }
 
 /**

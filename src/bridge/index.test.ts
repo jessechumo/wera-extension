@@ -28,3 +28,23 @@ describe('dashboard bridge script', () => {
     expect(seen).toContainEqual({ source: 'wera-extension', type: 'changed', what: '/api/jobs/9/application' });
   });
 });
+
+describe('the dashboard theme', () => {
+  it('passes the theme picked in the dashboard to the extension, and changes with it', async () => {
+    const set = vi.fn(async () => {});
+    vi.stubGlobal('chrome', { storage: { local: { set } } });
+    const { syncTheme } = await import('./index');
+    localStorage.setItem('wera-theme', 'light');
+    const stop = syncTheme(document);
+    expect(set).toHaveBeenLastCalledWith({ 'wera.theme': 'light' });
+    localStorage.setItem('wera-theme', 'dark');
+    document.documentElement.dataset.theme = 'dark';
+    await new Promise((r) => setTimeout(r, 0));
+    expect(set).toHaveBeenLastCalledWith({ 'wera.theme': 'dark' });
+    localStorage.removeItem('wera-theme');
+    document.documentElement.dataset.theme = 'light';
+    await new Promise((r) => setTimeout(r, 0));
+    expect(set).toHaveBeenLastCalledWith({ 'wera.theme': 'system' });
+    stop();
+  });
+});

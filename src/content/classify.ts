@@ -100,9 +100,13 @@ function generic(f: Field): FieldPurpose | null {
       if (p) return p;
     }
   }
+  // Accents dropped, so "Résumé" reads as "resume".
+  const label = f.label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  // A follow-up to another answer ("If yes, please mention your Acme email address") asks
+  // something only the user knows, not the detail it names.
+  if (/^\(?if (yes|no|so|applicable|you answered|you selected|other)\b/.test(label)) return f.kind === 'textarea' ? 'question' : null;
   if (f.inputType === 'email') return 'email';
   if (f.inputType === 'tel') return 'phone';
-  const label = f.label.toLowerCase();
   if (f.kind === 'checkbox' && CONSENT.test(label)) return 'consent';
   // "Authorized to work without sponsorship?" asks both things at once.
   if (/without (the )?(need (for|of) |requiring )?(any )?(employer |visa )?sponsor/.test(label)) return 'authorized_no_sponsorship';

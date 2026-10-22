@@ -547,6 +547,38 @@ describe('side panel: guided autofill', () => {
     expect(await screen.findByLabelText('Value for Race')).toHaveValue('Black or African American');
   });
 
+  it('Autofill fills what Wera knows at once, then the AI\'s sure answers', async () => {
+    const plan: PagePlan = {
+      fields: [field('w1', 'Email', { purpose: 'email', value: 'a@x', source: 'details', group: 'details' }), field('w2', 'Go-to editor'), field('w3', 'Shift preference', { kind: 'select', options: ['Day', 'Night'] })],
+      next: null, errors: 0,
+    };
+    const { chrome, sent, setSession } = fakeChrome({ page, plan });
+    signedIn(chrome);
+    const order: string[] = [];
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: { email: 'a@x' }, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'POST /api/ext/autofill-runs': () => ({ id: 1 }),
+      'POST /api/ext/autofill-runs/1/pages': () => ({ id: 1 }),
+      'POST /api/ext/autofill': () => {
+        order.push(`ai after ${sentOf(sent, 'wera:apply').length} fills`);
+        return { answers: [{ id: 'w2', value: 'Neovim', confidence: 'high' }, { id: 'w3', value: 'Day', confidence: 'low' }] };
+      },
+    });
+    render(<App />);
+    await screen.findByText('In your Wera lists');
+    await setSession('wera.pendingFill', { tabId: 7, at: Date.now() });
+    await waitFor(() => expect(sentOf(sent, 'wera:apply').length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    const applies = sentOf(sent, 'wera:apply').map((m) => (m.items as { id: string }[]).map((i) => i.id));
+    expect(order[0]).toBe('ai after 1 fills');
+    expect(applies[0]).toEqual(['w1']);
+    // Only the sure AI answer is filled; the guess waits for the user.
+    expect(applies.slice(1).flat()).toContain('w2');
+    expect(applies.flat()).not.toContain('w3');
+  });
+
   it('fills when the keyboard shortcut asks', async () => {
     const plan: PagePlan = { fields: [field('w1', 'Email', { purpose: 'email', value: 'a@x', source: 'details', group: 'details' })], next: null, errors: 0 };
     const { chrome, sent, setSession } = fakeChrome({ page, plan });
