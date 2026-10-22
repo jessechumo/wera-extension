@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.4.1...wera-extension-v0.5.0) (2026-10-22)
+
+
+### Features
+
+* follow the theme picked in the Wera dashboard ([b5815bb](https://github.com/jessechumo/wera-extension/commit/b5815bbb8ebf62e5ca022a2f30f47dcb535c9676))
+
+
+### Bug Fixes
+
+* fill Workday's search boxes, popup lists and date parts ([4f7f505](https://github.com/jessechumo/wera-extension/commit/4f7f5056214eb46631eb77af707f425912f0551e))
+* leave follow-up questions alone, read accented labels ([23898ac](https://github.com/jessechumo/wera-extension/commit/23898ace4b41d0386c4faa90f67ae874f70d891b))
+* remember self-identification the user answers on a form ([49de47a](https://github.com/jessechumo/wera-extension/commit/49de47a347a4324c11bf5a1a5710c08198bec927))
+* side panel buttons and score ring look like the dashboard's ([5b08a33](https://github.com/jessechumo/wera-extension/commit/5b08a33b7e83dad4267378e6702920635b991dda))
+* the dock on job pages wears Wera's design ([9ea1fd2](https://github.com/jessechumo/wera-extension/commit/9ea1fd288c766bb3915eecab52462e0cea99218c))
+
+
+### Performance
+
+* autofill without the waiting ([c19aac6](https://github.com/jessechumo/wera-extension/commit/c19aac6e72d8ebd697c2db1ba1445d4edf54c4b1))
+
+
+### Documentation
+
+* describe the dashboard theme, self-identification and Workday handling ([bdc5793](https://github.com/jessechumo/wera-extension/commit/bdc579363cf35ade3046f8f8a6382f46a9b44fcd))
+
 ## [0.4.1](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.4.0...wera-extension-v0.4.1) (2026-10-22)
 
 
