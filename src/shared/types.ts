@@ -70,20 +70,57 @@ export interface Applicant {
 export type ApplicantKey = keyof Applicant;
 
 /** What a form field is for. */
+/** A field of one job or one school in a repeating section ("Work Experience 2", "Education"). */
+export type EntryPurpose =
+  | 'exp_title' | 'exp_company' | 'exp_location' | 'exp_start' | 'exp_end' | 'exp_current' | 'exp_description'
+  | 'edu_school' | 'edu_degree' | 'edu_major' | 'edu_start' | 'edu_end' | 'edu_gpa';
+
 export type FieldPurpose =
   | ApplicantKey
+  | EntryPurpose
   | 'full_name'
   | 'authorized_no_sponsorship'
   | 'location'
+  | 'skills'
+  | 'phone_type'
+  | 'phone_code'
   | 'resume'
   | 'cover_letter'
   | 'question'
   | 'consent';
 
+/** One job from the resume, as the Wera API sends it. */
+export interface Experience {
+  title: string;
+  company: string;
+  location?: string;
+  /** "2022-01", or "2022" when only the year is known. */
+  start?: string;
+  end?: string;
+  current: boolean;
+  description?: string;
+}
+
+/** One school from the resume. */
+export interface Education {
+  school: string;
+  degree?: string;
+  /** high_school | associate | bachelor | master | doctorate */
+  level?: string;
+  major?: string;
+  location?: string;
+  start?: string;
+  end?: string;
+  gpa?: string;
+}
+
+/** Everything a form can be filled from: the details, plus the resume's jobs, schools and skills. */
+export type Profile = Applicant & { experience?: Experience[]; education?: Education[]; skills?: string[] };
+
 export type FillStatus = 'filled' | 'already' | 'review' | 'skipped' | 'question';
 
 /** Where a proposed value came from. */
-export type ValueSource = 'details' | 'saved' | 'ai' | 'resume' | 'letter' | 'you';
+export type ValueSource = 'details' | 'profile' | 'saved' | 'ai' | 'resume' | 'letter' | 'you';
 
 /** How the panel groups a field. */
 export type FieldGroup = 'details' | 'questions' | 'self_id' | 'documents' | 'consent' | 'other';
@@ -108,6 +145,8 @@ export interface FieldPlan {
   /** Why the value, or why there is none. */
   note?: string;
   group: FieldGroup;
+  /** In a job or school block: which one (0 is the first on the page). */
+  entry?: number;
 }
 
 /** The button that moves a multi-page application on. */
@@ -124,6 +163,8 @@ export interface PagePlan {
   next: NextButton | null;
   /** Fields the site marks invalid (after a Next that did not go through). */
   errors: number;
+  /** Sections with fewer job or school blocks than the resume has, and an Add button to make more. */
+  adders?: { section: 'experience' | 'education'; missing: number; frameId?: number }[];
 }
 
 /** An answer the user gave before, as the content script matches it. */
@@ -180,10 +221,11 @@ export interface PageInfo {
 // Messages from the side panel to the content script.
 export type ContentRequest =
   | { type: 'wera:read-page' }
-  | { type: 'wera:scan'; applicant: Applicant; answers: KnownAnswer[]; resumeName?: string; coverLetter?: boolean }
+  | { type: 'wera:scan'; applicant: Profile; answers: KnownAnswer[]; resumeName?: string; coverLetter?: boolean }
   | { type: 'wera:apply'; items: FillItem[]; resume?: { name: string; base64: string }; coverLetter?: string; letterFile?: { name: string; base64: string }; pace?: number }
   | { type: 'wera:attach'; what: 'resume' | 'cover_letter'; file: { name: string; base64: string } }
   | { type: 'wera:snapshot' }
+  | { type: 'wera:add-entries'; section: 'experience' | 'education'; count: number }
   | { type: 'wera:next' }
   | { type: 'wera:highlight'; id: string }
   | { type: 'wera:insert'; id: string; text: string }

@@ -9,9 +9,9 @@ import { tabPages, type TabPage } from '../shared/storage';
 import { clearLegacyAnswers, loadLegacyAnswers, matchAnswers, type SavedAnswer } from '../shared/answers';
 import { loadFlow, saveFlow, type Flow } from '../shared/flow';
 import type { Settings } from '../shared/settings';
-import type { Applicant, FieldPlan, FillResult, FillStatus, PagePlan, ValueSource } from '../shared/types';
+import type { Applicant, FieldPlan, FillResult, FillStatus, PagePlan, Profile, ValueSource } from '../shared/types';
 import { answersToLearn, detailsToLearn } from './learn';
-import { apply, frameField, highlightField, insert, pressNext, scan, snapshotForm } from './page';
+import { addEntries, apply, frameField, highlightField, insert, pressNext, scan, snapshotForm } from './page';
 import { BigButton, Button, Card, INPUT, Notice, errorText } from './ui';
 import type { FillRequest } from './App';
 import type { usePage } from './usePage';
@@ -35,6 +35,7 @@ type Phase = 'idle' | 'scanning' | 'suggesting' | 'ready' | 'filling' | 'filled'
 
 const SOURCE: Record<ValueSource, { label: string; cls: string; Icon: typeof Bot }> = {
   details: { label: 'Your details', cls: 'text-good', Icon: UserRound },
+  profile: { label: 'Your profile', cls: 'text-good', Icon: UserRound },
   saved: { label: 'Earlier answer', cls: 'text-accent-2', Icon: History },
   ai: { label: 'AI', cls: 'text-accent', Icon: Bot },
   resume: { label: 'Resume', cls: 'text-good', Icon: FileText },
@@ -49,10 +50,15 @@ function homeOf(f: FieldPlan): Row['home'] {
   return 'left';
 }
 
-/** The rows for a plan: fields with a value Wera trusts are ticked; ones the page already shows are left. */
-export function rowsFor(plan: PagePlan): Row[] {
+/**
+ * The rows for a plan: fields with a value Wera trusts are ticked; ones
+ * the page already shows are left. A detail Wera filled in from the
+ * resume or profile (not one the user saved) says so.
+ */
+export function rowsFor(plan: PagePlan, sources: Record<string, string> = {}): Row[] {
   return plan.fields.map((f) => ({
     ...f,
+    source: f.source === 'details' && f.purpose && sources[f.purpose] ? (sources[f.purpose] === 'resume' ? 'resume' : 'profile') : f.source,
     home: homeOf(f),
     checked: f.value !== '' && f.group !== 'consent' && f.current === '',
     status: f.current !== '' && f.current === f.value ? 'already' : undefined,
@@ -66,7 +72,7 @@ const suggestKey = (site: string, r: FieldPlan) => `${site}|${r.label}|${r.kind}
 
 /** Fields worth asking the AI about: empty, not answered by anything Wera knows, and not the user's to answer. */
 export function needsSuggestion(r: Row): boolean {
-  return r.value === '' && r.current === '' && (r.group === 'details' || r.group === 'other' || (r.group === 'questions' && r.kind !== 'textarea'))
+  return r.value === '' && r.current === '' && r.entry == null && (r.group === 'details' || r.group === 'other' || (r.group === 'questions' && r.kind !== 'textarea'))
     && r.kind !== 'file' && r.kind !== 'checkbox';
 }
 
@@ -83,7 +89,11 @@ function host(url: string | undefined): string {
   }
 }
 
-export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: WeraApi; page: Page; autoFill?: FillRequest; settings: Settings; onNeedJob?: () => void }) {
+export function ApplyTab({ api, page, autoFill, settings, onNeedJob, revealDelay = 700 }: {
+  api: WeraApi; page: Page; autoFill?: FillRequest; settings: Settings; onNeedJob?: () => void;
+  /** How long to let the page show fields an answer reveals before reading it again (ms). */
+  revealDelay?: number;
+}) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [plan, setPlan] = useState<PagePlan | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -95,6 +105,10 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: We
   const [flow, setFlow] = useState<Flow | null>(null);
   const [showLeft, setShowLeft] = useState(false);
   const applicant = useRef<Applicant | null>(null);
+  // What the page was last read with, to read it again after filling.
+  const scanInput = useRef<{ profile: Profile; known: { question: string; answer: string }[]; resumeName?: string; hasLetter: boolean; sources: Record<string, string> } | null>(null);
+  // Whether Wera already pressed this page's Add buttons for the resume's other jobs and schools.
+  const addedBlocks = useRef(false);
   // Whether this page is counted in Wera's record of the application yet.
   const counted = useRef(false);
   const tab = page.tab;
@@ -112,7 +126,7 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: We
     setPhase('scanning');
     setError('');
     try {
-      const [{ applicant: a }, saved, file, cover] = await Promise.all([
+      const [view, saved, file, cover] = await Promise.all([
         api.applicant(),
         api.answers().catch(() => [] as SavedAnswer[]),
         api.resumeFile(jobId).catch(() => null),
@@ -125,12 +139,26 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: We
           .then(() => clearLegacyAnswers()).catch(() => {});
         saved.push(...legacy);
       }
+      const a = view.applicant;
       applicant.current = a;
       setBank(saved);
       setResume(file);
       setLetter(cover?.body ?? '');
-      const p = await scan(tab, a, saved.map((s) => ({ question: s.question, answer: s.answer })), file?.name, !!cover?.body);
-      let next = rowsFor(p);
+      const profile: Profile = { ...a, experience: view.experience, education: view.education, skills: view.skills };
+      const known = saved.map((s) => ({ question: s.question, answer: s.answer }));
+      scanInput.current = { profile, known, resumeName: file?.name, hasLetter: !!cover?.body, sources: view.sources };
+      let p = await scan(tab, profile, known, file?.name, !!cover?.body);
+      // A section with fewer blocks than the resume has jobs (or schools), and an Add button: add them once, then read again.
+      if (p.adders?.length && !addedBlocks.current) {
+        addedBlocks.current = true;
+        let added = 0;
+        for (const ad of p.adders) added += await addEntries(tab, ad.frameId ?? 0, ad.section, ad.missing);
+        if (added) {
+          await new Promise((r) => setTimeout(r, 400));
+          p = await scan(tab, profile, known, file?.name, !!cover?.body);
+        }
+      }
+      let next = rowsFor(p, view.sources);
       setPlan(p);
       setRows(next);
       const ask = next.filter(needsSuggestion);
@@ -228,6 +256,26 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: We
       const wantsLetterFile = list.some((r) => r.checked && r.value === LETTER && r.kind === 'file');
       const letterFile = wantsLetterFile && forJob != null ? await api.coverLetterPdf(forJob).catch(() => null) : null;
       const results = await apply(tab, items, resume ?? undefined, letter || undefined, undefined, letterFile ?? undefined);
+      // Answers can reveal more fields ("Race" once "Hispanic or Latino" is No, "If yes..."):
+      // read the page again and fill the new ones Wera is sure of.
+      const reading = scanInput.current;
+      if (reading && results.some((x) => x.status === 'filled')) {
+        await new Promise((r) => setTimeout(r, revealDelay));
+        const again = await scan(tab, reading.profile, reading.known, reading.resumeName, reading.hasLetter).catch(() => null);
+        const seen = new Set(list.map((r) => r.id));
+        const fresh = again ? rowsFor(again, reading.sources).filter((r) => !seen.has(r.id)) : [];
+        if (fresh.length) {
+          const sure = fresh.filter((r) => r.checked && r.value !== '');
+          const more = sure.length ? await apply(tab, sure.map((r) => ({ id: r.id, value: r.value })), resume ?? undefined, letter || undefined) : [];
+          const byMore = new Map(more.map((x) => [x.id, x]));
+          setPlan(again);
+          setRows((rs) => [...rs, ...fresh.map((r) => {
+            const x = byMore.get(r.id);
+            return x ? { ...r, status: x.status, result: x.note ?? x.value } : r;
+          })]);
+          results.push(...more);
+        }
+      }
       const by = new Map(results.map((x) => [x.id, x]));
       setRows((rs) => rs.map((r) => {
         const x = by.get(r.id);
@@ -254,7 +302,7 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: We
       setRows((rs) => rs.map((r) => (r.status === 'filling' ? { ...r, status: undefined } : r)));
       setPhase('ready');
     }
-  }, [api, tab, resume, letter, page, siteHost, learn, ensureJob]);
+  }, [api, tab, resume, letter, page, siteHost, learn, ensureJob, revealDelay]);
 
   // Each field the page fills is reported as it lands.
   useEffect(() => {
@@ -517,6 +565,15 @@ export function ApplyTab({ api, page, autoFill, settings, onNeedJob }: { api: We
   );
 }
 
+/** A field's name in the list: a job's or school's field says which ("Job 2 · Month (end)"). */
+export function rowLabel(r: FieldPlan): string {
+  const label = r.label || 'Field';
+  if (r.entry == null || !r.purpose) return label;
+  const what = r.purpose.startsWith('exp_') ? 'Job' : 'School';
+  const when = /_(start)$/.test(r.purpose) ? ' (start)' : /_(end)$/.test(r.purpose) ? ' (end)' : '';
+  return `${what} ${r.entry + 1} · ${label}${when && !/start|end|from|to\b/i.test(label) ? when : ''}`;
+}
+
 function StatusIcon({ r }: { r: Row }) {
   if (r.status === 'filling') return <LoaderCircle className="size-3.5 shrink-0 animate-spin text-accent" aria-label="Filling" />;
   if (r.status === 'filled') return <CheckCircle2 className="size-3.5 shrink-0 text-good" aria-label="Filled" />;
@@ -530,6 +587,7 @@ function FieldRow({ r, onChange, onFind, disabled, onWriteLetter, writingLetter 
   r: Row; onChange: (p: Partial<Row>) => void; onFind: () => void; disabled: boolean; onWriteLetter?: () => void; writingLetter?: boolean;
 }) {
   const src = r.source ? SOURCE[r.source] : null;
+  const name = rowLabel(r);
   const file = r.value === RESUME || r.value === LETTER;
   const consent = r.group === 'consent';
   const set = (value: string) => onChange({ value, checked: value !== '', source: r.source === 'details' && value === r.value ? r.source : 'you' });
@@ -540,9 +598,9 @@ function FieldRow({ r, onChange, onFind, disabled, onWriteLetter, writingLetter 
     <li className={clsx('rounded-lg border bg-surface px-2.5 py-2 text-xs transition-colors', r.status === 'filled' ? 'border-good/30' : r.status === 'review' ? 'border-warn/40' : 'border-border')}>
       <div className="flex items-center gap-2">
         <input type="checkbox" className="size-3.5 accent-[var(--color-accent)]" checked={r.checked} disabled={disabled || consent || r.value === ''}
-          onChange={(e) => onChange({ checked: e.target.checked })} aria-label={`Fill ${r.label}`} />
-        <button type="button" className="min-w-0 flex-1 truncate text-left text-text hover:underline" title={`${r.label}: show it on the page`} aria-label={`Show ${r.label || 'this field'} on the page`} onClick={onFind}>
-          {r.label || 'Field'}{r.required && <span className="text-bad"> *</span>}
+          onChange={(e) => onChange({ checked: e.target.checked })} aria-label={`Fill ${name}`} />
+        <button type="button" className="min-w-0 flex-1 truncate text-left text-text hover:underline" title={`${name}: show it on the page`} aria-label={`Show ${r.label ? name : 'this field'} on the page`} onClick={onFind}>
+          {name}{r.required && <span className="text-bad"> *</span>}
         </button>
         {r.group === 'self_id' && <span className="rounded bg-surface-2 px-1 text-[10px] text-faint" title="Voluntary self-identification, from your choices in Wera">Self-ID</span>}
         {src && (
@@ -562,14 +620,14 @@ function FieldRow({ r, onChange, onFind, disabled, onWriteLetter, writingLetter 
       {!consent && !file && !onWriteLetter && (
         <div className="mt-1.5 pl-5.5">
           {r.options.length > 0 ? (
-            <select className={`${INPUT} py-1 text-xs`} value={r.value} disabled={disabled} onChange={(e) => set(e.target.value)} aria-label={`Value for ${r.label}`}>
+            <select className={`${INPUT} py-1 text-xs`} value={r.value} disabled={disabled} onChange={(e) => set(e.target.value)} aria-label={`Value for ${name}`}>
               <option value="">Leave empty</option>
               {r.value && !r.options.includes(r.value) && <option value={r.value}>{r.value}</option>}
               {r.options.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : (
             <input className={`${INPUT} py-1 text-xs`} value={r.value} disabled={disabled} placeholder={r.kind === 'checkbox' ? 'yes to tick it' : 'Type a value to fill'}
-              onChange={(e) => set(e.target.value)} aria-label={`Value for ${r.label}`} />
+              onChange={(e) => set(e.target.value)} aria-label={`Value for ${name}`} />
           )}
         </div>
       )}

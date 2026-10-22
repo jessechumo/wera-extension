@@ -1,4 +1,4 @@
-import type { Applicant, ContentRequest, FieldSnapshot, FillItem, FillResult, KnownAnswer, PageInfo, PagePlan } from '../shared/types';
+import type { ContentRequest, Profile, FieldSnapshot, FillItem, FillResult, KnownAnswer, PageInfo, PagePlan } from '../shared/types';
 
 /** The tab the side panel is working with. */
 export async function activeTab(): Promise<chrome.tabs.Tab | null> {
@@ -158,7 +158,7 @@ async function formFrames(tab: chrome.tabs.Tab, tries = 3, delay = 400): Promise
 }
 
 /** A form page read in every frame that holds it: what each field shows and what Wera would enter. Changes nothing. */
-export async function scan(tab: chrome.tabs.Tab, applicant: Applicant, answers: KnownAnswer[], resumeName?: string, coverLetter?: boolean): Promise<PagePlan> {
+export async function scan(tab: chrome.tabs.Tab, applicant: Profile, answers: KnownAnswer[], resumeName?: string, coverLetter?: boolean): Promise<PagePlan> {
   const frames = await formFrames(tab);
   const replies = await sendAll<PagePlan>(tab, frames, { type: 'wera:scan', applicant, answers, resumeName, coverLetter });
   const plan: PagePlan = { fields: [], next: null, errors: 0 };
@@ -166,6 +166,7 @@ export async function scan(tab: chrome.tabs.Tab, applicant: Applicant, answers: 
   for (const { frameId, value } of replies) {
     plan.fields.push(...value.fields.map((f) => ({ ...f, id: frameField(frameId, f.id) })));
     plan.errors += value.errors;
+    if (value.adders?.length) plan.adders = [...(plan.adders ?? []), ...value.adders.map((a) => ({ ...a, frameId }))];
     // The way forward is in the frame with the most fields (the form, not a header).
     if (value.next && value.fields.length > nextFields) {
       plan.next = { ...value.next, id: frameField(frameId, value.next.id) };
@@ -173,6 +174,12 @@ export async function scan(tab: chrome.tabs.Tab, applicant: Applicant, answers: 
     }
   }
   return plan;
+}
+
+/** Presses a section's Add button in the frame that has it, so the resume's other jobs or schools get blocks. */
+export async function addEntries(tab: chrome.tabs.Tab, frameId: number, section: 'experience' | 'education', count: number): Promise<number> {
+  const r = await sendTo<{ added: number } | null>(tab, frameId, { type: 'wera:add-entries', section, count }).catch(() => null);
+  return r?.added ?? 0;
 }
 
 /** Fills the approved values, each frame's fields in its frame; results come back as each frame finishes. */

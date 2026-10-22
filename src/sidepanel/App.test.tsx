@@ -492,6 +492,61 @@ describe('side panel: guided autofill', () => {
     expect(sentOf(sent, 'wera:apply')).toHaveLength(0);
   });
 
+  it('fills from the resume: says so, and adds blocks for the jobs a section lacks', async () => {
+    let scans = 0;
+    const plan1: PagePlan = {
+      fields: [field('w1', 'School', { purpose: 'school', value: 'UT Dallas', source: 'details', group: 'details' })],
+      next: null, errors: 0, adders: [{ section: 'experience', missing: 2 }],
+    };
+    const plan2: PagePlan = {
+      fields: [
+        field('w1', 'School', { purpose: 'school', value: 'UT Dallas', source: 'details', group: 'details' }),
+        field('w2', 'Job Title', { purpose: 'exp_title', value: 'Data Analyst', source: 'resume', group: 'details', entry: 1, note: 'Second job on your resume' }),
+      ],
+      next: null, errors: 0,
+    };
+    const { chrome, sent } = fakeChrome({ page: { ...page, hasForm: true }, plan: () => (++scans === 1 ? plan1 : plan2) });
+    signedIn(chrome);
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({
+        applicant: { school: 'UT Dallas' }, saved: false, sources: { school: 'resume' },
+        experience: [{ title: 'Data Scientist', company: 'Globex', current: true }, { title: 'Data Analyst', company: 'Acme', current: false }],
+        education: [{ school: 'UT Dallas' }], skills: ['Python'],
+      }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+    });
+    render(<App />);
+    expect(await screen.findByLabelText('Value for Job 2 · Job Title')).toHaveValue('Data Analyst');
+    expect(sentOf(sent, 'wera:add-entries')).toEqual([{ type: 'wera:add-entries', section: 'experience', count: 2 }]);
+    const applicantSent = sentOf(sent, 'wera:scan')[0]!.applicant as Record<string, unknown>;
+    expect(applicantSent).toMatchObject({ school: 'UT Dallas', experience: [{ title: 'Data Scientist' }, { title: 'Data Analyst' }], skills: ['Python'] });
+    // A detail filled in from the resume is labelled so.
+    const school = screen.getByLabelText('Value for School').closest('li')!;
+    expect(within(school).getByText('Resume')).toBeInTheDocument();
+  });
+
+  it('fills the fields an answer reveals, once the page shows them', async () => {
+    let scans = 0;
+    const hispanic = field('w1', 'Are you Hispanic/Latino?', { purpose: 'hispanic', kind: 'select', options: ['Yes', 'No'], value: 'No', source: 'details', group: 'self_id' });
+    const race = field('w2', 'Race', { purpose: 'race', kind: 'select', options: ['White', 'Black or African American'], value: 'Black or African American', source: 'details', group: 'self_id' });
+    const { chrome, sent } = fakeChrome({ page: { ...page, hasForm: true }, plan: () => (++scans === 1 ? { fields: [hispanic], next: null, errors: 0 } : { fields: [hispanic, race], next: null, errors: 0 }) });
+    signedIn(chrome);
+    fakeFetch({
+      ...noResume,
+      'GET /api/ext/jobs/lookup': () => ({ job }),
+      'GET /api/applicant': () => ({ applicant: { hispanic: 'no', race: 'Black or African American' }, saved: true }),
+      'GET /api/applicant/answers': () => ({ answers: [] }),
+      'POST /api/ext/autofill-runs': () => ({ id: 1 }),
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Autofill 1 field' }));
+    await waitFor(() => expect(sentOf(sent, 'wera:apply')).toHaveLength(2), { timeout: 3000 });
+    expect(sentOf(sent, 'wera:apply')[1]!.items).toEqual([{ id: 'w2', value: 'Black or African American' }]);
+    expect(await screen.findByLabelText('Value for Race')).toHaveValue('Black or African American');
+  });
+
   it('fills when the keyboard shortcut asks', async () => {
     const plan: PagePlan = { fields: [field('w1', 'Email', { purpose: 'email', value: 'a@x', source: 'details', group: 'details' })], next: null, errors: 0 };
     const { chrome, sent, setSession } = fakeChrome({ page, plan });
