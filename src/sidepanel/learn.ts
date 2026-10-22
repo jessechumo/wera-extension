@@ -6,8 +6,8 @@
 import { answerKey, type SavedAnswer } from '../shared/answers';
 import { SELF_ID_KEYS as SELF_ID, selfIdValue } from '../shared/selfId';
 import type { Applicant, ApplicantKey, FieldPlan, FieldPurpose, FieldSnapshot } from '../shared/types';
-// Purposes that are not one detail each.
-const DERIVED = new Set<FieldPurpose>(['full_name', 'authorized_no_sponsorship', 'location', 'resume', 'cover_letter', 'question', 'consent', 'phone_type', 'phone_code', 'skills']);
+// Purposes that are not one detail each, or (a start date) belong to one application.
+const DERIVED = new Set<FieldPurpose>(['start_date', 'full_name', 'authorized_no_sponsorship', 'location', 'resume', 'cover_letter', 'question', 'consent', 'phone_type', 'phone_code', 'skills']);
 const YES_NO = new Set<string>(['authorized_to_work', 'needs_sponsorship', 'willing_to_relocate', 'willing_to_travel', 'over_18']);
 const CHOICE = new Set(['select', 'radio', 'checkboxes', 'buttons', 'listbox', 'combobox']);
 

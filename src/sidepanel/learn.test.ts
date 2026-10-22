@@ -42,5 +42,7 @@ describe('detailsToLearn', () => {
     expect(detailsToLearn(fields, [snap('d', 'Decline To Self Identify')], { ...applicant, gender: 'Female' })).toEqual({});
     expect(detailsToLearn(fields, [snap('c', '512')], { ...applicant, phone: 'kept' })).toEqual({});
     expect(detailsToLearn(fields, [snap('h', 'Sometimes', 'radio')], applicant)).toEqual({});
+    // A start date typed for one job is not a detail to keep.
+    expect(detailsToLearn([plan('s', 'Start date', { group: 'details', purpose: 'start_date' })], [snap('s', '2026-11-01')], { start_date: '' } as unknown as Applicant)).toEqual({});
   });
 });
