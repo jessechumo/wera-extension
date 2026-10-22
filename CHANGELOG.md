@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.5.0...wera-extension-v0.5.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* extension reload errors and the doubled side panel logo ([f2aee29](https://github.com/jessechumo/wera-extension/commit/f2aee29f7a4f52c11726bafddae82e8d9174b916))
+* **sidepanel:** drop the logo Chrome's panel bar already shows ([1f80954](https://github.com/jessechumo/wera-extension/commit/1f8095482b72e5e79b1524bbf66a757ebe8d4515))
+* stop quietly when the extension is reloaded under an open tab ([c37a310](https://github.com/jessechumo/wera-extension/commit/c37a3107189acce9d9ffb754b395ec883c07e592))
+
 ## [0.5.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.4.1...wera-extension-v0.5.0) (2026-10-22)
 
 
