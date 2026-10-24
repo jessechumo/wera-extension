@@ -3,12 +3,12 @@
 // requests come through the background, by frame.
 import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
-import { classify } from './classify';
-import { byId, collectFields } from './fields';
-import { attachFile, base64ToFile, insertText, mark } from './fill';
+import { collectFields } from './fields';
+import { peekOptions } from './fill';
+import { log } from '../shared/log';
 import { readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
-import { pageKind } from './detect';
+import { ownApplicationForm, pageKind } from './detect';
 import { siteFor } from './sites';
 import { pressNext } from './next';
 import { addEntries, applyItems, highlight, planForm, snapshot } from './plan';
@@ -23,14 +23,14 @@ declare global {
 
 function readPage(): PageInfo {
   const url = location.href;
-  const fields = collectFields(document);
   const site = siteFor(document);
   return {
     url,
     title: document.title,
     text: mainText(document),
     draft: readJobPosting(document, url),
-    hasForm: fields.filter((f) => classify(f) !== null).length >= 3,
+    // This frame's own form: a careers page around an embedded one leaves it to that frame.
+    hasForm: ownApplicationForm(document),
     submitted: looksSubmitted(bodyText(document)),
     frameOrigins: formFrameOrigins(document),
     jobLike: pageKind(document) !== null,
@@ -62,34 +62,30 @@ export function listen() {
       case 'wera:read-page':
         reply(readPage());
         return false;
-      case 'wera:insert':
-        reply({ ok: insertText(byId(document, msg.id), msg.text) });
-        return false;
-      case 'wera:insert-cover-letter': {
-        const box = collectFields(document).find((f) => f.kind === 'textarea' && classify(f) === 'cover_letter');
-        reply({ ok: insertText(box?.el ?? null, msg.text) });
+      case 'wera:scan': {
+        const plan = planForm(document, msg.req.profile, msg.req);
+        log.info('scan', `${plan.fields.length} fields on ${location.host}${plan.site ? ` (${plan.site})` : ''}`, plan.fields.map((f) => `${f.label.slice(0, 60)} → ${f.purpose ?? '?'}${f.value ? ' ✓' : ''}${f.note ? ` (${f.note})` : ''}`));
+        reply(plan);
         return false;
       }
-      case 'wera:attach': {
-        // The form's resume or cover letter upload.
-        const input = collectFields(document).find((f) => f.kind === 'file' && classify(f) === msg.what);
-        if (input) {
-          attachFile(input.el as HTMLInputElement, base64ToFile(msg.file.base64, msg.file.name));
-          mark(input.el, 'filled');
-        }
-        reply({ ok: !!input });
-        return false;
-      }
-      case 'wera:scan':
-        reply(planForm(document, msg.applicant, { answers: msg.answers, resumeName: msg.resumeName, coverLetter: msg.coverLetter }));
-        return false;
       case 'wera:apply':
         // Each field is reported as it lands, so the panel ticks it off live.
-        applyItems(document, msg.items, {
-          resume: msg.resume, coverLetter: msg.coverLetter, letterFile: msg.letterFile, pace: msg.pace,
+        applyItems(document, msg.req.items, {
+          ...msg.req,
           onProgress: (result) => void sendSafe({ type: 'wera:fill-progress', result }),
-        }).then(reply, () => reply([]));
+        }).then(reply, (e: unknown) => {
+          log.error('fill', 'filling stopped', e);
+          reply(msg.req.items.map((i) => ({ id: i.id, label: i.label ?? '', purpose: null, status: 'review', required: false, note: `Wera stopped filling here: ${e instanceof Error ? e.message : String(e)}` })));
+        });
         return true; // async reply
+      case 'wera:options': {
+        const fields = msg.ids.map((id) => collectFields(document).find((f) => f.id === id)).filter((f) => f != null);
+        peekOptions(fields).then(reply, () => reply({}));
+        return true; // async reply
+      }
+      case 'wera:log':
+        reply({ url: location.href, entries: log.entries() });
+        return false;
       case 'wera:add-entries':
         addEntries(document, msg.section, msg.count).then((added) => reply({ added }), () => reply({ added: 0 }));
         return true; // async reply

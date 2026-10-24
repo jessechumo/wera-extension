@@ -15,9 +15,11 @@ export interface Settings {
   aiQuestions: boolean;
   /** The Wera button in open questions, to draft and rework an answer. */
   assist: boolean;
+  /** Write what Wera does to the console of each page (for finding out why a field was missed). */
+  debug: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true, aiQuestions: true, assist: true };
+export const DEFAULT_SETTINGS: Settings = { launcher: true, autoApplied: true, aiSuggest: true, autoContinue: true, learn: true, aiQuestions: true, assist: true, debug: false };
 
 export const SETTINGS_KEY = 'wera.settings';
 

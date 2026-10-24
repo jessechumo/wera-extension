@@ -4,17 +4,18 @@
 // or hide the panel; Alt+Shift+F (or the right-click menu) fills the form.
 // It also keeps the dashboard bridge: which job the dashboard opened in a tab.
 import { expectHandoff, syncBridge, takeHandoff } from '../shared/bridge';
-import { isDockRequest } from '../shared/dock';
+import { isJobRequest } from '../shared/jobs';
+import { log } from '../shared/log';
 import { isPanelRequest } from '../shared/rpc';
 import { loadSession } from '../shared/storage';
 import type { ContentEvent } from '../shared/types';
-import { handleDock } from './dock';
+import { handleJobRequest } from './jobs';
 import { frameField } from './frames';
 import { ensurePanel, handlePanel } from './panel';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'wera-fill', title: 'Fill this application with Wera', contexts: ['page', 'editable'] });
-  // Older installs registered the Wera button per site, and could hide the dock on a site for a week.
+  // Older installs registered the Wera button per site, and could hide Wera on a site for a week.
   void chrome.scripting.unregisterContentScripts({ ids: ['wera-launcher'] }).catch(() => {});
   void chrome.storage.local.remove('wera.launcherDismissed').catch(() => {});
   void syncAll();
@@ -69,11 +70,17 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
   if (sender.id !== chrome.runtime.id || sender.tab?.id == null) return false;
   const tabId = sender.tab.id;
   if (isPanelRequest(msg)) {
-    handlePanel(msg, tabId, sender.frameId ?? 0).then(reply, (e: unknown) => reply({ ok: false, status: 0, error: String(e) }));
+    handlePanel(msg, tabId, sender.frameId ?? 0).then(reply, (e: unknown) => {
+      log.error('background', `${msg.type} failed`, e);
+      reply({ ok: false, status: 0, error: e instanceof Error ? e.message : String(e) });
+    });
     return true; // async reply
   }
-  if (isDockRequest(msg)) {
-    handleDock(msg, tabId, sender.tab.url ?? '').then(reply, () => reply(null));
+  if (isJobRequest(msg)) {
+    handleJobRequest(msg, tabId, sender.tab.url ?? '').then(reply, (e: unknown) => {
+      log.warn('background', `${msg.type} failed`, e);
+      reply(null);
+    });
     return true;
   }
   // What a frame's page script noticed (a new form step, a field filled, a confirmation): the panel hears it.

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isJobUrl, jobSummary, pageKind } from '../content/detect';
-import type { SubmitReply } from '../shared/dock';
+import type { SubmitReply } from '../shared/jobs';
 import { watchForJobs } from './index';
 
 const fixture = (name: string) => readFileSync(join(__dirname, '..', 'content', '__fixtures__', name), 'utf8');
@@ -96,7 +96,7 @@ describe('on a page', () => {
         id: 'x',
         sendMessage: vi.fn(async (m: { type: string }) => {
           sent.push(m);
-          return m.type === 'wera:dock-submitted' ? submit : null;
+          return m.type === 'wera:job-submitted' ? submit : null;
         }),
         onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
       },
@@ -110,7 +110,7 @@ describe('on a page', () => {
     document.body.innerHTML = fixture('greenhouse.html');
     run(document, 5);
     await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:panel-ensure')).toBe(true));
-    expect(sent.find((m) => m.type === 'wera:dock-hello')).toMatchObject({ kind: 'form' });
+    expect(sent.find((m) => m.type === 'wera:job-seen')).toMatchObject({ kind: 'form' });
     expect(window.__weraPage?.kind).toBe('form');
     // Once per page, however much the page changes.
     document.body.append(document.createElement('div'));
@@ -153,22 +153,22 @@ describe('on a page', () => {
       <label for="w">Why us?</label><textarea id="w">Robots.</textarea>
       <button type="button" id="next">Save and Continue</button></form>`;
     run(document, 5);
-    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-hello')).toBe(true));
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-seen')).toBe(true));
     document.querySelector<HTMLButtonElement>('#next')!.click();
-    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-learn')).toBe(true));
-    const learn = sent.find((m) => m.type === 'wera:dock-learn') as unknown as { entries: { purpose: string; value: string }[] };
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-learn')).toBe(true));
+    const learn = sent.find((m) => m.type === 'wera:job-learn') as unknown as { entries: { purpose: string; value: string }[] };
     expect(learn.entries).toEqual(expect.arrayContaining([{ purpose: 'gender', value: 'Woman' }, { purpose: 'phone', value: '512 555 0142' }]));
     expect(learn.entries.some((e) => e.purpose === 'question')).toBe(false);
   });
 
   it('tells Wera when the form gives way to a thank-you message, and brings the panel to say so', async () => {
-    const sent = fakeChrome({ state: 'marked', job: { id: 4, title: 'SRE', company: 'Acme', score: 80, estimate: false, verdict: null, status: 'applied', autofilled: true }, previous: 'saved' });
+    const sent = fakeChrome({ state: 'marked', job: { id: 4, title: 'SRE', company: 'Acme', status: 'applied' }, previous: 'saved' });
     document.body.innerHTML = fixture('greenhouse.html');
     run(document, 5);
-    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:dock-hello')).toBe(true));
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-seen')).toBe(true));
     document.body.innerHTML = '<h1>Thank you for applying!</h1><p>We will be in touch.</p>';
     await vi.waitFor(() => expect(window.__weraPage?.submitted?.state).toBe('marked'));
-    expect(sent.filter((m) => m.type === 'wera:dock-submitted')).toHaveLength(1);
+    expect(sent.filter((m) => m.type === 'wera:job-submitted')).toHaveLength(1);
     expect(sent.filter((m) => m.type === 'wera:panel-ensure').length).toBeGreaterThanOrEqual(2);
   });
 

@@ -1,3 +1,4 @@
+import { SELF_ID } from '../shared/selfId';
 import type { FieldPurpose } from '../shared/types';
 import { entryPurpose } from './entries';
 import type { Field } from './fields';
@@ -22,6 +23,8 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['last_name', /last[\s_-]*name|surname|family[\s_-]*name|\blname\b/],
   ['full_name', /^(full |legal |your )?name\b|full[\s_-]*name|legal[\s_-]*name/],
   ['email', /e-?mail/],
+  // "Have you worked at or consulted for GitLab?": the resume says (only when it names this company, see plan.ts).
+  ['previously_employed', /(have|did) you (ever )?(previously |formerly |already )?(been )?(work(ed)?|employed|been employed|consulted|interned)\b.{0,40}\b(at|for|by|with)\b|(current|former|previous|past) (employee|employment)|previously (been )?(worked|employed)|ever been employed by|worked (here|for us) before/],
   ['phone_type', /(phone )?device type|phone type|type of phone/],
   ['phone_code', /(country )?(phone|dialing|calling) code|country code|phone (number )?(country|prefix)/],
   ['phone', /phone|mobile|cell\b|telephone/],
@@ -34,16 +37,23 @@ const RULES: [FieldPurpose, RegExp][] = [
   ['needs_sponsorship', /visa|h-?1b/],
   ['authorized_to_work', /(authori[sz]ed|eligible|legally (able|permitted)) to work|work authori[sz]ation|right to work/],
   ['willing_to_relocate', /relocat/],
+  // "Are you a Singapore citizen?" (not "citizen or permanent resident": that is about authorization).
+  ['citizen_of', /^(?!.*(permanent resident|green card|or resident)).*(are you an? .{0,30}\bcitizen\b|\bcitizen of (the )?[a-z .]+\?)/],
+  // "Are you currently located in the US?": the details' country says.
+  ['in_country', /(are you|do you) (currently |presently |now )?(located|based|living|live|reside|residing|working) (in|within)\b|(currently|presently) (located|based|living|residing) in\b/],
   ['over_18', /\b(18|eighteen)\b.{0,20}(years|older|age)|at least 18|legal (working )?age|over (the age of )?18/],
   ['willing_to_travel', /(willing|able|open) to travel|travel (requirement|up to|is required)|\d+ ?% (of the time )?travel/],
   ['security_clearance', /clearance/],
   ['citizenship', /citizenship|country of (citizen|nationality)|nationality/],
-  ['work_preference', /work (arrangement|preference|setting|model|style)|(remote|hybrid|on-?site) (or|preference)|prefer to work (remotely|from)|preferred work (location|mode|type)/],
+  ['work_preference', /work (arrangement|preference|setting|model|style)|(remote|hybrid|on-?site) (or|preference)|prefer to work remotely|preferred work (mode|type|arrangement)/],
   ['notice_period', /notice period|weeks.? notice|how much notice/],
   ['salary_expectation', /salary|compensation|pay (expectation|range)|desired pay|expected pay/],
   ['today', /today'?s date|date (signed|of signature)|signature date|^date$/],
   ['start_date', /start date|available to start|earliest (possible )?start|when can you start|date available|availability date/],
+  ['lgbtq', /lgbt|queer community/],
   ['how_heard', /how (did )?you (first )?(hear|heard|find|found|learn|learned|come across)|where (did )?you (hear|heard|find|found|learn)|referral source|^source\b|how were you referred|hear about (us|this)/],
+  // Who referred the user: only they know.
+  ['referral', /referred (you|by)|who referred|referr(al|er)('s)? (name|email)|name of (the )?(person|employee|individual) who referred|employee referral|were you referred/],
   ['skills', /^(technical |key |relevant |your )?skills\b|^skill set|list (your )?skills/],
   ['languages', /language skill|^languages?\b|^(?!.*programming).*(languages? (do you )?(speak|spoken|fluent)|which languages|language proficiency|fluent in|languages you speak)/],
   ['pronouns', /pronoun/],
@@ -69,15 +79,18 @@ const RULES: [FieldPurpose, RegExp][] = [
   // "State", not the verb ("Please state why...").
   ['state', /\bstate\b(?! (your|why|how|what|the|any|briefly))|province|region/],
   ['country', /country/],
-  ['location', /location|where are you (currently )?(located|based)|where do you (live|reside)/],
+  ['location', /location|where are you (currently )?(located|based)|where do you (currently )?(live|reside)|where (do|will|would) you (plan|intend|expect) (on |to )?(work|be working)|(plan|intend) (on |to )?work(ing)? from|from where (do|will) you (intend to )?work/],
 ];
 
 // Details a yes/no question can ask; other details named in one ("...with your current employer?") are not what it asks.
 const YES_NO_PURPOSES = new Set<FieldPurpose>(['authorized_to_work', 'needs_sponsorship', 'authorized_no_sponsorship', 'willing_to_relocate', 'willing_to_travel',
-  'over_18', 'security_clearance', 'citizenship', 'visa_status', 'hispanic', 'transgender', 'veteran', 'disability', 'gender', 'race', 'work_preference', 'consent']);
+  'over_18', 'security_clearance', 'citizenship', 'visa_status', 'hispanic', 'transgender', 'veteran', 'disability', 'gender', 'race', 'work_preference', 'consent',
+  'previously_employed', 'in_country', 'citizen_of', 'lgbtq', 'referral']);
 
-/** Voluntary self-identification: only the user's own choices fill these. */
-export const SELF_ID = new Set<FieldPurpose>(['gender', 'pronouns', 'transgender', 'sexual_orientation', 'race', 'hispanic', 'veteran', 'disability']);
+export { SELF_ID };
+
+/** Kinds whose answer is one of their options. */
+const CHOICE_KINDS = new Set(['select', 'radio', 'buttons', 'listbox']);
 
 const CONSENT = /\b(i agree|agree|consent|acknowledge|certify|privacy|terms|confirm that)\b/;
 
@@ -113,6 +126,10 @@ function generic(f: Field): FieldPurpose | null {
   if (f.inputType === 'email') return 'email';
   if (f.inputType === 'tel') return 'phone';
   if (f.kind === 'checkbox' && CONSENT.test(label)) return 'consent';
+  // A choice between consenting or not (SMS updates, an AI notetaker): the user's to make.
+  if (CHOICE_KINDS.has(f.kind) && f.options.some((o) => /\b(i )?(do not |don.?t )?(consent|agree)\b/i.test(o.label))) return 'consent';
+  // An upload that reads the resume to fill the form itself (Ashby's "Autofill from resume") would redo Wera's work.
+  if (f.kind === 'file' && /auto-?fill|parse|import (from|your)/.test(label)) return null;
   // "Authorized to work without sponsorship?" asks both things at once.
   if (/without (the )?(need (for|of) |requiring )?(any )?(employer |visa )?sponsor/.test(label)) return 'authorized_no_sponsorship';
   // Pronouncing a name, or a yes/no question that mentions a detail ("...with your current employer?"), asks something else.

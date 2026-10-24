@@ -1,14 +1,11 @@
-// What Wera learns from a page the user finished: answers to remember
-// for the next form, and application details it did not have, including
-// self-identification the user answered on the form (saved to their own
-// Wera, in the dashboard's values; never sent to the AI). It never learns
+// The answers Wera remembers from a page the user finished, for the next
+// form: what the user chose or typed in the form's own questions. Details
+// (name, contact, self-identification) are learned by the background when
+// the user moves the form on (shared/details.ts). It never learns
 // consents or files, and never relearns what it filled itself.
 import { answerKey, type SavedAnswer } from '../shared/answers';
-import { SELF_ID_KEYS as SELF_ID, selfIdValue } from '../shared/selfId';
-import type { Applicant, ApplicantKey, FieldPlan, FieldPurpose, FieldSnapshot } from '../shared/types';
-// Purposes that are not one detail each, or (a start date) belong to one application.
-const DERIVED = new Set<FieldPurpose>(['start_date', 'today', 'full_name', 'authorized_no_sponsorship', 'location', 'resume', 'cover_letter', 'question', 'consent', 'phone_type', 'phone_code', 'skills']);
-const YES_NO = new Set<string>(['authorized_to_work', 'needs_sponsorship', 'willing_to_relocate', 'willing_to_travel', 'over_18']);
+import type { FieldPlan, FieldSnapshot } from '../shared/types';
+
 const CHOICE = new Set(['select', 'radio', 'checkboxes', 'buttons', 'listbox', 'combobox']);
 
 export interface LearnedAnswer {
@@ -34,27 +31,6 @@ export function answersToLearn(plan: FieldPlan[], snap: FieldSnapshot[], bank: S
     if (!value || (kind === 'long' && value.length < 20) || value.length > 6000) continue;
     if (known.get(answerKey(p.label)) === value) continue;
     out.push({ question: p.label.replace(/\s*\*\s*$/, ''), answer: value, kind, company });
-  }
-  return out;
-}
-
-/** Details the form asked for that Wera did not have and the user typed: worth saving to their application details. */
-export function detailsToLearn(plan: FieldPlan[], snap: FieldSnapshot[], applicant: Applicant): Partial<Applicant> {
-  const byId = new Map(plan.map((p) => [p.id, p]));
-  const out: Partial<Record<ApplicantKey, string>> = {};
-  for (const s of snap) {
-    const p = byId.get(s.id);
-    const key = p?.purpose;
-    if (!p || !key || DERIVED.has(key) || !(key in applicant)) continue;
-    const k = key as ApplicantKey;
-    if ((applicant[k] ?? '').trim() || out[k]) continue;
-    let value = s.value.trim();
-    if (SELF_ID.has(key)) {
-      value = selfIdValue(key, value);
-    } else if (YES_NO.has(k)) {
-      value = /^yes\b/i.test(value) ? 'yes' : /^no\b/i.test(value) ? 'no' : '';
-    }
-    if (value && value.length <= 300) out[k] = value;
   }
   return out;
 }

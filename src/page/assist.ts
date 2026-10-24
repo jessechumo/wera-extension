@@ -9,9 +9,12 @@ import { collectFields, type Field } from '../content/fields';
 import { insertText } from '../content/fill';
 import { bestAnswer, type SavedAnswer } from '../shared/answers';
 import { extensionAlive, sendSafe } from '../shared/alive';
-import type { JobContext } from '../shared/dock';
+import { describeError } from '../shared/errors';
+import type { JobContext } from '../shared/jobs';
+import { log } from '../shared/log';
 import { remoteApi } from '../shared/rpc';
 import { loadSettings } from '../shared/settings';
+import { loadSession } from '../shared/storage';
 import { followTheme } from '../shared/theme';
 import { BASE, el, icon, logoMark, mountShadow } from './ui';
 
@@ -66,7 +69,10 @@ export function wordsFor(f: Field): number {
 
 interface Draft {
   text: string;
+  /** What the AI needs from the user first. */
   needs: string;
+  /** Why drafting failed (a draft from before stays). */
+  error?: string;
 }
 
 /** Starts watching the frame's fields for open questions; returns a stop. */
@@ -168,8 +174,10 @@ export function startAssist(doc: Document): () => void {
 
     const show = (d: Draft) => {
       current = d;
-      draftBox.className = d.needs ? 'draft need' : 'draft';
-      draftBox.textContent = d.needs ? `Wera needs this from you first: ${d.needs}` : d.text || 'Wera could not draft this one. Try again, or tell it what to say.';
+      draftBox.className = d.needs || d.error ? 'draft need' : 'draft';
+      draftBox.textContent = d.error ? (d.text ? `${d.error}\n\n${d.text}` : d.error)
+        : d.needs ? `Wera needs this from you first: ${d.needs}`
+        : d.text || "Wera couldn't draft this one. Try again, or tell it what to say.";
       meta.textContent = d.text ? `${d.text.split(/\s+/).filter(Boolean).length} words · from your profile, resume and earlier answers` : '';
       use.disabled = !d.text;
       for (const b of [again, shorter, longer]) b.disabled = false;
@@ -181,15 +189,16 @@ export function startAssist(doc: Document): () => void {
       for (const b of actions) b.disabled = true;
       draftBox.className = 'draft wait';
       draftBox.replaceChildren(icon(doc, 'loader', 'i spin'), rework ? 'Reworking…' : 'Drafting from your profile…');
-      const server = ((await chrome.storage.local.get('wera.session').catch(() => ({}))) as { 'wera.session'?: { server: string } })['wera.session']?.server;
-      if (!server) return show({ text: '', needs: 'sign in to Wera (click the Wera icon in the toolbar)' });
-      context ??= sendSafe<JobContext>({ type: 'wera:dock-context' });
+      const server = (await loadSession().catch(() => null))?.server;
+      if (!server) return show({ text: '', needs: '', error: 'Sign in to Wera first: click the Wera icon in the toolbar.' });
+      context ??= sendSafe<JobContext>({ type: 'wera:job-context' });
       const ctx = await context;
       try {
         const r = await remoteApi(server).answer(label, ctx?.jobId ?? null, length, ctx?.posting ?? undefined, rework);
         show({ text: (r.answer ?? '').trim(), needs: r.needs_input ?? '' });
       } catch (e) {
-        show({ text: '', needs: e instanceof Error ? e.message : String(e) });
+        log.warn('assist', 'drafting failed', e);
+        show({ text: current.text, needs: '', error: describeError(e, rework ? "Couldn't rework the answer" : "Couldn't draft an answer") });
       }
     };
 
@@ -222,8 +231,11 @@ export function startAssist(doc: Document): () => void {
     });
 
     // An answer the user gave to the same question before comes first.
-    const server = ((await chrome.storage.local.get('wera.session').catch(() => ({}))) as { 'wera.session'?: { server: string } })['wera.session']?.server;
-    bank ??= server ? remoteApi(server).answers().catch(() => []) : Promise.resolve([]);
+    const server = (await loadSession().catch(() => null))?.server;
+    bank ??= server ? remoteApi(server).answers().catch((e: unknown) => {
+      log.warn('assist', 'loading earlier answers failed', e);
+      return [];
+    }) : Promise.resolve([]);
     const hit = bestAnswer(await bank, label);
     if (hit && hit.answer.length >= 20) {
       const useSaved = el(doc, 'button', { class: 'btn', type: 'button' }, icon(doc, 'history'), 'Use this');

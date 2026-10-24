@@ -5,7 +5,9 @@
 // skills (one pill per skill) and split month/day/year date boxes.
 import type { FieldPurpose } from '../../shared/types';
 import { isHidden, isWorkdayPrompt, listboxValue, promptChoice, type Field, type Option } from '../fields';
-import { focusField, matchOption, norm, searchText, setNativeValue, wait } from '../fill';
+import { focusField, setNativeValue, wait } from '../fill';
+import { matchOption, searchText } from '../match';
+import { norm } from '../places';
 
 type Hit = Option & { node: HTMLElement };
 

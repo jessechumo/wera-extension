@@ -1,6 +1,6 @@
 // The extension wears the theme the user picked in the Wera dashboard
 // (Settings: system, light or dark). The bridge on the dashboard reads
-// that choice and keeps it here; the side panel and the dock on job pages
+// that choice and keeps it here; the Wera panel and the answer button on job pages
 // both follow it, so the apps never disagree.
 
 export type ThemePref = 'system' | 'light' | 'dark';

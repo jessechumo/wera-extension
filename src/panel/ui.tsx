@@ -79,7 +79,6 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={clsx('skeleton', className)} />;
 }
 
-/** The fit score ring (dashed and marked "est." for estimates). */
 /** The fit score ring, drawn as the dashboard draws it (src/components/ScoreRing.tsx, size md). */
 export function ScoreRing({ score, estimate }: { score: number | null; estimate?: boolean }) {
   const box = 48;
@@ -113,8 +112,4 @@ export function ScoreRing({ score, estimate }: { score: number | null; estimate?
       <span className="absolute inset-0 flex items-center justify-center font-mono text-sm font-semibold" style={{ color }}>{score ?? '—'}</span>
     </div>
   );
-}
-
-export function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

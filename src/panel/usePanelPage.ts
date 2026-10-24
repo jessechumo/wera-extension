@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WeraJob } from '../shared/api';
 import { sendSafe } from '../shared/alive';
-import type { SubmitReply } from '../shared/dock';
+import { describeError } from '../shared/errors';
+import { log } from '../shared/log';
+import type { SubmitReply } from '../shared/jobs';
 import { frames } from '../shared/rpc';
 import type { ContentEvent, PageInfo } from '../shared/types';
 import type { PageHandle } from '../page';
@@ -38,11 +40,12 @@ export function usePanelPage(handle: PageHandle, signedIn: boolean) {
     const mine = ++run.current;
     setState((s) => ({ ...s, loading: true, error: '' }));
     try {
-      const info = await frames<PageInfo>('read');
-      const job = signedIn ? await sendSafe<WeraJob | null>({ type: 'wera:dock-resolve', url: location.href, title: handle.title || info.draft?.title || '', referrer: document.referrer }) : null;
+      const info = await frames('read');
+      const job = signedIn ? await sendSafe<WeraJob | null>({ type: 'wera:job-resolve', url: location.href, title: handle.title || info.draft?.title || '', referrer: document.referrer }) : null;
       if (mine === run.current) setState((s) => ({ ...s, info, job, loading: false, newStep: 0 }));
     } catch (e) {
-      if (mine === run.current) setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : String(e) }));
+      log.warn('page', 'reading the page failed', e);
+      if (mine === run.current) setState((s) => ({ ...s, loading: false, error: describeError(e, "Couldn't read this page") }));
     }
   }, [handle, signedIn]);
 
@@ -82,7 +85,7 @@ export function usePanelPage(handle: PageHandle, signedIn: boolean) {
   const setJob = useCallback((job: WeraJob | null) => {
     setState((s) => ({ ...s, job }));
     // The tab's next pages (the application after its posting) are for this job too.
-    if (job) void sendSafe({ type: 'wera:dock-remember', jobId: job.id });
+    if (job) void sendSafe({ type: 'wera:job-remember', jobId: job.id });
   }, []);
   const clearNewStep = useCallback(() => setState((s) => ({ ...s, newStep: 0 })), []);
   const clearSubmitted = useCallback(() => setState((s) => ({ ...s, submitted: null })), []);

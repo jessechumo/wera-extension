@@ -4,7 +4,10 @@
 // form, each field in its own frame. The page script runs in every frame
 // (manifest), so this only talks to it; pages opened before Wera was
 // installed or updated get it injected first.
-import type { ContentRequest, FieldSnapshot, FillItem, FillResult, KnownAnswer, PageInfo, PagePlan, Profile } from '../shared/types';
+import type { LogEntry } from '../shared/log';
+import type { FrameOps } from '../shared/rpc';
+import type { ApplyRequest, ContentRequest, FieldSnapshot, FillItem, FillResult, PageInfo, PagePlan, ScanRequest } from '../shared/types';
+import { originOf } from '../shared/url';
 
 /** The tab's frames with Wera's page script, the top frame (0) first. */
 async function reach(tabId: number): Promise<number[]> {
@@ -41,22 +44,14 @@ export function parseField(id: string): { frameId: number; id: string } {
   return m ? { frameId: Number(m[1]), id: m[2]! } : { frameId: 0, id };
 }
 
-function safeOrigin(url: string): string {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return '';
-  }
-}
-
 /** The top frame's job data and text, and whether any frame holds the form. */
 export async function readPage(tabId: number): Promise<PageInfo> {
   const ids = await reach(tabId);
   const replies = await sendAll<PageInfo>(tabId, ids, { type: 'wera:read-page' });
   const top = replies.find((r) => r.frameId === 0)?.value;
-  if (!top) throw new Error('Wera could not read this page. Reload it and try again.');
+  if (!top) throw new Error("Wera couldn't read this page. Reload it and try again (pages opened before Wera was installed or updated need a reload).");
   const others = replies.filter((r) => r.frameId !== 0).map((r) => r.value);
-  const reached = new Set(others.map((p) => safeOrigin(p.url)));
+  const reached = new Set(others.map((p) => originOf(p.url)));
   // An embedded form's frame knows its site, step and what it wants first.
   const form = others.find((p) => p.hasForm && (p.site || p.gate));
   return {
@@ -85,9 +80,10 @@ async function formFrames(tabId: number, tries = 3, delay = 400): Promise<number
 }
 
 /** The form read in every frame that holds it. Changes nothing. */
-export async function scan(tabId: number, applicant: Profile, answers: KnownAnswer[], resumeName?: string, coverLetter?: boolean): Promise<PagePlan> {
+export async function scan(tabId: number, req: ScanRequest): Promise<PagePlan> {
   const ids = await formFrames(tabId);
-  const replies = await sendAll<PagePlan>(tabId, ids, { type: 'wera:scan', applicant, answers, resumeName, coverLetter });
+  const replies = await sendAll<PagePlan>(tabId, ids, { type: 'wera:scan', req });
+  if (!replies.length) throw new Error("The page didn't answer Wera. Reload it and try again.");
   const plan: PagePlan = { fields: [], next: null, errors: 0 };
   let nextFields = -1;
   for (const { frameId, value } of replies) {
@@ -112,16 +108,16 @@ export async function addEntries(tabId: number, frameId: number, section: 'exper
 }
 
 /** Fills the approved values, each frame's fields in its frame. Progress comes as events. */
-export async function apply(tabId: number, items: FillItem[], resume?: { name: string; base64: string }, coverLetter?: string, pace = 30, letterFile?: { name: string; base64: string }): Promise<FillResult[]> {
+export async function apply(tabId: number, req: ApplyRequest): Promise<FillResult[]> {
   const byFrame = new Map<number, FillItem[]>();
-  for (const it of items) {
+  for (const it of req.items) {
     const f = parseField(it.id);
     byFrame.set(f.frameId, [...(byFrame.get(f.frameId) ?? []), { ...it, id: f.id }]);
   }
   const out: FillResult[] = [];
   for (const [frameId, list] of byFrame) {
-    const got = await sendTo<FillResult[] | null>(tabId, frameId, { type: 'wera:apply', items: list, resume, coverLetter, letterFile, pace }).catch(() => null);
-    out.push(...(got ?? list.map((i) => ({ id: i.id, label: '', purpose: null, status: 'review' as const, required: false, note: 'the page did not answer' })))
+    const got = await sendTo<FillResult[] | null>(tabId, frameId, { type: 'wera:apply', req: { ...req, items: list } }).catch(() => null);
+    out.push(...(got ?? list.map((i) => ({ id: i.id, label: i.label ?? '', purpose: null, status: 'review' as const, required: false, note: "the page stopped answering Wera (it may have reloaded): fill it yourself or press Autofill again" })))
       .map((r) => ({ ...r, id: frameField(frameId, r.id) })));
   }
   return out;
@@ -144,25 +140,36 @@ export async function highlight(tabId: number, id: string): Promise<void> {
   await sendTo(tabId, f.frameId, { type: 'wera:highlight', id: f.id }).catch(() => {});
 }
 
-export async function insert(tabId: number, id: string, text: string): Promise<{ ok: boolean }> {
-  const f = parseField(id);
-  return sendTo<{ ok: boolean }>(tabId, f.frameId, { type: 'wera:insert', id: f.id, text }).catch(() => ({ ok: false }));
+/** The choices custom dropdowns offer, by field id (each frame opens its own and closes them again). */
+export async function options(tabId: number, ids: string[]): Promise<Record<string, string[]>> {
+  const byFrame = new Map<number, string[]>();
+  for (const id of ids) {
+    const f = parseField(id);
+    byFrame.set(f.frameId, [...(byFrame.get(f.frameId) ?? []), f.id]);
+  }
+  const out: Record<string, string[]> = {};
+  for (const [frameId, list] of byFrame) {
+    const got = await sendTo<Record<string, string[]> | null>(tabId, frameId, { type: 'wera:options', ids: list }).catch(() => null);
+    for (const [id, opts] of Object.entries(got ?? {})) out[frameField(frameId, id)] = opts;
+  }
+  return out;
 }
 
-/** Puts a cover letter into the first cover letter box in any frame. */
-export async function insertCoverLetter(tabId: number, text: string): Promise<{ ok: boolean }> {
-  for (const frameId of await reach(tabId)) {
-    const r = await sendTo<{ ok: boolean } | null>(tabId, frameId, { type: 'wera:insert-cover-letter', text }).catch(() => null);
-    if (r?.ok) return r;
-  }
-  return { ok: false };
+/** Each frame's recent log, for Copy diagnostics. */
+export async function logs(tabId: number): Promise<{ frameId: number; url: string; entries: LogEntry[] }[]> {
+  const ids = await reach(tabId);
+  return (await sendAll<{ url: string; entries: LogEntry[] }>(tabId, ids, { type: 'wera:log' })).map(({ frameId, value }) => ({ frameId, ...value }));
 }
 
-/** Attaches a file to the form's resume or cover letter upload, in whichever frame has one. */
-export async function attach(tabId: number, what: 'resume' | 'cover_letter', file: { name: string; base64: string }): Promise<{ ok: boolean }> {
-  for (const frameId of await reach(tabId)) {
-    const r = await sendTo<{ ok: boolean } | null>(tabId, frameId, { type: 'wera:attach', what, file }).catch(() => null);
-    if (r?.ok) return r;
-  }
-  return { ok: false };
-}
+/** Runs one of the panel's frame operations on the tab. */
+export const run: { [K in keyof FrameOps]: (tabId: number, ...args: FrameOps[K]['args']) => Promise<FrameOps[K]['result']> } = {
+  read: readPage,
+  scan,
+  apply,
+  'add-entries': addEntries,
+  snapshot,
+  next: pressNext,
+  highlight,
+  options,
+  log: logs,
+};
