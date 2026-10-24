@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WeraJob } from '../shared/api';
 import type { JobDraft } from '../shared/types';
-import { handleDock } from './dock';
+import { handleJobRequest } from './jobs';
 
 const base: WeraJob = {
   id: 9, company: 'Acme', title: 'SRE', url: 'https://jobs.example/acme/1', location_raw: null, location_summary: null, stage: 'scored',
@@ -54,13 +54,12 @@ afterEach(() => vi.unstubAllGlobals());
 const TAB = 3;
 const URL1 = 'https://jobs.example/acme/1';
 
-describe('the dock in the background', () => {
-  it('says who is signed in and which job the page is', async () => {
-    setup();
-    expect(await handleDock({ type: 'wera:dock-hello', url: URL1, kind: 'posting', draft: null }, TAB, URL1))
-      .toEqual({ signedIn: true, job: expect.objectContaining({ id: 9, score: 81, status: 'saved', autofilled: false }) });
-    setup({ signedIn: false });
-    expect(await handleDock({ type: 'wera:dock-hello', url: URL1, kind: 'posting', draft: null }, TAB, URL1)).toEqual({ signedIn: false, job: null });
+describe('job requests in the background', () => {
+  it('notes what the tab showed, without looking the job up (the panel does)', async () => {
+    const { calls, session } = setup();
+    expect(await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, URL1)).toBe(true);
+    expect(calls).toEqual([]);
+    expect(session['wera.tabPages']).toMatchObject({ [TAB]: { formAt: expect.any(Number) } });
   });
 
   it('knows an application by the posting that led to it, and remembers the job a panel saved', async () => {
@@ -69,53 +68,44 @@ describe('the dock in the background', () => {
     const lookups = fetch as unknown as ReturnType<typeof vi.fn<(url: string) => Promise<Response>>>;
     lookups.mockImplementation((url) => Promise.resolve(new Response(JSON.stringify(url.includes(encodeURIComponent(URL1)) ? { job: base } : { job: null }), { status: 200 })));
     const apply = 'https://jobs.example/acme/1/apply';
-    expect(await handleDock({ type: 'wera:dock-resolve', url: apply, title: '', referrer: URL1 }, TAB, apply)).toMatchObject({ id: 9 });
+    expect(await handleJobRequest({ type: 'wera:job-resolve', url: apply, title: '', referrer: URL1 }, TAB, apply)).toMatchObject({ id: 9 });
     // A page from another site is no evidence.
-    expect(await handleDock({ type: 'wera:dock-resolve', url: 'https://other.example/x', title: '', referrer: URL1 }, 4, 'https://other.example/x')).toBeNull();
+    expect(await handleJobRequest({ type: 'wera:job-resolve', url: 'https://other.example/x', title: '', referrer: URL1 }, 4, 'https://other.example/x')).toBeNull();
     // The panel saved a job on tab 5: the tab's next page on that site is for it.
-    await handleDock({ type: 'wera:dock-remember', jobId: 9 }, 5, 'https://jobs.example/acme/2');
+    await handleJobRequest({ type: 'wera:job-remember', jobId: 9 }, 5, 'https://jobs.example/acme/2');
     lookups.mockImplementation((url) => Promise.resolve(new Response(JSON.stringify(url.includes('/api/jobs/9') ? base : { job: null }), { status: 200 })));
-    expect(await handleDock({ type: 'wera:dock-resolve', url: 'https://jobs.example/acme/2/apply', title: '' }, 5, 'https://jobs.example/acme/2/apply')).toMatchObject({ id: 9 });
+    expect(await handleJobRequest({ type: 'wera:job-resolve', url: 'https://jobs.example/acme/2/apply', title: '' }, 5, 'https://jobs.example/acme/2/apply')).toMatchObject({ id: 9 });
   });
 
   it('marks the job applied when the site confirms an application it showed the form for', async () => {
     const { calls, toTab } = setup();
-    await handleDock({ type: 'wera:dock-hello', url: `${URL1}/apply`, kind: 'form', draft: null }, TAB, `${URL1}/apply`);
-    const r = await handleDock({ type: 'wera:dock-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`);
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, `${URL1}/apply`);
+    const r = await handleJobRequest({ type: 'wera:job-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`);
     expect(r).toMatchObject({ state: 'marked', previous: 'saved', job: { id: 9, status: 'applied' } });
     expect(calls).toContain('PUT /api/jobs/9/application');
-    // The side panel and the page's dock hear of it.
     // The tab's Wera panel hears it (in the top frame).
     expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:job-changed', applied: true }), { frameId: 0 });
     // Once is enough: the same confirmation again leaves it.
-    expect(await handleDock({ type: 'wera:dock-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`)).toEqual({ state: 'off' });
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`)).toEqual({ state: 'off' });
   });
 
   it('leaves pages that merely say "thank you for applying", and jobs already further on', async () => {
     setup();
-    expect(await handleDock({ type: 'wera:dock-submitted', url: URL1 }, TAB, URL1)).toEqual({ state: 'off' });
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: URL1 }, TAB, URL1)).toEqual({ state: 'off' });
     setup({ found: { ...base, application_status: 'interviewing' } });
-    await handleDock({ type: 'wera:dock-hello', url: URL1, kind: 'form', draft: null }, TAB, URL1);
-    expect(await handleDock({ type: 'wera:dock-submitted', url: URL1 }, TAB, URL1)).toMatchObject({ state: 'already' });
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, URL1);
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: URL1 }, TAB, URL1)).toMatchObject({ state: 'already' });
     setup({ autoApplied: false });
-    await handleDock({ type: 'wera:dock-hello', url: URL1, kind: 'form', draft: null }, TAB, URL1);
-    expect(await handleDock({ type: 'wera:dock-submitted', url: URL1 }, TAB, URL1)).toEqual({ state: 'off' });
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, URL1);
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: URL1 }, TAB, URL1)).toEqual({ state: 'off' });
   });
 
   it('offers to add a job Wera does not have as applied, from the posting the tab showed', async () => {
-    const { calls } = setup({ found: null });
-    await handleDock({ type: 'wera:dock-hello', url: draft.url, kind: 'posting', draft }, TAB, draft.url);
-    await handleDock({ type: 'wera:dock-hello', url: `${draft.url}/apply`, kind: 'form', draft: null }, TAB, `${draft.url}/apply`);
-    expect(await handleDock({ type: 'wera:dock-submitted', url: `${draft.url}/done` }, TAB, `${draft.url}/done`))
+    setup({ found: null });
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'posting', draft }, TAB, draft.url);
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, `${draft.url}/apply`);
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: `${draft.url}/done` }, TAB, `${draft.url}/done`))
       .toEqual({ state: 'unknown', draft: { title: 'Data Engineer', company: 'Acme' } });
-    expect(await handleDock({ type: 'wera:dock-add-applied' }, TAB, `${draft.url}/done`)).toMatchObject({ id: 12, status: 'applied' });
-    expect(calls).toEqual(expect.arrayContaining(['POST /api/ext/jobs', 'PUT /api/jobs/12/application']));
-  });
-
-  it('saves a posting from its job data', async () => {
-    const { calls } = setup({ found: null });
-    expect(await handleDock({ type: 'wera:dock-save', draft }, TAB, draft.url)).toMatchObject({ id: 12, title: 'Data Engineer' });
-    expect(calls).toContain('POST /api/ext/jobs');
   });
 
   it('learns details the profile lacks from a form the user moved on from, and keeps the rest', async () => {
@@ -130,7 +120,7 @@ describe('the dock in the background', () => {
       if (url.endsWith('/api/applicant')) return json({ applicant: { first_name: 'Ada', gender: '', race: 'White', veteran: '', phone: '' }, saved: true });
       return json({});
     }));
-    const keys = await handleDock({ type: 'wera:dock-learn', entries: [
+    const keys = await handleJobRequest({ type: 'wera:job-learn', entries: [
       { purpose: 'gender', value: 'Woman' }, { purpose: 'race', value: 'Asian' }, { purpose: 'veteran', value: 'I am on active duty' }, { purpose: 'phone', value: '512 555 0142' },
     ] }, TAB, URL1);
     expect(keys).toEqual(['gender', 'phone']);

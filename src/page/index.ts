@@ -10,9 +10,10 @@ import { listen } from '../content/listen';
 import { snapshot } from '../content/plan';
 import { bodyText, looksSubmitted } from '../content/watch';
 import { extensionAlive, sendSafe } from '../shared/alive';
-import type { DockRequest, SubmitReply } from '../shared/dock';
+import { detailPurpose } from '../shared/details';
+import type { JobRequest, SubmitReply } from '../shared/jobs';
 import { SETTINGS_KEY } from '../shared/settings';
-import type { JobDraft } from '../shared/types';
+import type { FieldPurpose, JobDraft } from '../shared/types';
 import { startAssist } from './assist';
 
 export { pageKind } from '../content/detect';
@@ -35,17 +36,20 @@ declare global {
   }
 }
 
-const ask = <T>(msg: DockRequest) => sendSafe<T>(msg);
+const ask = <T>(msg: JobRequest) => sendSafe<T>(msg);
 
 // The buttons that move an application on: what the user entered on the page is final then.
 const MOVES_ON = /^(submit|submit application|send|send application|apply|apply now|next|continue|save and continue|save & continue|review|review application|finish)\b/i;
-const NOT_DETAILS = new Set(['question', 'consent', 'resume', 'cover_letter', 'skills', 'full_name', 'location', 'authorized_no_sponsorship', 'phone_type', 'phone_code', 'start_date']);
-
-/** The details a form holds now (name, contact, eligibility, self-identification): what Wera can learn from. */
-export function formDetails(doc: Document): { purpose: NonNullable<ReturnType<typeof snapshot>[number]['purpose']>; value: string }[] {
+/**
+ * The details the form holds now (name, contact, eligibility,
+ * self-identification): what Wera can learn from (the background keeps
+ * only those it lacks, see shared/details.ts). Open answers, job and
+ * school blocks and lone tick boxes are not details.
+ */
+export function formDetails(doc: Document): { purpose: FieldPurpose; value: string }[] {
   return snapshot(doc)
-    .filter((f) => f.purpose && !NOT_DETAILS.has(f.purpose) && !ENTRY_PURPOSES.has(f.purpose) && f.kind !== 'checkbox')
-    .map((f) => ({ purpose: f.purpose!, value: f.value }));
+    .filter((f): f is typeof f & { purpose: FieldPurpose } => detailPurpose(f.purpose) && !ENTRY_PURPOSES.has(f.purpose) && f.kind !== 'checkbox')
+    .map((f) => ({ purpose: f.purpose, value: f.value }));
 }
 
 /** Whether the panel may show on this page: turned on, and not the user's own Wera. */
@@ -85,7 +89,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     const key = doc.location.href;
     if (submittedFor === key || !looksSubmitted(bodyText(doc))) return;
     submittedFor = key;
-    void ask<SubmitReply>({ type: 'wera:dock-submitted', url: key }).then((r) => {
+    void ask<SubmitReply>({ type: 'wera:job-submitted', url: key }).then((r) => {
       if (!r || r.state === 'off') return;
       handle.submitted = r;
       subscribers.forEach((fn) => fn(handle));
@@ -120,7 +124,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     subscribers.forEach((fn) => fn(handle));
     if (kind && !asked && (await allowed(doc))) {
       asked = true;
-      void ask({ type: 'wera:dock-hello', url: doc.location.href, kind, draft: handle.draft, referrer: doc.referrer });
+      void ask({ type: 'wera:job-seen', kind, draft: handle.draft });
       void sendSafe({ type: 'wera:panel-ensure' });
     }
   };
@@ -138,7 +142,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     const text = (b instanceof HTMLInputElement ? b.value : b.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (!MOVES_ON.test(text)) return;
     const entries = formDetails(doc);
-    if (entries.length) void ask({ type: 'wera:dock-learn', entries });
+    if (entries.length) void ask({ type: 'wera:job-learn', entries });
   };
   doc.addEventListener('click', onClick, true);
   // Watched from the document itself: a page that swaps its body or <html> is still seen.

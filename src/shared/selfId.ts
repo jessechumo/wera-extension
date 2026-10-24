@@ -4,9 +4,11 @@
 // answer Wera cannot place is not saved.
 import type { FieldPurpose } from './types';
 
-export const SELF_ID_KEYS = new Set<FieldPurpose>(['gender', 'pronouns', 'transgender', 'sexual_orientation', 'race', 'hispanic', 'veteran', 'disability']);
+/** Voluntary self-identification: only the user's own choices fill these, and the AI never sees them. */
+export const SELF_ID = new Set<FieldPurpose>(['gender', 'pronouns', 'transgender', 'sexual_orientation', 'race', 'hispanic', 'veteran', 'disability', 'lgbtq']);
 
-const DECLINE = /decline|prefer not|don.?t wish|do not wish|do not want|don.?t want|wish not|not to (say|answer|disclose|identify|self.identify)|rather not|choose not|not declared|undisclosed/i;
+/** An answer that declines to say ("Decline to self-identify", "I don't wish to answer"). */
+export const DECLINE = /decline|prefer not|don.?t wish|do not wish|do not want|don.?t want|wish not|not to (say|answer|disclose|identify|self.identify)|rather not|choose not|not declared|no answer|not specified|undisclosed/i;
 const NEGATED = /\b(not|no|never|non)\b|n['’]t\b|non-/i;
 
 const RULES: Partial<Record<FieldPurpose, [RegExp, string][]>> = {
