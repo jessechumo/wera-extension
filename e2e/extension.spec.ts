@@ -63,12 +63,30 @@ test.beforeAll(async () => {
     headless: true,
     args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
   });
-  await (context.serviceWorkers()[0] ?? context.waitForEvent('serviceworker'));
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+  // WERA_E2E_LOG=1 prints every page's console and errors (and the service worker's), to see why a test failed.
+  if (process.env.WERA_E2E_LOG) {
+    const print = (where: string) => (m: { type(): string; text(): string }) => console.log(`[${where} ${m.type()}] ${m.text()}`);
+    worker.on('console', print('worker'));
+    context.on('page', (p) => {
+      p.on('console', print('page'));
+      p.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
+    });
+  }
 });
 
 test.afterAll(async () => {
   await context?.close();
   server?.close();
+});
+
+// A failed test leaves a screenshot of each open page (the panel included) beside its trace.
+// eslint-disable-next-line no-empty-pattern -- Playwright reads the fixtures a hook asks for from this pattern
+test.afterEach(async ({}, info) => {
+  if (info.status === info.expectedStatus) return;
+  for (const [i, p] of context.pages().entries()) {
+    if (!p.isClosed()) await p.screenshot({ path: info.outputPath(`page-${i}.png`) }).catch(() => {});
+  }
 });
 
 /** Screenshots for review when WERA_SHOTS is set. */
@@ -90,6 +108,8 @@ test('sign in on a posting, save it, then autofill its application', async () =>
   const job = await context.newPage();
   await job.goto(`${site}/jobs/${run}/sre`);
   // A posting: Wera waits at the edge of the page.
+  await expect(panelOf(job).getByRole('button', { name: 'Show the Wera panel' })).toBeVisible({ timeout: 10_000 });
+  await shot(job, 'posting-tab');
   await open(job);
   const panel = panelOf(job);
   await panel.getByLabel('Wera address').fill(API);

@@ -38,7 +38,7 @@ describe('the Wera button', () => {
       runtime: {
         id: 'x', getURL: (p: string) => p,
         sendMessage: vi.fn(async (m: { type: string; method?: string; args?: unknown[] }) => {
-          if (m.type === 'wera:dock-context') return { jobId: 7, posting: null };
+          if (m.type === 'wera:job-context') return { jobId: 7, posting: null };
           if (m.type !== 'wera:api') return null;
           calls.push({ method: m.method!, args: m.args! });
           if (m.method === 'answers') return { ok: true, value: [] };

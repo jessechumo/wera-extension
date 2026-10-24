@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PageHandle } from '../page';
 import type { WeraJob } from '../shared/api';
-import type { FieldPlan, FillItem, FillResult, JobDraft, PageInfo, PagePlan } from '../shared/types';
+import type { ApplyRequest, FieldPlan, FillItem, FillResult, JobDraft, PageInfo, PagePlan } from '../shared/types';
 import { App, type Show } from './index';
 
 const draft: JobDraft = { url: 'https://jobs.example/acme/1', company: 'Acme', title: 'SRE', location: 'Austin, TX', work_mode: '', employment_type: '',
@@ -56,7 +56,7 @@ function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?:
           calls.push({ kind: 'frames', name: m.op!, args: m.args! });
           return reply(frames[m.op!], m.op!, m.args!);
         }
-        if (m.type === 'wera:dock-resolve') return opts.job ?? null;
+        if (m.type === 'wera:job-resolve') return opts.job ?? null;
         if (m.type === 'wera:sign-in') {
           store['wera.session'] = { server: m.server, token: 't', user: { id: 1 } };
           changed.forEach((f) => f({ 'wera.session': { newValue: store['wera.session'] } }, 'local'));
@@ -108,11 +108,12 @@ describe('the Wera panel', () => {
     expect(calls.find((c) => c.name === 'addJob')?.args[0]).toMatchObject({ company: 'Acme', title: 'SRE' });
   });
 
-  it('collapses to a tab with the fit score, and opens again', async () => {
+  it('collapses to a tab with Wera\'s mark (no score), and opens again', async () => {
     fakeBackground({ job });
     render(<App handle={handle('posting')} show={show({ initial: false })} />);
     const tab = await screen.findByRole('button', { name: 'Show the Wera panel' });
-    await waitFor(() => expect(tab).toHaveTextContent('81'));
+    expect(tab.querySelector('svg')).toHaveAttribute('width', '30');
+    expect(tab).toHaveTextContent('');
     await userEvent.click(tab);
     expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Collapse the Wera panel' }));
@@ -145,7 +146,7 @@ describe('the Wera panel', () => {
       job, info: { hasForm: true },
       frames: {
         scan: () => plan,
-        apply: (items: FillItem[]) => {
+        apply: ({ items }: ApplyRequest) => {
           applied.push(items.map(({ id, value }) => ({ id, value })));
           return items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }));
         },
@@ -179,7 +180,7 @@ describe('the Wera panel', () => {
     const plan: PagePlan = { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', group: 'details' })], next: { id: 'n1', label: 'Save and Continue', final: false }, errors: 0, site: 'Workday', step: { name: 'My Information', index: 1, total: 5 } };
     const { calls } = fakeBackground({
       job, info: { hasForm: true, gate: 'Sign in to your Workday account for this company, then press Autofill on the application.' },
-      frames: { scan: () => plan, apply: (items: FillItem[]) => items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false })), next: () => ({ ok: true }) },
+      frames: { scan: () => plan, apply: ({ items }: ApplyRequest) => items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false })), next: () => ({ ok: true }) },
       api: { suggest: () => ({ answers: [] }) },
     });
     render(<App handle={handle('form')} show={show()} />);
@@ -188,6 +189,35 @@ describe('the Wera panel', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Continue to the next page/ }));
     await waitFor(() => expect(calls.some((c) => c.name === 'next')).toBe(true));
     expect(screen.getByText('Workday · Step 1 of 5 · My Information')).toBeInTheDocument();
+  });
+
+  it('says what went wrong, and still fills what it can', async () => {
+    const plan: PagePlan = {
+      fields: [
+        field('w1', 'First name', { purpose: 'first_name', value: 'Ada', source: 'details', group: 'details' }),
+        // A question no other test asks: AI answers are kept for the page's life.
+        field('w2', 'Years of Rust', { group: 'other' }),
+      ],
+      next: null, errors: 0,
+    };
+    const applied: FillItem[] = [];
+    fakeBackground({
+      job, info: { hasForm: true },
+      frames: { scan: () => plan, apply: ({ items }: ApplyRequest) => (applied.push(...items), items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }))) },
+      api: {
+        resumeFile: () => {
+          throw new Error('502 Bad Gateway');
+        },
+        suggest: () => {
+          throw new Error('the AI service did not answer; try again');
+        },
+      },
+    });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    expect(await screen.findByText(/Couldn't load your resume, so Wera won't attach it/)).toBeInTheDocument();
+    expect(await screen.findByText(/Wera's AI couldn't answer 1 field/, undefined, { timeout: 3000 })).toHaveTextContent(/did not answer/);
+    expect(applied).toEqual([expect.objectContaining({ id: 'w1', value: 'Ada' })]);
   });
 
   it('fills when the toolbar shortcut asks', async () => {
@@ -214,7 +244,7 @@ describe('the Wera panel', () => {
 
 describe('AI answers that cannot be right', () => {
   it('a LinkedIn box only takes a LinkedIn address', async () => {
-    const { fitsPurpose } = await import('./useAutofill');
+    const { fitsPurpose } = await import('./rows');
     expect(fitsPurpose('linkedin', 'https://rendercv.com')).toBe(false);
     expect(fitsPurpose('linkedin', 'https://www.linkedin.com/in/ada')).toBe(true);
     expect(fitsPurpose('github', 'https://github.com/ada')).toBe(true);

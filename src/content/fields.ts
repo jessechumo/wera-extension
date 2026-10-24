@@ -65,24 +65,56 @@ export function byId(root: ParentNode, id: string): HTMLElement | null {
   return deepQueryAll<HTMLElement>(root, `[${ID_ATTR}="${CSS.escape(id)}"]`)[0] ?? null;
 }
 
+/** Whitespace collapsed. */
 function clean(s: string | null | undefined): string {
-  return (s ?? '').replace(/\s+/g, ' ').replace(/\s*\*\s*$/, '').trim();
+  return (s ?? '').replace(/\s+/g, ' ').trim();
 }
 
+/** A required marker at the end of a label: "*", "✱", "(required)". */
+const MARKER = /\s*(\*|✱|\(required\))+\s*$/i;
+
+/** A label without its required marker. */
+export function stripMarker(label: string): string {
+  return label.replace(MARKER, '').trim();
+}
+
+// Never part of a label: the controls themselves, scripts, and what screen readers skip.
+const NOT_LABEL = new Set(['INPUT', 'SELECT', 'TEXTAREA', 'OPTION', 'SCRIPT', 'STYLE', 'BUTTON', 'SVG', 'TEMPLATE', 'NOSCRIPT']);
+
+/**
+ * The text a person reads in el: hidden parts (a "Loading..." or "No
+ * results" message, an upload's status) and controls left out. For a
+ * radio group (groupName), the options' own labels are left out too.
+ */
 function textOf(el: Element | null, groupName?: string): string {
   if (!el) return '';
-  const clone = el.cloneNode(true) as Element;
+  const view = el.ownerDocument.defaultView;
+  const scope = scopeOf(el);
+  const optionLabels = new Set<Element>();
   if (groupName) {
-    // The question, not its answers: drop each option's own label.
-    clone.querySelectorAll('label').forEach((l) => {
-      if (l.querySelector(`input[name="${CSS.escape(groupName)}"]`)) l.remove();
-    });
-    clone.querySelectorAll(`input[name="${CSS.escape(groupName)}"]`).forEach((i) => {
-      if (i.id) clone.querySelector(`label[for="${CSS.escape(i.id)}"]`)?.remove();
-    });
+    for (const i of scope.querySelectorAll<HTMLInputElement>(`input[name="${CSS.escape(groupName)}"]`)) {
+      const l = i.closest('label') ?? (i.id ? scope.querySelector(`label[for="${CSS.escape(i.id)}"]`) : null);
+      if (l) optionLabels.add(l);
+    }
   }
-  clone.querySelectorAll(`input, select, textarea, option, script, style, button, [aria-hidden="true"], [role="radio"], ${LISTBOX}`).forEach((n) => n.remove());
-  return clean(clone.textContent);
+  const out: string[] = [];
+  const walk = (n: Node) => {
+    if (n.nodeType === Node.TEXT_NODE) {
+      out.push(n.textContent ?? '');
+      return;
+    }
+    if (n.nodeType !== Node.ELEMENT_NODE) return;
+    const e = n as HTMLElement;
+    if (NOT_LABEL.has(e.tagName.toUpperCase()) || optionLabels.has(e) || e.hidden || e.getAttribute('aria-hidden') === 'true') return;
+    if (e.matches(`[role="radio"], [role="option"], [role="listbox"], ${LISTBOX}`)) return;
+    const style = view?.getComputedStyle(e);
+    if (style && (style.display === 'none' || style.visibility === 'hidden')) return;
+    for (const c of e.childNodes) walk(c);
+    // Blocks read as separate words ("Phone" + "Required" is not "PhoneRequired").
+    if (style && style.display !== 'inline' && style.display !== '') out.push(' ');
+  };
+  walk(el);
+  return clean(out.join(''));
 }
 
 /** Hidden by the page (not just off-screen). File inputs are often hidden behind a drop zone, so callers skip this check for them. */
@@ -117,30 +149,42 @@ function wrapper(el: Element, groupName?: string): Element | null {
   return best;
 }
 
-export function labelFor(el: HTMLElement, groupName?: string): string {
-  const doc = scopeOf(el);
-  const ids = el.getAttribute('aria-labelledby');
-  if (ids) {
-    const t = clean(ids.split(/\s+/).map((i) => doc.getElementById(i)?.textContent ?? '').join(' '));
-    if (t) return t;
-  }
+/** The text of the elements an aria-labelledby names (they may be hidden themselves: ARIA allows it). */
+function labelledBy(scope: Document | ShadowRoot, ids: string | null): string {
+  if (!ids) return '';
+  return clean(ids.split(/\s+/).map((i) => {
+    const el = scope.getElementById(i);
+    return textOf(el) || clean(el?.textContent);
+  }).join(' '));
+}
+
+/** A question's title over a group of choices: its legend, a label of the group itself (Ashby), or its ARIA name. */
+function groupTitle(group: Element): string {
+  const scope = scopeOf(group);
+  const legend = group.querySelector(':scope > legend') ?? (group.tagName === 'FIELDSET' ? group.querySelector('legend') : null);
+  if (legend && textOf(legend)) return textOf(legend);
+  // Not any option's label: one with no control in it that points at none inside the group.
+  const title = [...group.querySelectorAll<HTMLLabelElement>(':scope > label')]
+    .find((l) => !l.querySelector(CONTROLS) && !(l.htmlFor && group.querySelector(`#${CSS.escape(l.htmlFor)}`)));
+  if (title && textOf(title)) return textOf(title);
+  return labelledBy(scope, group.getAttribute('aria-labelledby')) || clean(group.getAttribute('aria-label'));
+}
+
+/** A field's label as the page shows it, required marker ("*") included. */
+function rawLabel(el: HTMLElement, groupName?: string): string {
+  const scope = scopeOf(el);
+  const by = labelledBy(scope, el.getAttribute('aria-labelledby'));
+  if (by) return by;
   if (groupName) {
-    const fs = el.closest('fieldset');
-    const legend = fs?.querySelector('legend');
-    if (legend && textOf(legend)) return textOf(legend);
-    // A question title drawn as a label of the group itself (Ashby): not any option's label.
-    const title = fs ? [...fs.querySelectorAll<HTMLLabelElement>(':scope > label')].find((l) => !l.querySelector('input') && !(l.htmlFor && fs.querySelector(`#${CSS.escape(l.htmlFor)}`))) : null;
-    if (title && textOf(title)) return textOf(title);
-    const group = el.closest('[role="radiogroup"], [role="group"]');
-    const gl = group?.getAttribute('aria-labelledby');
-    if (gl) {
-      const t = clean(gl.split(/\s+/).map((i) => doc.getElementById(i)?.textContent ?? '').join(' '));
-      if (t) return t;
+    // The nearest group with a title (a fieldset's legend may sit outside an untitled inner group).
+    const GROUP = 'fieldset, [role="radiogroup"], [role="group"]';
+    for (let g = el.closest(GROUP), i = 0; g && i < 3; g = g.parentElement?.closest(GROUP) ?? null, i++) {
+      const title = groupTitle(g);
+      if (title) return title;
     }
-    if (group?.getAttribute('aria-label')) return clean(group.getAttribute('aria-label'));
   } else {
     if (el.id) {
-      const l = doc.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      const l = scope.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (l && textOf(l)) return textOf(l);
     }
     const parentLabel = el.closest('label');
@@ -151,6 +195,11 @@ export function labelFor(el: HTMLElement, groupName?: string): string {
   const wt = textOf(w, groupName);
   if (wt) return wt.slice(0, 300);
   return clean(el.getAttribute('placeholder')) || clean((el as HTMLInputElement).name).replace(/[_\-[\]]+/g, ' ');
+}
+
+/** A field's label, the way a person reads it (without the required marker). */
+export function labelFor(el: HTMLElement, groupName?: string): string {
+  return stripMarker(rawLabel(el, groupName));
 }
 
 function optionLabel(input: HTMLInputElement): string {
@@ -164,13 +213,9 @@ function optionLabel(input: HTMLInputElement): string {
   return clean(next?.textContent) || clean(input.value);
 }
 
-function isRequired(el: HTMLElement, label: string): boolean {
-  return (
-    (el as HTMLInputElement).required ||
-    el.getAttribute('aria-required') === 'true' ||
-    /\*\s*$/.test(label) ||
-    /\(required\)/i.test(label)
-  );
+/** Required by the page, or marked so in its label as shown ("Email *", "Phone ✱", "(required)"). */
+function isRequired(el: HTMLElement, raw: string): boolean {
+  return (el as HTMLInputElement).required || el.getAttribute('aria-required') === 'true' || MARKER.test(raw) || /\(required\)/i.test(raw);
 }
 
 /** A combobox element around a real input (ARIA 1.1 style): the input is the field. */
@@ -200,12 +245,11 @@ function yesNoButtons(button: HTMLElement): Field | null {
   if (!parent) return null;
   const buttons = [...parent.children].filter((c): c is HTMLElement => c.tagName === 'BUTTON');
   if (buttons.length !== 2 || buttons[0] !== button || !/^no$/i.test(clean(buttons[1]!.textContent))) return null;
-  let label = '';
-  for (let n: Element | null = parent.parentElement, i = 0; n && i < 4 && !label; n = n.parentElement, i++) label = textOf(n).slice(0, 300);
-  if (!label) return null;
+  let raw = '';
+  for (let n: Element | null = parent.parentElement, i = 0; n && i < 4 && !raw; n = n.parentElement, i++) raw = textOf(n).slice(0, 300);
+  if (!raw) return null;
   return {
-    id: idFor(parent), kind: 'buttons', label, hints: '', autocomplete: '', inputType: 'buttons',
-    required: isRequired(parent, label), el: parent,
+    id: idFor(parent), kind: 'buttons', ...named(parent, raw), hints: '', autocomplete: '', inputType: 'buttons', el: parent,
     options: buttons.map((b) => ({ label: clean(b.textContent), value: clean(b.textContent), el: b })),
   };
 }
@@ -221,6 +265,42 @@ export function promptChoice(el: Element): string {
   return [...(box?.querySelectorAll('[data-automation-id="selectedItem"]') ?? [])].map((p) => (p.textContent ?? '').trim()).filter(Boolean).join(' | ');
 }
 
+/** Raw label -> the field's label and whether it is required. */
+function named(el: HTMLElement, raw: string): { label: string; required: boolean } {
+  return { label: stripMarker(raw), required: isRequired(el, raw) };
+}
+
+// A tick box that agrees to something is its own question, never one choice of a list.
+const AGREES = /\b(i agree|agree|consent|acknowledge|certify|confirm)\b/i;
+
+/**
+ * Lone tick boxes that answer one question together: a fieldset (or ARIA
+ * group) of boxes, each with its own name, under one title (Ashby's
+ * "How did you hear about us? (select all that apply)").
+ */
+function mergeTickGroups(fields: Field[]): Field[] {
+  const byGroup = new Map<Element, Field[]>();
+  for (const f of fields) {
+    const g = f.kind === 'checkbox' ? f.el.closest('fieldset, [role="group"]') : null;
+    if (g) byGroup.set(g, [...(byGroup.get(g) ?? []), f]);
+  }
+  const replaced = new Map<Field, Field | null>();
+  for (const [group, boxes] of byGroup) {
+    if (boxes.length < 2 || boxes.some((b) => AGREES.test(b.label))) continue;
+    // Only tick boxes in it: a fieldset that also holds text boxes is a section of the form, not one question.
+    const others = [...group.querySelectorAll<HTMLInputElement>(FIELDS)].filter((c) => c.type !== 'hidden' && !boxes.some((b) => b.el === c));
+    const raw = others.length ? '' : groupTitle(group);
+    if (!raw) continue;
+    const first = boxes[0]!;
+    replaced.set(first, {
+      id: first.id, kind: 'checkboxes', ...named(first.el, raw), hints: first.hints, autocomplete: '', inputType: 'checkbox', el: first.el,
+      options: boxes.map((b) => ({ label: b.label, value: (b.el as HTMLInputElement).value, el: b.el })),
+    });
+    for (const b of boxes.slice(1)) replaced.set(b, null);
+  }
+  return replaced.size ? fields.flatMap((f) => (replaced.has(f) ? (replaced.get(f) ? [replaced.get(f)!] : []) : [f])) : fields;
+}
+
 /** All fillable fields in document order, radio and checkbox groups merged. */
 export function collectFields(root: ParentNode): Field[] {
   const fields: Field[] = [];
@@ -228,10 +308,9 @@ export function collectFields(root: ParentNode): Field[] {
   for (const node of deepQueryAll<HTMLElement>(root, `${FIELDS}, button`)) {
     if (node.matches(LISTBOX)) {
       if (isWrappingListbox(node) || node.getAttribute('aria-disabled') === 'true' || isHidden(node)) continue;
-      const label = labelFor(node);
       fields.push({
-        id: idFor(node), kind: 'listbox', label, hints: clean(`${node.getAttribute('name') ?? ''} ${node.id}`).toLowerCase(),
-        autocomplete: '', inputType: 'listbox', required: isRequired(node, label), el: node, options: [],
+        id: idFor(node), kind: 'listbox', ...named(node, rawLabel(node)), hints: clean(`${node.getAttribute('name') ?? ''} ${node.id}`).toLowerCase(),
+        autocomplete: '', inputType: 'listbox', el: node, options: [],
       });
       continue;
     }
@@ -253,10 +332,9 @@ export function collectFields(root: ParentNode): Field[] {
       if (type === 'radio' || sameName > 1) {
         let g = groups.get(key);
         if (!g) {
-          const label = labelFor(node, input.name);
           g = {
-            id: idFor(node), kind: type === 'radio' ? 'radio' : 'checkboxes', label, hints, autocomplete: '',
-            inputType: type, required: isRequired(node, label), el: node, options: [],
+            id: idFor(node), kind: type === 'radio' ? 'radio' : 'checkboxes', ...named(node, rawLabel(node, input.name)), hints, autocomplete: '',
+            inputType: type, el: node, options: [],
           };
           groups.set(key, g);
           fields.push(g);
@@ -265,7 +343,6 @@ export function collectFields(root: ParentNode): Field[] {
         continue;
       }
     }
-    const raw = labelFor(node);
     const kind: FieldKind =
       node.tagName === 'SELECT' ? 'select'
       : node.tagName === 'TEXTAREA' ? 'textarea'
@@ -276,11 +353,10 @@ export function collectFields(root: ParentNode): Field[] {
     fields.push({
       id: idFor(node),
       kind,
-      label: raw,
+      ...named(node, rawLabel(node)),
       hints,
       autocomplete: (node.getAttribute('autocomplete') ?? '').toLowerCase(),
       inputType: type,
-      required: isRequired(node, raw),
       el: node,
       options:
         kind === 'select'
@@ -293,13 +369,13 @@ export function collectFields(root: ParentNode): Field[] {
     if (group.querySelector('input[type="radio"]') || isHidden(group)) continue;
     const radios = [...group.querySelectorAll<HTMLElement>('[role="radio"]')].filter((r) => !isHidden(r) && r.getAttribute('aria-disabled') !== 'true');
     if (radios.length < 2) continue;
-    const label = labelFor(group);
     fields.push({
-      id: idFor(group), kind: 'buttons', label, hints: clean(`${group.getAttribute('name') ?? ''} ${group.id}`).toLowerCase(), autocomplete: '', inputType: 'radiogroup',
-      required: isRequired(group, label), el: group,
+      id: idFor(group), kind: 'buttons', ...named(group, groupTitle(group) || rawLabel(group)), hints: clean(`${group.getAttribute('name') ?? ''} ${group.id}`).toLowerCase(), autocomplete: '', inputType: 'radiogroup',
+      el: group,
       options: radios.map((r) => ({ label: clean(r.getAttribute('aria-label') || r.textContent), value: clean(r.getAttribute('aria-label') || r.textContent), el: r })),
     });
   }
-  for (const f of fields) f.section = sectionOf(f.el);
-  return fields;
+  const out = mergeTickGroups(fields);
+  for (const f of out) f.section = sectionOf(f.el);
+  return out;
 }

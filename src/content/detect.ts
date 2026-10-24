@@ -95,15 +95,28 @@ const APPLICATION = new Set<FieldPurpose>([
   'willing_to_relocate', 'gender', 'race', 'hispanic', 'veteran', 'disability', ...ENTRY_PURPOSES,
 ]);
 
-/** Whether the page holds an application form (here or in an embedded ATS frame). */
-export function hasApplicationForm(doc: Document): boolean {
+/**
+ * Whether this document itself holds an application form. An application
+ * asks who you are (a name or an email, and more), and shows it is an
+ * application: something only an application asks, a job site Wera knows,
+ * or a page that reads like a job's. A contact, demo or checkout form asks
+ * who you are too. A later step of an application may not ask who you are
+ * again ("Application questions", "Voluntary disclosures"): asking two
+ * things only an application asks is enough there.
+ */
+export function ownApplicationForm(doc: Document): boolean {
   const fields = collectFields(doc).map(classify);
   const known = fields.filter((p) => p !== null && p !== 'question' && p !== 'consent').length;
-  // An application asks who you are (a name or an email, and more), and shows it is an
-  // application: something only an application asks, a job site Wera knows, or a page
-  // that reads like a job's. A contact, demo or checkout form asks who you are too.
+  if (known < 3) return false;
+  const only = new Set(fields.filter((p) => p !== null && APPLICATION.has(p))).size;
   const identity = fields.some((p) => p === 'email' || p === 'first_name' || p === 'full_name' || p === 'resume');
-  if (known >= 3 && identity && (fields.some((p) => p !== null && APPLICATION.has(p)) || !!siteFor(doc) || isJobUrl(doc.location.href) || jobSignals(doc) >= 2)) return true;
+  if (only >= 2) return true;
+  return identity && (only > 0 || !!siteFor(doc) || isJobUrl(doc.location.href) || jobSignals(doc) >= 2);
+}
+
+/** Whether the page holds an application form (here or in an embedded ATS frame). */
+export function hasApplicationForm(doc: Document): boolean {
+  if (ownApplicationForm(doc)) return true;
   // A careers page with the application embedded from its ATS.
   const embedded = new Set(formFrameOrigins(doc));
   return [...doc.querySelectorAll('iframe')].some((f) => {
@@ -146,7 +159,7 @@ function companyFromUrl(url: string): string {
   return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** A first look at the job: its title and company, for the Wera dock (the panel reads it fully). */
+/** A first look at the job: its title and company, for the Wera panel's first look (it reads the page fully later). */
 export function jobSummary(doc: Document): { title: string; company: string } {
   const data = readJobPosting(doc, doc.location.href);
   if (data) return { title: data.title, company: data.company || companyFromUrl(doc.location.href) };

@@ -6,17 +6,20 @@ import { startHasPassed } from '../shared/dates';
 import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, FillItem, FillResult, KnownAnswer, PagePlan, Profile, ValueSource } from '../shared/types';
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
 import { bestAnswer } from '../shared/answers';
-import { classify, SELF_ID } from './classify';
+import { log } from '../shared/log';
+import { LETTER, RESUME } from '../shared/markers';
+import { SELF_ID } from '../shared/selfId';
+import { classify } from './classify';
 import { byId, collectFields, isPressed, isWorkdayPrompt, listboxValue, type Field } from './fields';
-import { attachFile, base64ToFile, comboboxChoice, enterValue, isPlaceholderOption, mark, matchOption, setNativeValue, valueFor, wait } from './fill';
+import { attachFile, base64ToFile, comboboxChoice, enterValue, mark, setNativeValue, wait } from './fill';
+import { isPlaceholderOption, matchOption } from './match';
+import { countryAnswer, norm, stateName } from './places';
+import { choicesOf, firstChoice, valueFor } from './values';
 import { findNext, invalidCount } from './next';
 import { siteFor } from './sites';
 import { siteFiller } from './sites/fill';
 
-/** The value marker for "attach the resume" (a file input). */
-export const RESUME = '__resume__';
-/** The value marker for "insert the cover letter". */
-export const LETTER = '__letter__';
+export { LETTER, RESUME };
 
 /** Kinds whose answer is one of their options. */
 const CHOICE = new Set(['select', 'radio', 'checkboxes', 'buttons']);
@@ -58,14 +61,48 @@ function groupOf(purpose: FieldPurpose | null): FieldGroup {
   return 'details';
 }
 
-/** A value as the field's own option label when it has options; null when none fits. */
+/**
+ * A value as the field's own option label when it has options; null when
+ * none fits. A box takes the value's first alternative; a dropdown whose
+ * choices load later keeps them all, to try in turn when filling.
+ */
 function asOption(f: Field, value: string, purpose: FieldPurpose | null): string | null {
+  if (f.kind === 'text' || f.kind === 'textarea') return firstChoice(value);
   if (!CHOICE.has(f.kind) || f.options.length === 0) return value;
   if (f.kind === 'checkboxes') {
-    const hits = value.split(/\s*\|\s*/).map((v) => matchOption(f.options, v, purpose)).filter((o) => o != null);
-    return hits.length ? hits.map((o) => o.label).join(' | ') : null;
+    const hits = choicesOf(value, purpose).map((v) => matchOption(f.options, v, purpose)).filter((o) => o != null);
+    return hits.length ? [...new Set(hits.map((o) => o.label))].join(' | ') : null;
   }
   return matchOption(f.options, value, purpose)?.label ?? null;
+}
+
+/** What a shown value reads as in a note ("Dallas, TX || Texas" reads "Dallas, TX"). */
+const shown = (v: string) => firstChoice(v);
+
+/** Words that don't tell one company from another ("The", "Inc"). */
+const COMPANY_FILLER = new Set(['the', 'inc', 'llc', 'ltd', 'corp', 'corporation', 'company', 'group', 'and']);
+
+/**
+ * Answers worked out from the question itself: whether the user is in or
+ * a citizen of the country it names, whether they worked for the company
+ * it names. '' when the question doesn't say enough (the AI may answer).
+ */
+function derived(purpose: FieldPurpose, f: Field, a: Applicant | Profile, company: string): string {
+  switch (purpose) {
+    case 'in_country':
+      return countryAnswer(f.label, a.country);
+    case 'citizen_of':
+      return countryAnswer(f.label, a.citizenship ?? '');
+    case 'previously_employed': {
+      // Only about this company: "worked for a government agency" is something else.
+      const label = ` ${norm(f.label)} `;
+      const word = norm(company).split(' ').find((w) => w.length > 2 && !COMPANY_FILLER.has(w));
+      const named = !!word && label.includes(` ${word} `);
+      return named || /\b(us|our company|this company|here)\b/.test(label) ? valueFor(purpose, a, { company }) : '';
+    }
+    default:
+      return valueFor(purpose, a, { company });
+  }
 }
 
 export interface PlanOptions {
@@ -74,7 +111,19 @@ export interface PlanOptions {
   resumeName?: string;
   /** Whether a cover letter is written for this job. */
   coverLetter?: boolean;
+  /** The company the application is for. */
+  company?: string;
 }
+
+/** Questions only the user can answer, never sent to the AI. */
+const ONLY_YOU: Partial<Record<FieldPurpose, string>> = {
+  referral: 'only you know who referred you',
+};
+
+const NOT_IN_PROFILE = 'not in your Wera profile yet: pick it on the form, and Wera saves it for next time';
+
+/** Derived answers that, when Wera can't work them out, the AI may answer. */
+const DERIVED = new Set<FieldPurpose>(['in_country', 'citizen_of', 'previously_employed']);
 
 /** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
 export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
@@ -135,9 +184,21 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
     plan.note = 'pick your skills from its list';
     return plan;
   }
+  if (purpose && ONLY_YOU[purpose]) {
+    plan.note = ONLY_YOU[purpose];
+    return plan;
+  }
+  // A lone tick box that is one answer of a self-identification question ("Yes, I have a disability"): ticked when it is the user's answer.
+  if (purpose && SELF_ID.has(purpose) && f.kind === 'checkbox') {
+    const mine = valueFor(purpose, a);
+    if (mine && matchOption([{ label: f.label, value: 'on' }], mine, purpose)) propose('yes', 'details', `your answer: ${shown(mine)}`);
+    else if (!mine) plan.note = NOT_IN_PROFILE;
+    return plan;
+  }
+  let quiet = false;
   // The user's details first (never for open questions), then answers they gave before.
   if (purpose && purpose !== 'question') {
-    let raw = valueFor(purpose, a);
+    let raw = derived(purpose, f, a, opts.company ?? '');
     // A saved start date that has gone by would tell the employer you start in the past.
     if (purpose === 'start_date' && startHasPassed(raw)) {
       plan.note = `your saved start date (${raw}) has passed: update it in Wera`;
@@ -145,31 +206,35 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
     }
     // A city picker lists every Dallas: search with the state to pick the right one.
     if (purpose === 'city' && raw && a.state && (f.kind === 'combobox' || f.kind === 'listbox')) raw = `${raw}, ${a.state}`;
+    // A state list may want the name ("Texas") where the details have the code.
+    if (purpose === 'state' && raw && CHOICE.has(f.kind)) raw = [raw, stateName(raw)].join(' || ');
     // Typed into a box, a yes/no answer reads as a person writes it.
     const v = (f.kind === 'text' || f.kind === 'textarea') && /^(yes|no)$/.test(raw) ? raw[0]!.toUpperCase() + raw.slice(1) : raw;
     if (v) {
-      const shown = asOption(f, v, purpose);
-      if (shown != null) {
-        propose(shown, 'details');
+      const fit = asOption(f, v, purpose);
+      if (fit != null) {
+        propose(fit, 'details');
         return plan;
       }
-      plan.note = `no option matches "${v}"`;
+      plan.note = `no option matches "${shown(v)}"`;
     }
+    // Wera couldn't work it out from the question: no note, so the AI may answer it.
+    if (!v && DERIVED.has(purpose)) quiet = true;
   }
   if (!SELF_ID.has(purpose as FieldPurpose)) {
     const hit = bestAnswer(opts.answers ?? [], f.label);
     // An earlier form's start date is as stale as a saved one.
     if (hit && !(/\bstart|availab/i.test(f.label) && startHasPassed(hit.answer))) {
-      const shown = asOption(f, hit.answer, purpose);
-      if (shown != null) {
-        propose(shown, 'saved', 'your earlier answer');
+      const fit = asOption(f, hit.answer, purpose);
+      if (fit != null) {
+        propose(fit, 'saved', 'your earlier answer');
         return plan;
       }
     }
   }
-  if (!plan.note) {
+  if (!plan.note && !quiet) {
     plan.note = purpose === 'question' ? 'draft it, or write your own'
-      : purpose && SELF_ID.has(purpose) ? 'not in your profile yet: pick it here or on the form, and Wera saves it for next time'
+      : purpose && SELF_ID.has(purpose) ? NOT_IN_PROFILE
       : purpose ? 'not in your application details' : '';
   }
   return plan;
@@ -184,6 +249,20 @@ export function placeFields(fields: Field[]): Map<string, Placed> {
     const purpose = classify(f);
     return { id: f.id, purpose, part: purpose && ENTRY_PURPOSES.has(purpose) ? datePart(f) : null };
   }));
+}
+
+/** The street, city, state and code on one line ("123 Main St, Apt 4, Dallas, TX 75201"). */
+export function fullAddress(a: Applicant): string {
+  const cityLine = [a.city, [a.state, a.postal_code].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [a.address, a.address_line2, cityLine].filter(Boolean).join(', ');
+}
+
+/** A form with one address box and no city, state or code boxes wants the whole address in it. */
+function wholeAddress(fields: FieldPlan[], a: Applicant) {
+  if (fields.some((f) => f.purpose === 'city' || f.purpose === 'state' || f.purpose === 'postal_code' || f.purpose === 'address_line2')) return;
+  for (const f of fields) {
+    if (f.purpose === 'address' && f.source === 'details' && (f.kind === 'text' || f.kind === 'textarea') && a.address) f.value = fullAddress(a);
+  }
 }
 
 // How many blocks Wera adds at most: forms rarely want more than the recent ones.
@@ -220,6 +299,7 @@ export function planForm(root: ParentNode, a: Applicant | Profile, opts: PlanOpt
   const all = collectFields(root);
   const placed = placeFields(all);
   const fields = all.map((f) => planField(f, a, opts, placed.get(f.id))).filter((p) => p.purpose !== null || p.label !== '' || p.required);
+  wholeAddress(fields, a);
   const doc = root instanceof Document ? root : (root as Node).ownerDocument;
   const site = doc ? siteFor(doc) : null;
   return {
@@ -298,8 +378,9 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
         res.status = 'skipped';
       }
     } catch (e) {
+      log.error('fill', `"${res.label}" failed`, e);
       res.status = 'review';
-      res.note = `could not fill: ${String(e)}`;
+      res.note = `Wera hit a problem filling this one (${e instanceof Error ? e.message : String(e)}): fill it yourself`;
     }
     if (f && res.status === 'filled') mark(f.el, 'filled');
     else if (f && res.status === 'review') mark(f.el, 'review');

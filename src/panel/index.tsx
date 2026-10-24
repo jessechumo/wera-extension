@@ -20,6 +20,7 @@ declare global {
   }
 }
 
+// Sites where the user collapsed the panel (the key's old name is kept, so their choice carries over).
 const COLLAPSED = 'wera.dockCollapsed';
 
 /** Messages the background sends the panel. */

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Applicant, FillResult, PageInfo, PagePlan } from '../shared/types';
-import { apply, highlight, insert, pressNext, readPage, scan, snapshot } from './frames';
+import type { FillResult, PageInfo, PagePlan, ScanRequest } from '../shared/types';
+import { apply, highlight, options, pressNext, readPage, scan, snapshot } from './frames';
+
+const req = { profile: {}, answers: [] } as unknown as ScanRequest;
 
 const tab = 7;
 const top: PageInfo = { url: 'https://acme.example/careers/sre', title: 'SRE', text: 'About us', draft: null, hasForm: false, frameOrigins: ['https://job-boards.greenhouse.io', 'https://other.example'] };
@@ -25,7 +27,7 @@ function stubFrames() {
     if (msg.type === 'wera:snapshot') return [{ id: 'w1', label: 'Email', purpose: 'email', kind: 'text', value: 'a@x' }];
     if (msg.type === 'wera:next') return { ok: true, label: 'Next' };
     if (msg.type === 'wera:highlight') return { ok: true };
-    if (msg.type === 'wera:insert') return { ok: true };
+    if (msg.type === 'wera:options') return { w1: ['Yes', 'No'] };
     return null;
   };
   vi.stubGlobal('chrome', {
@@ -62,22 +64,22 @@ describe('pages with embedded forms', () => {
 
   it('reads and fills only the frame holding the form, and routes every request back to it', async () => {
     const sent = stubFrames();
-    const plan = await scan(tab, {} as Applicant, []);
+    const plan = await scan(tab, req);
     expect(plan.fields.map((f) => f.id)).toEqual(['f4/w1']);
     expect(plan.next).toEqual({ id: 'f4/n1', label: 'Next', final: false });
     expect(plan.errors).toBe(1);
     expect(sent.filter((s) => s.msg.type === 'wera:scan').map((s) => s.frameId)).toEqual([4]);
 
-    const out = await apply(tab, [{ id: 'f4/w1', value: 'a@x' }]);
+    const out = await apply(tab, { items: [{ id: 'f4/w1', value: 'a@x' }], pace: 30 });
     expect(out).toEqual([expect.objectContaining({ id: 'f4/w1', status: 'filled' })]);
-    expect(sent.find((s) => s.msg.type === 'wera:apply')).toMatchObject({ frameId: 4, msg: { items: [{ id: 'w1', value: 'a@x' }] } });
+    expect(sent.find((s) => s.msg.type === 'wera:apply')).toMatchObject({ frameId: 4, msg: { req: { items: [{ id: 'w1', value: 'a@x' }], pace: 30 } } });
     expect(await snapshot(tab)).toEqual([expect.objectContaining({ id: 'f4/w1', value: 'a@x' })]);
     expect(await pressNext(tab, 'f4/n1')).toEqual({ ok: true, label: 'Next' });
     expect(sent.at(-1)).toMatchObject({ frameId: 4, msg: { type: 'wera:next' } });
     await highlight(tab, 'f4/w1');
     expect(sent.at(-1)).toEqual({ frameId: 4, msg: { type: 'wera:highlight', id: 'w1' } });
-    await insert(tab, 'f4/w1', 'hello');
-    expect(sent.at(-1)).toEqual({ frameId: 4, msg: { type: 'wera:insert', id: 'w1', text: 'hello' } });
+    expect(await options(tab, ['f4/w1'])).toEqual({ 'f4/w1': ['Yes', 'No'] });
+    expect(sent.at(-1)).toEqual({ frameId: 4, msg: { type: 'wera:options', ids: ['w1'] } });
   });
 
   it('waits for an embedded form that is still loading instead of filling the page around it', async () => {
@@ -90,7 +92,7 @@ describe('pages with embedded forms', () => {
       if (msg.type === 'wera:read-page' && opts?.frameId === 4 && reads++ === 0) throw new Error('not loaded yet');
       return real(id, msg, opts);
     });
-    const plan = await scan(tab, {} as Applicant, []);
+    const plan = await scan(tab, req);
     expect(plan.fields.map((f) => f.id)).toEqual(['f4/w1']);
     expect(sent.filter((s) => s.msg.type === 'wera:scan').map((s) => s.frameId)).toEqual([4]);
   });

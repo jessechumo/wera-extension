@@ -5,8 +5,7 @@ import { ApiError, WeraApi } from '../shared/api';
 import { notifyDashboard } from '../shared/bridge';
 import { remoteCallable, settle, type PanelRequest, type RpcReply } from '../shared/rpc';
 import { loadSession, normalizeServer, saveSession } from '../shared/storage';
-import type { FillItem, KnownAnswer, Profile } from '../shared/types';
-import { signedInApi } from './dock';
+import { signedInApi } from './jobs';
 import * as frames from './frames';
 
 /** Puts the panel on the tab's page (once) and tells it to show: open, and fill, when asked. */
@@ -51,29 +50,9 @@ export async function handlePanel(msg: PanelRequest, tabId: number, frameId: num
   }
 }
 
-function runFrames(tabId: number, op: string, a: unknown[]): Promise<unknown> {
-  switch (op) {
-    case 'read':
-      return frames.readPage(tabId);
-    case 'scan':
-      return frames.scan(tabId, a[0] as Profile, a[1] as KnownAnswer[], a[2] as string | undefined, a[3] as boolean | undefined);
-    case 'apply':
-      return frames.apply(tabId, a[0] as FillItem[], a[1] as { name: string; base64: string } | undefined, a[2] as string | undefined, a[3] as number | undefined, a[4] as { name: string; base64: string } | undefined);
-    case 'add-entries':
-      return frames.addEntries(tabId, a[0] as number, a[1] as 'experience' | 'education', a[2] as number);
-    case 'snapshot':
-      return frames.snapshot(tabId);
-    case 'next':
-      return frames.pressNext(tabId, a[0] as string);
-    case 'highlight':
-      return frames.highlight(tabId, a[0] as string);
-    case 'insert':
-      return frames.insert(tabId, a[0] as string, a[1] as string);
-    case 'insert-cover-letter':
-      return frames.insertCoverLetter(tabId, a[0] as string);
-    case 'attach':
-      return frames.attach(tabId, a[0] as 'resume' | 'cover_letter', a[1] as { name: string; base64: string });
-    default:
-      return Promise.reject(new Error(`unknown frame request ${op}`));
-  }
+function runFrames(tabId: number, op: string, args: unknown[]): Promise<unknown> {
+  if (!Object.hasOwn(frames.run, op)) return Promise.reject(new Error(`unknown frame request ${op}`));
+  // The arguments come from Wera's own panel (only the top frame may ask, see above).
+  const fn = frames.run[op as keyof typeof frames.run] as (tabId: number, ...a: unknown[]) => Promise<unknown>;
+  return fn(tabId, ...args);
 }
