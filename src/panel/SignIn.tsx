@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { rpc } from '../shared/rpc';
-import { Button, Field, INPUT, Notice, errorText } from './ui';
+import { describeError } from '../shared/errors';
+import { Button, Field, INPUT, Notice } from './ui';
 
 export const DEFAULT_SERVER = 'http://192.168.4.68:3000';
 
@@ -20,7 +21,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
       await rpc({ type: 'wera:sign-in', server, email, password });
       onSignedIn();
     } catch (err) {
-      setError(errorText(err));
+      setError(describeError(err, "Couldn't connect to Wera"));
     } finally {
       setBusy(false);
     }
