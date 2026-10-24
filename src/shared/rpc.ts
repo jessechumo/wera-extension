@@ -3,9 +3,23 @@
 // server (the page's own rules forbid it) or reach the page's other
 // frames, so the background does both and replies.
 import { ApiError, type WeraApi } from './api';
+import type { LogEntry } from './log';
+import type { ApplyRequest, FieldSnapshot, FillResult, PageInfo, PagePlan, ScanRequest } from './types';
 
-/** Work done in every frame of the tab that holds the form (see background/frames.ts). */
-export type FrameOp = 'read' | 'scan' | 'apply' | 'add-entries' | 'snapshot' | 'next' | 'highlight' | 'insert' | 'insert-cover-letter' | 'attach';
+/** Work done in the frames of the tab that holds the form (see background/frames.ts): each op's arguments and result. */
+export interface FrameOps {
+  read: { args: []; result: PageInfo };
+  scan: { args: [req: ScanRequest]; result: PagePlan };
+  apply: { args: [req: ApplyRequest]; result: FillResult[] };
+  'add-entries': { args: [frameId: number, section: 'experience' | 'education', count: number]; result: number };
+  snapshot: { args: []; result: FieldSnapshot[] };
+  next: { args: [nextId: string]; result: { ok: boolean; label?: string; final?: boolean } };
+  highlight: { args: [id: string]; result: void };
+  options: { args: [ids: string[]]; result: Record<string, string[]> };
+  log: { args: []; result: { frameId: number; url: string; entries: LogEntry[] }[] };
+}
+
+export type FrameOp = keyof FrameOps;
 
 export type PanelRequest =
   | { type: 'wera:api'; method: string; args: unknown[] }
@@ -66,6 +80,6 @@ export function remoteApi(server: string): WeraApi {
 }
 
 /** Work in the tab's frames, done by the background. */
-export function frames<T>(op: FrameOp, ...args: unknown[]): Promise<T> {
-  return rpc<T>({ type: 'wera:frames', op, args });
+export function frames<K extends FrameOp>(op: K, ...args: FrameOps[K]['args']): Promise<FrameOps[K]['result']> {
+  return rpc<FrameOps[K]['result']>({ type: 'wera:frames', op, args });
 }

@@ -53,7 +53,7 @@ export function normalizeServer(raw: string): string | null {
 
 const TAB_PAGES = 'wera.tabPages';
 
-/** What the Wera dock saw in a tab: when it last showed a form, and the posting it last showed. */
+/** What the page script saw in a tab: when it last showed a form, and the posting it last showed. */
 export interface TabPage {
   formAt?: number;
   draft?: JobDraft;

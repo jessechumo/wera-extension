@@ -217,7 +217,7 @@ export class WeraApi {
     try {
       res = await this.fetcher(`${this.server}${path}`, { ...init, headers, credentials: 'omit' });
     } catch {
-      throw new ApiError(0, `Can't reach Wera at ${this.server}`);
+      throw this.unreachable();
     }
     if (!res.ok) {
       let msg = `${res.status} ${res.statusText}`;
@@ -231,6 +231,10 @@ export class WeraApi {
     if (init.method && init.method !== 'GET' && !READ_ONLY.test(path)) this.onChange?.(path);
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
+  }
+
+  private unreachable() {
+    return new ApiError(0, `Can't reach your Wera server at ${this.server}. Check that it is running and that the address is right.`);
   }
 
   async connect(email: string, password: string, name: string) {
@@ -431,12 +435,14 @@ export class WeraApi {
   }
 
   private async download(path: string, fallback = 'resume.pdf'): Promise<{ name: string; base64: string } | null> {
-    const res = await this.fetcher(`${this.server}${path}`, {
-      headers: { Authorization: `Bearer ${this.token}` },
-      credentials: 'omit',
-    });
+    let res: Response;
+    try {
+      res = await this.fetcher(`${this.server}${path}`, { headers: { Authorization: `Bearer ${this.token}` }, credentials: 'omit' });
+    } catch {
+      throw this.unreachable();
+    }
     if (res.status === 404) return null;
-    if (!res.ok) throw new ApiError(res.status, fallback === 'resume.pdf' ? 'could not load your resume' : 'could not load your cover letter');
+    if (!res.ok) throw new ApiError(res.status, res.status === 401 ? 'unauthorized' : `${res.status} ${res.statusText}`);
     const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallback;
     const buf = new Uint8Array(await res.arrayBuffer());
     let bin = '';
