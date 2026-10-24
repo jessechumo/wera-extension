@@ -89,7 +89,17 @@ export type FieldPurpose =
   | 'question'
   | 'consent'
   /** Today's date, as a signed form asks for it ("Date", "Today's date"). */
-  | 'today';
+  | 'today'
+  /** "Have you worked for us before?": answered from the resume's employers. */
+  | 'previously_employed'
+  /** "Are you currently located in the US?": answered from the country in the details. */
+  | 'in_country'
+  /** "Are you a Singapore citizen?": answered from the citizenship in the details. */
+  | 'citizen_of'
+  /** "Do you consider yourself LGBTQ+?": answered from orientation and gender identity. */
+  | 'lgbtq'
+  /** Who referred the user: only they know (never asked of the AI). */
+  | 'referral';
 
 /** One job from the resume, as the Wera API sends it. */
 export interface Experience {
@@ -233,18 +243,47 @@ export interface PageInfo {
   gate?: string;
 }
 
-// Messages from the side panel to the content script.
+/** A file to put in a form's upload (a PDF). */
+export interface FileData {
+  name: string;
+  base64: string;
+}
+
+/** What the panel asks each frame to read the form with. */
+export interface ScanRequest {
+  profile: Profile;
+  answers: KnownAnswer[];
+  /** The resume file Wera can attach. */
+  resumeName?: string;
+  /** A cover letter is written for this job. */
+  coverLetter?: boolean;
+  /** The company the application is for (answers "Have you worked here before?"). */
+  company?: string;
+}
+
+/** The values the panel asks a frame to fill. */
+export interface ApplyRequest {
+  items: FillItem[];
+  resume?: FileData;
+  coverLetter?: string;
+  letterFile?: FileData;
+  /** Pause between fields (ms). */
+  pace?: number;
+}
+
+// Messages from the background (for the panel) to the page script in one frame.
 export type ContentRequest =
   | { type: 'wera:read-page' }
-  | { type: 'wera:scan'; applicant: Profile; answers: KnownAnswer[]; resumeName?: string; coverLetter?: boolean }
-  | { type: 'wera:apply'; items: FillItem[]; resume?: { name: string; base64: string }; coverLetter?: string; letterFile?: { name: string; base64: string }; pace?: number }
-  | { type: 'wera:attach'; what: 'resume' | 'cover_letter'; file: { name: string; base64: string } }
+  | { type: 'wera:scan'; req: ScanRequest }
+  | { type: 'wera:apply'; req: ApplyRequest }
   | { type: 'wera:snapshot' }
   | { type: 'wera:add-entries'; section: 'experience' | 'education'; count: number }
   | { type: 'wera:next' }
   | { type: 'wera:highlight'; id: string }
-  | { type: 'wera:insert'; id: string; text: string }
-  | { type: 'wera:insert-cover-letter'; text: string };
+  /** The choices custom dropdowns offer (opened and closed again), by field id. */
+  | { type: 'wera:options'; ids: string[] }
+  /** The frame's recent log (for Copy diagnostics). */
+  | { type: 'wera:log' };
 
 /** Sent by the page script to the side panel when the page changes on its own. */
 export type ContentEvent =

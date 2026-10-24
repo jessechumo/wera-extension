@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Applicant } from '../shared/types';
 import { classify } from './classify';
 import { collectFields } from './fields';
-import { fillForm, formatFor, matchOption, parseDate, searchText, valueFor } from './fill';
+import { autofill as fillForm } from '../test/autofill';
+import { matchOption, searchText } from './match';
+import { formatFor, parseDate, valueFor } from './values';
 
 const fixture = (name: string) => readFileSync(join(__dirname, '__fixtures__', name), 'utf8');
 
@@ -249,8 +251,9 @@ describe('values and options', () => {
 
   it('derives combined values', () => {
     expect(valueFor('full_name', ada)).toBe('Ada Lovelace');
-    expect(valueFor('location', ada)).toBe('Austin, TX');
-    expect(valueFor('location', { ...ada, country: 'Kenya', city: 'Nairobi', state: '' })).toBe('Nairobi, Kenya');
+    // A place box takes the first; a list of states or of countries the ones after.
+    expect(valueFor('location', ada)).toBe('Austin, TX || Texas || United States');
+    expect(valueFor('location', { ...ada, country: 'Kenya', city: 'Nairobi', state: '' })).toBe('Nairobi, Kenya || Kenya');
     expect(valueFor('authorized_no_sponsorship', { ...ada, needs_sponsorship: 'no' })).toBe('yes');
     expect(valueFor('authorized_no_sponsorship', { ...ada, authorized_to_work: '' })).toBe('');
   });
