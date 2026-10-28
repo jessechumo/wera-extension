@@ -175,7 +175,9 @@ test('fill a multi-step application, then mark it applied', async () => {
   await expect(panel.getByText(/Last page/)).toBeVisible({ timeout: 20_000 });
   await shot(job, 'steps');
 
-  // The user submits; Wera sees the thank-you, moves the job to Applied, says so, then closes the tab.
+  // The user writes their own answer (CI's API has no AI to draft one), then submits; Wera sees the
+  // thank-you, moves the job to Applied, says so, then closes the tab.
+  await job.locator('#why').fill('I want to keep a fleet of robots online, and Fixture runs the biggest one.');
   const closed = job.waitForEvent('close', { timeout: 30_000 });
   await job.locator('#submit').click();
   await expect(panel.getByRole('alertdialog', { name: 'Application submitted' })).toBeVisible({ timeout: 15_000 });
