@@ -166,6 +166,17 @@ test('fill a multi-step application, then mark it applied', async () => {
   await shot(job, 'applied');
 });
 
+test('stays off a mail inbox full of job emails and "thank you for applying"', async () => {
+  await context.route('https://mail.google.com/**', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Inbox - Gmail</title>
+    <input aria-label="Search mail"><table><tr><td>Thank you for applying to Fixture Robotics</td></tr><tr><td>Your application has been received</td></tr></table>
+    <h1>Senior Site Reliability Engineer</h1><p>About the role</p><p>Responsibilities</p><p>Qualifications</p><p>Benefits</p><a href="${site}/jobs/x/sre">Apply now</a>` }));
+  const mail = await context.newPage();
+  await mail.goto('https://mail.google.com/mail/u/0/#inbox');
+  await mail.waitForTimeout(3000);
+  await expect(panelOf(mail)).toHaveCount(0);
+  await mail.close();
+});
+
 test('fill an application embedded from another site, and again after a reload', async () => {
   const job = await context.newPage();
   await job.goto(`${site}/jobs/${run}/sre/embedded`);
