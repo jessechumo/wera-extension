@@ -243,6 +243,16 @@ describe('the Wera panel', () => {
 });
 
 describe('AI answers that cannot be right', () => {
+  it('after the user sends an application, shows the alert over the page; staying keeps the panel\'s note', async () => {
+    fakeBackground();
+    const sent = { state: 'marked' as const, job: { id: 9, title: 'SRE', company: 'Acme', status: 'applied' }, previous: 'saved', close: true };
+    render(<App handle={{ ...handle('form'), submitted: sent }} show={show({ initial: false })} />);
+    expect(await screen.findByRole('alertdialog', { name: 'Application submitted' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Stay on this page' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(screen.getByText('Application sent. Marked as applied.')).toBeTruthy();
+  });
+
   it('a LinkedIn box only takes a LinkedIn address', async () => {
     const { fitsPurpose } = await import('./rows');
     expect(fitsPurpose('linkedin', 'https://rendercv.com')).toBe(false);

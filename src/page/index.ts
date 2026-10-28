@@ -3,15 +3,15 @@
 // forms, and adds Wera's answer button to open questions. When the site
 // then says "thank you for applying", it tells the background, which
 // marks the job applied. Nothing leaves the page unless Wera is on it.
-import { jobSummary, pageKind, type PageKind } from '../content/detect';
+import { isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
 import { listen } from '../content/listen';
 import { snapshot } from '../content/plan';
-import { bodyText, looksSubmitted } from '../content/watch';
+import { bodyText, looksSubmitted, submittedAddress } from '../content/watch';
 import { extensionAlive, sendSafe } from '../shared/alive';
 import { detailPurpose } from '../shared/details';
-import type { JobRequest, SubmitReply } from '../shared/jobs';
+import type { JobConfirmed, JobRequest, SubmitReply } from '../shared/jobs';
 import { SETTINGS_KEY } from '../shared/settings';
 import type { FieldPurpose, JobDraft } from '../shared/types';
 import { startAssist } from './assist';
@@ -40,6 +40,8 @@ const ask = <T>(msg: JobRequest) => sendSafe<T>(msg);
 
 // The buttons that move an application on: what the user entered on the page is final then.
 const MOVES_ON = /^(submit|submit application|send|send application|apply|apply now|next|continue|save and continue|save & continue|review|review application|finish)\b/i;
+// The buttons that send it: a confirmation that follows is the answer to this click.
+const SENDS = /^(submit|submit (my |your )?application|send|send application|apply|apply now|finish|complete application)\b/i;
 /**
  * The details the form holds now (name, contact, eligibility,
  * self-identification): what Wera can learn from (the background keeps
@@ -87,15 +89,22 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
 
   const checkSubmitted = () => {
     const key = doc.location.href;
-    if (submittedFor === key || !looksSubmitted(bodyText(doc))) return;
+    if (submittedFor === key || isNotJobSite(key) || !(looksSubmitted(bodyText(doc)) || submittedAddress(key))) return;
     submittedFor = key;
     void ask<SubmitReply>({ type: 'wera:job-submitted', url: key }).then((r) => {
-      if (!r || r.state === 'off') return;
-      handle.submitted = r;
-      subscribers.forEach((fn) => fn(handle));
-      // The confirmation page is often not a job page: bring the panel to say what happened.
-      void sendSafe({ type: 'wera:panel-ensure' });
+      // A form embedded in a frame: the background tells the top frame (see onConfirmed).
+      if (top && r && r.state !== 'off') confirmed(r);
     });
+  };
+  const confirmed = (r: SubmitReply) => {
+    handle.submitted = r;
+    subscribers.forEach((fn) => fn(handle));
+    // The confirmation page is often not a job page: bring the panel to say what happened.
+    void sendSafe({ type: 'wera:panel-ensure' });
+  };
+  const onConfirmed = (msg: JobConfirmed) => {
+    if (msg?.type === 'wera:job-confirmed' && top) confirmed(msg.reply);
+    return false;
   };
 
   const check = async () => {
@@ -107,7 +116,8 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
       looksFor = doc.location.href;
       looks = 0;
     }
-    if (top && (sawForm || (!kind && looks++ < 8))) checkSubmitted();
+    // A form in a frame (an ATS embedded in a careers page) shows its own "thank you".
+    if (sawForm || (top && !kind && looks++ < 8)) checkSubmitted();
     const key = `${doc.location.href}|${kind}`;
     if (key === shownFor) return;
     shownFor = key;
@@ -141,10 +151,17 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     if (!b || !sawForm) return;
     const text = (b instanceof HTMLInputElement ? b.value : b.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (!MOVES_ON.test(text)) return;
+    if (SENDS.test(text)) void ask({ type: 'wera:job-sending' });
     const entries = formDetails(doc);
     if (entries.length) void ask({ type: 'wera:job-learn', entries });
   };
+  // Sent with Enter in a field: the form's own submit.
+  const onSubmit = () => {
+    if (sawForm) void ask({ type: 'wera:job-sending' });
+  };
   doc.addEventListener('click', onClick, true);
+  doc.addEventListener('submit', onSubmit, true);
+  if (top) chrome.runtime.onMessage?.addListener(onConfirmed);
   // Watched from the document itself: a page that swaps its body or <html> is still seen.
   const obs = new MutationObserver(schedule);
   obs.observe(doc, { childList: true, subtree: true });
@@ -152,6 +169,8 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   schedule();
   function stop() {
     doc.removeEventListener('click', onClick, true);
+    doc.removeEventListener('submit', onSubmit, true);
+    if (top) chrome.runtime.onMessage?.removeListener(onConfirmed);
     obs.disconnect();
     doc.removeEventListener('visibilitychange', schedule);
     window.clearTimeout(timer);

@@ -37,6 +37,7 @@ export function SettingsView({ api, settings, setSettings, onSignedOut, onClose 
         <Toggle label="Fill the next page on Continue" hint="Multi-page applications (Workday) keep filling." on={settings.autoContinue} set={(v) => setSettings({ autoContinue: v })} />
         <Toggle label="Remember my answers" hint="What you type into forms, for the next application." on={settings.learn} set={(v) => setSettings({ learn: v })} />
         <Toggle label="Mark applied when the site confirms" hint={'"Thank you for applying" moves the job to Applied.'} on={settings.autoApplied} set={(v) => setSettings({ autoApplied: v })} />
+        <Toggle label="Close the tab after applying" hint="Once you submit and the site confirms it, Wera says so, then closes the tab." on={settings.closeAfterApply} set={(v) => setSettings({ closeAfterApply: v })} />
         <Toggle label="Show Wera on job pages" hint="Off: open it from the toolbar icon (Alt+Shift+W)." on={settings.launcher} set={(v) => setSettings({ launcher: v })} />
         <Toggle label="Debug log" hint="Writes what Wera reads and fills to the page's console ([wera:…] lines), to find out why a field was missed." on={settings.debug} set={(v) => setSettings({ debug: v })} />
       </div>

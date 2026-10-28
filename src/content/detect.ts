@@ -49,6 +49,35 @@ const JOB_URLS: RegExp[] = [
   /careers\.microsoft\.com\/.*\/job\/\d+/,
 ];
 
+// Mail, calendars, documents, chat, AI assistants, video and social feeds:
+// a job email or a recruiter's message there reads like a posting, and an
+// inbox full of "Thank you for applying" like a confirmation, but these
+// are never the job's own page. Wera stays off them unless asked (the
+// toolbar icon still opens it).
+const NOT_JOB_SITES: RegExp[] = [
+  /^(mail|inbox|calendar|docs|drive|sheets|slides|meet|chat|keep|photos|contacts|gemini|news)\.google\.com$/,
+  /^(outlook\.(live|office|office365)\.com|outlook\.cloud\.microsoft|teams\.(microsoft|live)\.com|.*\.sharepoint\.com|onedrive\.live\.com)$/,
+  /^(mail\.yahoo\.com|mail\.aol\.com|mail\.proton\.me|app\.fastmail\.com|(www\.)?icloud\.com|mail\.zoho\.[a-z.]+|(www\.)?hey\.com|app\.hey\.com)$/,
+  /^(app\.slack\.com|[^.]+\.slack\.com|web\.whatsapp\.com|(www\.)?messenger\.com|web\.telegram\.org|app\.zoom\.us)$/,
+  /^(chatgpt\.com|chat\.openai\.com|claude\.ai|(www\.)?perplexity\.ai|copilot\.microsoft\.com)$/,
+  /^((www|m)\.youtube\.com|(www\.)?netflix\.com|(www\.)?twitch\.tv|open\.spotify\.com|(www\.)?(x|twitter|facebook|instagram|tiktok|reddit)\.com)$/,
+  /^(app\.asana\.com|trello\.com|[^.]+\.atlassian\.net)$/,
+];
+// Apps on a host that also has its careers pages (discord.com/careers): only these paths.
+const NOT_JOB_PATHS: RegExp[] = [/^discord\.com\/(channels|app)\b/, /^(www\.)?linkedin\.com\/(messaging|feed|mynetwork|notifications)\b/];
+
+/** Whether the page belongs to mail, chat, documents or the like: never a job's own page. */
+export function isNotJobSite(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = u.hostname.toLowerCase();
+  return NOT_JOB_SITES.some((re) => re.test(host)) || NOT_JOB_PATHS.some((re) => re.test(host + u.pathname));
+}
+
 /** Whether the address is one job's page on a board Wera knows. */
 export function isJobUrl(url: string): boolean {
   return JOB_URLS.some((re) => re.test(url));
@@ -68,19 +97,21 @@ function headline(doc: Document): string {
   return h1 ?? '';
 }
 
+/** Whether the page has an Apply button (or link). */
+function hasApplyButton(doc: Document): boolean {
+  const buttons = doc.querySelectorAll('a, button, input[type="submit"], [role="button"]');
+  return [...buttons].slice(0, 600).some((b) => {
+    const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
+    return text.length < 60 && APPLY.test(text);
+  });
+}
+
 /** How much the page reads like one job's posting, 0 (not at all) and up. */
 export function jobSignals(doc: Document): number {
   let score = 0;
   if (JOBBY_PATH.test(doc.location.pathname + doc.location.search)) score += 1;
   if (headline(doc)) score += 1;
-  const buttons = doc.querySelectorAll('a, button, input[type="submit"], [role="button"]');
-  for (const b of [...buttons].slice(0, 600)) {
-    const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
-    if (text.length < 60 && APPLY.test(text)) {
-      score += 2;
-      break;
-    }
-  }
+  if (hasApplyButton(doc)) score += 2;
   const text = (doc.body?.innerText || doc.body?.textContent || '').slice(0, 40000);
   const hits = SECTIONS.filter((re) => re.test(text)).length;
   if (hits >= 2) score += 2;
@@ -137,10 +168,12 @@ const EMBEDDED_FORM = /greenhouse\.io\/embed\/job_app|jobs\.(eu\.)?lever\.co\/[^
 export function pageKind(doc: Document): PageKind {
   // The bridge marks the user's own Wera dashboard: its forms are not applications.
   if (doc.documentElement.dataset.weraExtension) return null;
+  if (isNotJobSite(doc.location.href)) return null;
   if (hasApplicationForm(doc)) return 'form';
   if (readJobPosting(doc, doc.location.href)) return 'posting';
   if (isJobUrl(doc.location.href) && headline(doc)) return 'posting';
-  return jobSignals(doc) >= 5 ? 'posting' : null;
+  // Read from what is on it: a posting has a way to apply (a job described in an article or a message does not).
+  return jobSignals(doc) >= 5 && hasApplyButton(doc) ? 'posting' : null;
 }
 
 /** The company slug in a job board's address ("acme" in jobs.lever.co/acme/...), made readable. */

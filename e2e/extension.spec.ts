@@ -160,10 +160,25 @@ test('fill a multi-step application, then mark it applied', async () => {
   await expect(panel.getByText(/Last page/)).toBeVisible({ timeout: 20_000 });
   await shot(job, 'steps');
 
-  // The user submits; Wera sees the thank-you and moves the job to Applied.
+  // The user submits; Wera sees the thank-you, moves the job to Applied, says so, then closes the tab.
+  const closed = job.waitForEvent('close', { timeout: 30_000 });
   await job.locator('#submit').click();
-  await expect(panel.getByText(/Application sent. Marked as applied/)).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByRole('alertdialog', { name: 'Application submitted' })).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(/is now Applied in your Wera tracker/)).toBeVisible();
+  await expect(panel.getByText(/Application sent. Marked as applied/)).toBeVisible();
   await shot(job, 'applied');
+  await closed;
+});
+
+test('stays off a mail inbox full of job emails and "thank you for applying"', async () => {
+  await context.route('https://mail.google.com/**', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Inbox - Gmail</title>
+    <input aria-label="Search mail"><table><tr><td>Thank you for applying to Fixture Robotics</td></tr><tr><td>Your application has been received</td></tr></table>
+    <h1>Senior Site Reliability Engineer</h1><p>About the role</p><p>Responsibilities</p><p>Qualifications</p><p>Benefits</p><a href="${site}/jobs/x/sre">Apply now</a>` }));
+  const mail = await context.newPage();
+  await mail.goto('https://mail.google.com/mail/u/0/#inbox');
+  await mail.waitForTimeout(3000);
+  await expect(panelOf(mail)).toHaveCount(0);
+  await mail.close();
 });
 
 test('fill an application embedded from another site, and again after a reload', async () => {
