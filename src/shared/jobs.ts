@@ -2,6 +2,7 @@
 // the background about the page's job. The page reads itself; the
 // background holds the sign-in and talks to Wera.
 import type { WeraJob } from './api';
+import type { LearnedAnswer } from './learn';
 import type { FieldPurpose, JobDraft } from './types';
 
 /** A job as the panel's confirmation shows it. */
@@ -46,8 +47,8 @@ export type JobRequest =
   | { type: 'wera:job-resolve'; url: string; title: string; referrer?: string }
   /** The panel saved or found the tab's job: remember it for the tab's next pages (the application after its posting). */
   | { type: 'wera:job-remember'; jobId: number }
-  /** What the user left in a form's detail fields when moving on (Next, Submit). */
-  | { type: 'wera:job-learn'; entries: { purpose: FieldPurpose; value: string }[] };
+  /** What the user left in a form when moving it on (Next, Submit): its details, and its answers to remember. */
+  | { type: 'wera:job-learn'; entries: { purpose: FieldPurpose; value: string }[]; answers?: LearnedAnswer[] };
 
 export const isJobRequest = (m: unknown): m is JobRequest =>
   !!m && typeof m === 'object' && typeof (m as { type?: unknown }).type === 'string' && (m as { type: string }).type.startsWith('wera:job-')

@@ -35,10 +35,35 @@ export function similarity(a: string, b: string): number {
   return shared / Math.max(x.size, y.size);
 }
 
-/** The answer to this question, or to one very like it (the closest, then the newest). */
-export function bestAnswer<T extends { question: string; answer: string }>(list: T[], question: string, min = 0.75): T | null {
+/** A company's name as its answers mention it: no "Inc.", "Technologies" or punctuation. */
+function companyCore(name: string): string {
+  return name.toLowerCase().replace(/[.,]/g, ' ')
+    .replace(/\b(inc|llc|ltd|corp|corporation|co|company|technologies|technology|labs|group|holdings|plc|gmbh)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Whether an answer given on one company's form can be given on
+ * another's: not when it or its question names that company ("Why
+ * Stripe?" answered for Stripe is no answer for Ramp).
+ */
+export function reusableFor(a: { question: string; answer: string; company?: string }, company: string): boolean {
+  const theirs = companyCore(a.company ?? '');
+  const ours = companyCore(company);
+  if (theirs.length < 2 || !ours || theirs === ours) return true;
+  const named = new RegExp(`(^|[^\\p{L}\\p{N}])${theirs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'iu');
+  return !named.test(a.question) && !named.test(a.answer);
+}
+
+/**
+ * The answer to this question, or to one very like it (the closest, then
+ * the newest). With the company the form is for, answers that name
+ * another company are left out.
+ */
+export function bestAnswer<T extends { question: string; answer: string; company?: string }>(all: T[], question: string, min = 0.75, company = ''): T | null {
   const key = answerKey(question);
   if (!key) return null;
+  const list = company ? all.filter((a) => reusableFor(a, company)) : all;
   const exact = list.find((a) => answerKey(a.question) === key);
   if (exact) return exact;
   let best: T | null = null;
@@ -54,8 +79,9 @@ export function bestAnswer<T extends { question: string; answer: string }>(list:
 }
 
 /** Earlier answers to questions like this one, best first (for open questions). */
-export function matchAnswers(list: SavedAnswer[], question: string, limit = 3): SavedAnswer[] {
+export function matchAnswers(list: SavedAnswer[], question: string, limit = 3, company = ''): SavedAnswer[] {
   return list
+    .filter((a) => !company || reusableFor(a, company))
     .map((a) => ({ a, s: answerKey(a.question) === answerKey(question) ? 1 : similarity(a.question, question) }))
     .filter((x) => x.s >= 0.5)
     .sort((x, y) => y.s - x.s || y.a.at - x.a.at)

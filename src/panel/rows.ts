@@ -47,6 +47,16 @@ export function needsDraft(r: Row): boolean {
 }
 
 /**
+ * A cover letter box or upload Wera has nothing for yet (no letter for
+ * this job) that is worth writing one for: the form insists, or asks for a
+ * cover letter by name (not Lever's "Additional information").
+ */
+export function needsLetter(r: Row): boolean {
+  return r.purpose === 'cover_letter' && (r.kind === 'file' || r.kind === 'textarea') && r.value === '' && r.current === ''
+    && (r.required || /cover\s*letter|motivation(al)?\s*letter|letter of (motivation|interest)/i.test(r.label));
+}
+
+/**
  * What still needs the user once Wera is done: required fields left
  * empty or that did not take, self-identification not in their profile,
  * consents, AI guesses to confirm, and answers Wera drafted.
