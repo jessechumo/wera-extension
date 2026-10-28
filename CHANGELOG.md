@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.7.0...wera-extension-v0.8.0) (2026-10-28)
+
+
+### Features
+
+* stay off non-job pages; alert after applying, then close the tab ([#55](https://github.com/jessechumo/wera-extension/issues/55)) ([8028de7](https://github.com/jessechumo/wera-extension/commit/8028de740d035031b4a8ea6f411b4fd5880b3f4b))
+
 ## [0.7.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.6.0...wera-extension-v0.7.0) (2026-10-24)
 
 
