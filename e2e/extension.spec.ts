@@ -160,10 +160,14 @@ test('fill a multi-step application, then mark it applied', async () => {
   await expect(panel.getByText(/Last page/)).toBeVisible({ timeout: 20_000 });
   await shot(job, 'steps');
 
-  // The user submits; Wera sees the thank-you and moves the job to Applied.
+  // The user submits; Wera sees the thank-you, moves the job to Applied, says so, then closes the tab.
+  const closed = job.waitForEvent('close', { timeout: 30_000 });
   await job.locator('#submit').click();
-  await expect(panel.getByText(/Application sent. Marked as applied/)).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByRole('alertdialog', { name: 'Application submitted' })).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(/is now Applied in your Wera tracker/)).toBeVisible();
+  await expect(panel.getByText(/Application sent. Marked as applied/)).toBeVisible();
   await shot(job, 'applied');
+  await closed;
 });
 
 test('stays off a mail inbox full of job emails and "thank you for applying"', async () => {

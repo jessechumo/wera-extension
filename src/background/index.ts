@@ -77,7 +77,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     return true; // async reply
   }
   if (isJobRequest(msg)) {
-    handleJobRequest(msg, tabId, sender.tab.url ?? '').then(reply, (e: unknown) => {
+    handleJobRequest(msg, tabId, sender.tab.url ?? '', sender.frameId ?? 0).then(reply, (e: unknown) => {
       log.warn('background', `${msg.type} failed`, e);
       reply(null);
     });

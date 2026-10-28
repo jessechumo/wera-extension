@@ -11,9 +11,9 @@ const base: WeraJob = {
 const draft: JobDraft = { url: 'https://jobs.example/acme/2', company: 'Acme', title: 'Data Engineer', location: '', work_mode: '', employment_type: '', department: '', salary: '', industry: '', description: 'x', source: 'page-data' };
 
 /** chrome.* for the background, and a fake Wera API behind fetch. */
-function setup(opts: { signedIn?: boolean; found?: WeraJob | null; autoApplied?: boolean } = {}) {
+function setup(opts: { signedIn?: boolean; found?: WeraJob | null; autoApplied?: boolean; closeAfterApply?: boolean } = {}) {
   const local: Record<string, unknown> = opts.signedIn === false ? {} : { 'wera.session': { server: 'https://w.example', token: 't', user: { id: 1 } } };
-  if (opts.autoApplied === false) local['wera.settings'] = { autoApplied: false };
+  if (opts.autoApplied === false || opts.closeAfterApply === false) local['wera.settings'] = { autoApplied: opts.autoApplied ?? true, closeAfterApply: opts.closeAfterApply ?? true };
   const session: Record<string, unknown> = {};
   const area = (data: Record<string, unknown>) => ({
     get: vi.fn(async (k: string | string[]) => Object.fromEntries((Array.isArray(k) ? k : [k]).filter((x) => x in data).map((x) => [x, data[x]]))),
@@ -105,7 +105,46 @@ describe('job requests in the background', () => {
     await handleJobRequest({ type: 'wera:job-seen', kind: 'posting', draft }, TAB, draft.url);
     await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, `${draft.url}/apply`);
     expect(await handleJobRequest({ type: 'wera:job-submitted', url: `${draft.url}/done` }, TAB, `${draft.url}/done`))
-      .toEqual({ state: 'unknown', draft: { title: 'Data Engineer', company: 'Acme' } });
+      .toEqual({ state: 'unknown', draft: { title: 'Data Engineer', company: 'Acme' }, close: false });
+  });
+
+  it('ignores "thank you for applying" on another site, such as a mail inbox', async () => {
+    const { calls } = setup();
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, `${URL1}/apply`);
+    const inbox = 'https://mail.google.com/mail/u/0/';
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: inbox }, TAB, inbox)).toEqual({ state: 'off' });
+    expect(calls).toEqual([]);
+    // Another page of the same site (a subdomain) is the same application.
+    const done = 'https://careers.jobs.example/done';
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: done }, TAB, done)).toMatchObject({ state: 'marked' });
+  });
+
+  it('asks to close the tab when the user just sent the application, adding a job Wera lacked', async () => {
+    const { calls } = setup({ found: null });
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft }, TAB, `${draft.url}/apply`);
+    await handleJobRequest({ type: 'wera:job-sending' }, TAB, `${draft.url}/apply`);
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: `${draft.url}/thanks` }, TAB, `${draft.url}/thanks`))
+      .toMatchObject({ state: 'marked', added: true, previous: null, close: true, job: { id: 12, status: 'applied' } });
+    expect(calls).toContain('POST /api/ext/jobs');
+  });
+
+  it('keeps the tab when the user turned closing off, or did not just click Submit', async () => {
+    setup({ closeAfterApply: false });
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, `${URL1}/apply`);
+    await handleJobRequest({ type: 'wera:job-sending' }, TAB, `${URL1}/apply`);
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`)).toMatchObject({ state: 'marked', close: false });
+    setup();
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, `${URL1}/apply`);
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: `${URL1}/thanks` }, TAB, `${URL1}/thanks`)).toMatchObject({ state: 'marked', close: false });
+  });
+
+  it('tells the top frame when a form embedded from an ATS confirms', async () => {
+    const { toTab } = setup();
+    const page = 'https://acme.example/careers/sre';
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'form', draft: null }, TAB, page);
+    const frame = 'https://boards.greenhouse.io/embed/job_app/confirmation';
+    expect(await handleJobRequest({ type: 'wera:job-submitted', url: frame }, TAB, page, 2)).toMatchObject({ state: 'marked' });
+    expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:job-confirmed', reply: expect.objectContaining({ state: 'marked' }) }), { frameId: 0 });
   });
 
   it('learns details the profile lacks from a form the user moved on from, and keeps the rest', async () => {

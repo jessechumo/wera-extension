@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formSignature, looksSubmitted, watchPage } from './watch';
+import { formSignature, looksSubmitted, submittedAddress, watchPage } from './watch';
 
 describe('looksSubmitted', () => {
   it.each([
@@ -9,6 +9,17 @@ describe('looksSubmitted', () => {
     ['Apply for this job', false],
     ['Thank you for your interest. Apply below.', false],
   ])('%s', (text, want) => expect(looksSubmitted(text)).toBe(want));
+});
+
+describe('submittedAddress', () => {
+  it.each([
+    ['https://job-boards.greenhouse.io/acme/jobs/1/confirmation', true],
+    ['https://jobs.lever.co/acme/2f1c3b0e/thanks', true],
+    ['https://acme.com/careers/thank-you?job=1', true],
+    ['https://acme.com/application-submitted', true],
+    ['https://acme.com/careers/sre/apply', false],
+    ['https://acme.com/blog/success-stories', false],
+  ])('%s', (url, want) => expect(submittedAddress(url)).toBe(want));
 });
 
 describe('watchPage', () => {

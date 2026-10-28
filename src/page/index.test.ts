@@ -188,6 +188,18 @@ describe('on a page', () => {
     expect(sent.filter((m) => m.type === 'wera:panel-ensure').length).toBeGreaterThanOrEqual(2);
   });
 
+  it('says when the user sends the application, so the tab can close once the site confirms', async () => {
+    const sent = fakeChrome();
+    document.body.innerHTML = fixture('greenhouse.html') + '<button type="button" id="send">Submit application</button><button type="button" id="next">Next</button>';
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-seen')).toBe(true));
+    document.querySelector<HTMLButtonElement>('#next')!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent.some((m) => m.type === 'wera:job-sending')).toBe(false);
+    document.querySelector<HTMLButtonElement>('#send')!.click();
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-sending')).toBe(true));
+  });
+
   it('goes quietly when the extension is reloaded under it', async () => {
     const sent = fakeChrome();
     document.body.innerHTML = posting;

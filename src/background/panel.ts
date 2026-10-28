@@ -47,7 +47,19 @@ export async function handlePanel(msg: PanelRequest, tabId: number, frameId: num
       });
     case 'wera:panel-ensure':
       return settle(() => ensurePanel(tabId, { open: msg.open, fill: msg.fill }));
+    case 'wera:tab-close':
+      if (frameId !== 0) return { ok: false, status: 403, error: 'only the Wera panel closes the tab' };
+      return settle(() => closeTab(tabId));
   }
+}
+
+/** Closes the tab; the last tab of its window goes to the Wera tracker instead, so the window stays. */
+export async function closeTab(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.get(tabId);
+  const siblings = await chrome.tabs.query({ windowId: tab.windowId });
+  if (siblings.length > 1) return chrome.tabs.remove(tabId);
+  const s = await loadSession();
+  await chrome.tabs.update(tabId, { url: s ? `${s.server}/tracker` : 'chrome://newtab/' });
 }
 
 function runFrames(tabId: number, op: string, args: unknown[]): Promise<unknown> {
