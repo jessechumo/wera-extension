@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isJobUrl, jobSummary, pageKind } from '../content/detect';
+import { isJobUrl, isNotJobSite, jobSummary, pageKind } from '../content/detect';
 import type { SubmitReply } from '../shared/jobs';
 import { watchForJobs } from './index';
 
@@ -64,6 +64,22 @@ describe('telling job pages from other pages', () => {
     at('/blog/what-nurses-do');
     document.body.innerHTML = '<h1>What ICU nurses do</h1><p>Responsibilities and qualifications vary.</p>';
     expect(pageKind(document)).toBeNull();
+    // A job described in full but with no way to apply (a recruiter's message, a newsletter) is not a posting.
+    at('/careers/icu-nurse-4411');
+    document.body.innerHTML = plain.replace('<a href="/apply">Apply now</a>', '');
+    expect(pageKind(document)).toBeNull();
+  });
+
+  it('stays off mail, chat, documents and feeds, where job emails and "thank you for applying" are common', () => {
+    for (const url of [
+      'https://mail.google.com/mail/u/0/#inbox', 'https://outlook.office.com/mail/', 'https://outlook.live.com/mail/0/', 'https://mail.yahoo.com/d/folders/1',
+      'https://docs.google.com/document/d/1/edit', 'https://app.slack.com/client/T1', 'https://discord.com/channels/1/2', 'https://www.linkedin.com/feed/',
+      'https://www.linkedin.com/messaging/thread/1/', 'https://chatgpt.com/c/1', 'https://www.youtube.com/watch?v=1',
+    ]) expect(isNotJobSite(url), url).toBe(true);
+    for (const url of [
+      'https://discord.com/careers', 'https://www.linkedin.com/jobs/view/4012345678/', 'https://job-boards.greenhouse.io/discord/jobs/1',
+      'https://careers.google.com/jobs/results/1', 'https://acme.com/careers/sre',
+    ]) expect(isNotJobSite(url), url).toBe(false);
   });
 
   it('knows the addresses of job boards', () => {
@@ -170,6 +186,18 @@ describe('on a page', () => {
     await vi.waitFor(() => expect(window.__weraPage?.submitted?.state).toBe('marked'));
     expect(sent.filter((m) => m.type === 'wera:job-submitted')).toHaveLength(1);
     expect(sent.filter((m) => m.type === 'wera:panel-ensure').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('says when the user sends the application, so the tab can close once the site confirms', async () => {
+    const sent = fakeChrome();
+    document.body.innerHTML = fixture('greenhouse.html') + '<button type="button" id="send">Submit application</button><button type="button" id="next">Next</button>';
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-seen')).toBe(true));
+    document.querySelector<HTMLButtonElement>('#next')!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent.some((m) => m.type === 'wera:job-sending')).toBe(false);
+    document.querySelector<HTMLButtonElement>('#send')!.click();
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-sending')).toBe(true));
   });
 
   it('goes quietly when the extension is reloaded under it', async () => {

@@ -4,15 +4,17 @@
 import { WeraApi, type WeraJob } from '../shared/api';
 import { notifyDashboard, sameRole, tabHandoff } from '../shared/bridge';
 import { learnedDetails } from '../shared/details';
-import { briefOf, PAST_APPLIED, type JobRequest, type JobContext, type SubmitReply } from '../shared/jobs';
+import { briefOf, PAST_APPLIED, type JobConfirmed, type JobRequest, type JobContext, type SubmitReply } from '../shared/jobs';
 import { log } from '../shared/log';
 import { loadFlow } from '../shared/flow';
 import { loadSettings } from '../shared/settings';
 import { loadSession, notePage, rememberTabJob, tabJob, tabPages as pages } from '../shared/storage';
-import { hostOf, originOf } from '../shared/url';
+import { hostOf, originOf, siteOf } from '../shared/url';
 import type { FieldPurpose } from '../shared/types';
 
 const FORM_TTL = 3 * 3600_000;
+/** How soon after Submit the site's confirmation counts as the answer to it (closing the tab). */
+const SEND_TTL = 5 * 60_000;
 
 /** The signed-in API (null when signed out), telling open dashboards what changed. */
 export async function signedInApi(): Promise<WeraApi | null> {
@@ -62,15 +64,27 @@ function broadcast(tabId: number, job: WeraJob, applied = false) {
 }
 
 /** Answers one request about the tab's job from its page script or panel. */
-export async function handleJobRequest(msg: JobRequest, tabId: number, tabUrl: string): Promise<unknown> {
+export async function handleJobRequest(msg: JobRequest, tabId: number, tabUrl: string, frameId = 0): Promise<unknown> {
   const api = await signedInApi();
   switch (msg.type) {
     case 'wera:job-seen':
       // The panel looks the job up itself; this only notes what the tab showed (for confirmations).
-      await notePage(tabId, msg.kind === 'form' ? { formAt: Date.now() } : msg.draft ? { draft: msg.draft } : {});
+      await notePage(tabId, {
+        ...(msg.kind === 'form' ? { formAt: Date.now(), formHost: hostOf(tabUrl) } : {}),
+        ...(msg.draft ? { draft: msg.draft } : {}),
+      });
       return true;
-    case 'wera:job-submitted':
-      return api ? submitted(api, tabId, msg.url) : ({ state: 'off' } satisfies SubmitReply);
+    case 'wera:job-sending':
+      await notePage(tabId, { sentAt: Date.now() });
+      return true;
+    case 'wera:job-submitted': {
+      const reply: SubmitReply = api ? await submitted(api, tabId, msg.url, tabUrl) : { state: 'off' };
+      // A form embedded from its ATS confirmed: the panel (top frame) says so.
+      if (frameId !== 0 && reply.state !== 'off') {
+        void chrome.tabs.sendMessage(tabId, { type: 'wera:job-confirmed', reply } satisfies JobConfirmed, { frameId: 0 }).catch(() => {});
+      }
+      return reply;
+    }
     case 'wera:job-learn':
       return api ? learnDetails(api, msg.entries) : null;
     case 'wera:job-remember':
@@ -105,25 +119,47 @@ export async function learnDetails(api: WeraApi, entries: { purpose: FieldPurpos
   return keys;
 }
 
+/** Whether a confirmation on this page answers the form the tab showed: on the form's own site (or in a frame of it). */
+function sameApplication(seen: { formHost?: string } | undefined, url: string, tabUrl: string): boolean {
+  if (!seen?.formHost) return true;
+  const site = siteOf(seen.formHost);
+  return siteOf(hostOf(url)) === site || siteOf(hostOf(tabUrl)) === site;
+}
+
 /**
- * The site confirmed an application. When this tab showed a form lately
- * (so it is the user's own application, not a page that merely says the
- * words), the job moves to Applied.
+ * The site confirmed an application. When this tab showed a form on the
+ * same site lately (so it is the user's own application, not a page that
+ * merely says the words, like a mail inbox), the job moves to Applied.
+ * When the user clicked Submit moments ago, a job not in Wera yet is
+ * added from its posting, and the reply asks to close the tab (if the
+ * user wants that).
  */
-async function submitted(api: WeraApi, tabId: number, url: string): Promise<SubmitReply> {
+async function submitted(api: WeraApi, tabId: number, url: string, tabUrl = url): Promise<SubmitReply> {
   const settings = await loadSettings();
   const seen = (await pages())[tabId];
   const host = hostOf(url);
   const flow = host ? await loadFlow(tabId, host) : null;
-  if (!settings.autoApplied || (!flow && !(seen?.formAt && Date.now() - seen.formAt < FORM_TTL))) return { state: 'off' };
-  const job = await resolveJob(api, tabId, url);
+  const formSeen = !!seen?.formAt && Date.now() - seen.formAt < FORM_TTL && sameApplication(seen, url, tabUrl);
+  if (!settings.autoApplied || (!flow && !formSeen)) return { state: 'off' };
+  const sent = !!seen?.sentAt && Date.now() - seen.sentAt < SEND_TTL;
+  const close = sent && settings.closeAfterApply;
+  if (sent) await notePage(tabId, { sentAt: 0 });
+  let job = (await resolveJob(api, tabId, url)) ?? (tabUrl !== url ? await resolveJob(api, tabId, tabUrl) : null);
+  let added = false;
+  if (!job && sent && seen?.draft) {
+    job = await api.addJob(seen.draft).catch((e: unknown) => {
+      log.warn('jobs', 'adding the applied job failed', e);
+      return null;
+    });
+    added = !!job;
+  }
   if (!job) {
     const d = seen?.draft;
-    return { state: 'unknown', draft: d ? { title: d.title, company: d.company } : null };
+    return { state: 'unknown', draft: d ? { title: d.title, company: d.company } : null, close };
   }
-  if (job.application_status && PAST_APPLIED.has(job.application_status)) return { state: 'already', job: briefOf(job) };
+  if (job.application_status && PAST_APPLIED.has(job.application_status)) return { state: 'already', job: briefOf(job), close };
   const updated = await api.setStatus(job.id, 'applied');
   await notePage(tabId, { formAt: 0 });
   broadcast(tabId, updated, true);
-  return { state: 'marked', job: briefOf(updated), previous: job.application_status };
+  return { state: 'marked', job: briefOf(updated), previous: added ? null : job.application_status, added, close };
 }

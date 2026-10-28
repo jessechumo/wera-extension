@@ -10,6 +10,7 @@ import { extensionAlive } from '../shared/alive';
 import { remoteApi } from '../shared/rpc';
 import { followTheme } from '../shared/theme';
 import css from './styles.css?inline';
+import { AppliedAlert } from './AppliedAlert';
 import { Panel } from './Panel';
 import { usePanelPage } from './usePanelPage';
 import { useSettings } from './useSettings';
@@ -76,6 +77,8 @@ export function App({ handle, show }: { handle: PageHandle; show: Show }) {
   const page = usePanelPage(handle, !!server);
   const [settings, setSettings] = useSettings();
   const [open, setOpen] = useState(show.initial);
+  // The confirmation the user chose to stay on (the alert does not come back for it).
+  const [stayed, setStayed] = useState<unknown>(null);
   // A new request from the background: open (asked to fill, or to show), or show/hide (toolbar icon).
   const [seen, setSeen] = useState(show);
   if (seen !== show) {
@@ -103,9 +106,14 @@ export function App({ handle, show }: { handle: PageHandle; show: Show }) {
   // A single-page site moved to something that is not a job page: step aside, unless the user opened Wera here.
   const jobPage = !!page.handle.kind || !!page.info?.hasForm || !!page.submitted;
   if (!jobPage && !page.loading && show.opens === 0 && show.toggles === 0 && show.fills === 0) return null;
+  // The user sent the application and the site confirmed it: say so, then close the tab.
+  const sent = page.submitted && page.submitted.state !== 'off' && page.submitted.close ? page.submitted : null;
   return (
-    <Panel api={api} page={page} settings={settings} setSettings={setSettings} tabId={show.tabId} open={open} onOpen={onOpen}
-      fillRequest={show.fills} onSignedIn={reload} onSignedOut={reload} />
+    <>
+      <Panel api={api} page={page} settings={settings} setSettings={setSettings} tabId={show.tabId} open={open} onOpen={onOpen}
+        fillRequest={show.fills} onSignedIn={reload} onSignedOut={reload} />
+      {sent && sent !== stayed && <AppliedAlert reply={sent} onStay={() => setStayed(sent)} />}
+    </>
   );
 }
 

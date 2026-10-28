@@ -56,6 +56,10 @@ const TAB_PAGES = 'wera.tabPages';
 /** What the page script saw in a tab: when it last showed a form, and the posting it last showed. */
 export interface TabPage {
   formAt?: number;
+  /** The site (top frame's host) the form was on: a confirmation counts only there. */
+  formHost?: string;
+  /** When the user last clicked the form's Submit. */
+  sentAt?: number;
   draft?: JobDraft;
   at: number;
 }

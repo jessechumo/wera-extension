@@ -14,6 +14,19 @@ const SUBMITTED = [
   /successfully applied/i,
 ];
 
+// Where ATSs send the browser once an application went through.
+const SUBMITTED_PATH = /\/(thank[-_]?you|thanks|confirmation|application[-_]?(submitted|received|complete)|submitted|success)(\/|$|\?|#)/i;
+
+/** Whether the address is a "thank you for applying" page. */
+export function submittedAddress(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return SUBMITTED_PATH.test(u.pathname + (u.pathname.endsWith('/') ? '' : '/'));
+  } catch {
+    return false;
+  }
+}
+
 /** The page's visible text (textContent where innerText is missing). */
 export function bodyText(doc: Document): string {
   return doc.body?.innerText || doc.body?.textContent || '';
