@@ -52,7 +52,8 @@ export function currentValue(f: Field): string {
   }
 }
 
-function groupOf(purpose: FieldPurpose | null): FieldGroup {
+/** Which part of the form a field belongs to, by what it asks. */
+export function groupOf(purpose: FieldPurpose | null): FieldGroup {
   if (purpose === null) return 'other';
   if (purpose === 'consent') return 'consent';
   if (purpose === 'resume' || purpose === 'cover_letter') return 'documents';

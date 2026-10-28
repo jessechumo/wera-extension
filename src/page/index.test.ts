@@ -188,6 +188,27 @@ describe('on a page', () => {
     expect(sent.filter((m) => m.type === 'wera:panel-ensure').length).toBeGreaterThanOrEqual(2);
   });
 
+  it('remembers the answers the user gave when they submit the form themselves', async () => {
+    const sent = fakeChrome();
+    document.body.innerHTML = `<form><label for="fn">First name</label><input id="fn" value="Ada">
+      <label for="em">Email</label><input id="em" type="email" value="ada@example.com">
+      <label for="li">LinkedIn profile</label><input id="li" value="https://linkedin.com/in/ada">
+      <label for="h">Which team interests you most?</label><select id="h"><option value="">Select</option><option selected>Data platform</option></select>
+      <label for="w">What project are you proudest of, and why?</label><textarea id="w">The fleet scheduler I rebuilt: it cut idle time by a third.</textarea>
+      <button type="button" id="send">Submit application</button></form>`;
+    run(document, 5);
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-seen')).toBe(true));
+    document.querySelector<HTMLButtonElement>('#send')!.click();
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'wera:job-learn')).toBe(true));
+    const learn = sent.find((m) => m.type === 'wera:job-learn') as unknown as { answers: { question: string; answer: string; kind: string }[] };
+    expect(learn.answers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ question: 'Which team interests you most?', answer: 'Data platform', kind: 'choice' }),
+      expect.objectContaining({ question: 'What project are you proudest of, and why?', kind: 'long' }),
+    ]));
+    // Details go to the application details, not the answers.
+    expect(learn.answers.some((a) => /name|email|linkedin/i.test(a.question))).toBe(false);
+  });
+
   it('says when the user sends the application, so the tab can close once the site confirms', async () => {
     const sent = fakeChrome();
     document.body.innerHTML = fixture('greenhouse.html') + '<button type="button" id="send">Submit application</button><button type="button" id="next">Next</button>';

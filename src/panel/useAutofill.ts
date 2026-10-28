@@ -14,7 +14,7 @@ import { log } from '../shared/log';
 import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FillResult, PagePlan, Profile, ScanRequest } from '../shared/types';
-import { answersToLearn } from './learn';
+import { answersToLearn } from '../shared/learn';
 import { chunk, fitsPurpose, LETTER, needsDraft, needsSuggestion, pool, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
 
