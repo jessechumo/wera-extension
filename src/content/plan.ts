@@ -222,7 +222,7 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
     if (!v && DERIVED.has(purpose)) quiet = true;
   }
   if (!SELF_ID.has(purpose as FieldPurpose)) {
-    const hit = bestAnswer(opts.answers ?? [], f.label);
+    const hit = bestAnswer(opts.answers ?? [], f.label, 0.75, opts.company ?? '');
     // An earlier form's start date is as stale as a saved one.
     if (hit && !(/\bstart|availab/i.test(f.label) && startHasPassed(hit.answer))) {
       const fit = asOption(f, hit.answer, purpose);

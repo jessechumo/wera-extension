@@ -189,6 +189,8 @@ export interface PagePlan {
 export interface KnownAnswer {
   question: string;
   answer: string;
+  /** The company whose form it was given on. */
+  company?: string;
 }
 
 /** One field to fill, with the value the user approved. */

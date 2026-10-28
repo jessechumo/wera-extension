@@ -101,7 +101,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       setLetter(cover?.body ?? '');
       const profile: Profile = { ...view.applicant, experience: view.experience, education: view.education, skills: view.skills };
       const req: ScanRequest = {
-        profile, answers: saved.map((s) => ({ question: s.question, answer: s.answer })),
+        profile, answers: saved.map((s) => ({ question: s.question, answer: s.answer, company: s.company })),
         resumeName: file?.name, coverLetter: !!cover?.body, company: posting.company || undefined,
       };
       scanReq.current = req;
@@ -219,7 +219,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     const fromBank: Row[] = [];
     const toDraft: Row[] = [];
     for (const r of open) {
-      const hit = bestAnswer(bank.current, r.label);
+      const hit = bestAnswer(bank.current, r.label, 0.75, posting.company);
       if (hit && hit.answer.length >= 20) fromBank.push({ ...r, value: hit.answer, source: 'saved', note: 'your earlier answer', checked: true });
       else toDraft.push(r);
     }
