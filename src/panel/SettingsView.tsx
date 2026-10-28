@@ -32,7 +32,7 @@ export function SettingsView({ api, settings, setSettings, onSignedOut, onClose 
       <h2 className="text-sm font-semibold">Settings</h2>
       <div className="divide-y divide-border">
         <Toggle label="Answer with AI" hint="Fields your details do not cover, from your profile and resume. Unsure answers wait for you." on={settings.aiSuggest} set={(v) => setSettings({ aiSuggest: v })} />
-        <Toggle label="Draft open questions while filling" hint={'"Why us?", "Tell me about a time...": drafted for you to read.'} on={settings.aiQuestions} set={(v) => setSettings({ aiQuestions: v })} />
+        <Toggle label="Draft open questions and cover letters while filling" hint={'"Why us?", "Tell me about a time...", and a letter for this job when the form asks for one: drafted for you to read.'} on={settings.aiQuestions} set={(v) => setSettings({ aiQuestions: v })} />
         <Toggle label="Wera button in open questions" hint="Draft, rework and insert an answer right in the box." on={settings.assist} set={(v) => setSettings({ assist: v })} />
         <Toggle label="Fill the next page on Continue" hint="Multi-page applications (Workday) keep filling." on={settings.autoContinue} set={(v) => setSettings({ autoContinue: v })} />
         <Toggle label="Remember my answers" hint="What you type into forms, for the next application." on={settings.learn} set={(v) => setSettings({ learn: v })} />

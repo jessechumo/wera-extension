@@ -176,6 +176,34 @@ describe('the Wera panel', () => {
     expect(calls.some((c) => c.name === 'startRun')).toBe(true);
   });
 
+  it('writes a cover letter for this job when the form asks for one, attaches it, and asks the user to read it', async () => {
+    const plan: PagePlan = {
+      fields: [field('c1', 'Cover Letter', { purpose: 'cover_letter', kind: 'file', group: 'documents', required: true, note: 'no cover letter for this job yet' })],
+      next: null, errors: 0,
+    };
+    const applied: ApplyRequest[] = [];
+    const { calls } = fakeBackground({
+      job, info: { hasForm: true },
+      frames: {
+        scan: () => plan,
+        apply: (req: ApplyRequest) => {
+          applied.push(req);
+          return req.items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: 'Cover_Letter.pdf', required: false }));
+        },
+      },
+      api: {
+        writeCoverLetter: () => ({ body: 'Dear Acme, I keep robots running.' }),
+        coverLetterPdf: () => ({ name: 'Cover_Letter.pdf', base64: 'JVBERi0=' }),
+      },
+    });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(applied.some((r) => r.items.some((i) => i.id === 'c1'))).toBe(true));
+    expect(calls.find((c) => c.name === 'writeCoverLetter')?.args[0]).toBe(job.id);
+    expect(applied.find((r) => r.items.some((i) => i.id === 'c1'))?.letterFile).toMatchObject({ name: 'Cover_Letter.pdf' });
+    expect(await screen.findByText(/Wera wrote this letter for this job/)).toBeInTheDocument();
+  });
+
   it('moves a multi-page application on, and says what Workday wants first', async () => {
     const plan: PagePlan = { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', group: 'details' })], next: { id: 'n1', label: 'Save and Continue', final: false }, errors: 0, site: 'Workday', step: { name: 'My Information', index: 1, total: 5 } };
     const { calls } = fakeBackground({
@@ -235,7 +263,7 @@ describe('the Wera panel', () => {
     const { store } = fakeBackground({ job });
     render(<App handle={handle('posting')} show={show()} />);
     await userEvent.click(await screen.findByRole('button', { name: 'Settings' }));
-    await userEvent.click(screen.getByLabelText(/Draft open questions while filling/));
+    await userEvent.click(screen.getByLabelText(/Draft open questions and cover letters while filling/));
     await waitFor(() => expect(store['wera.settings']).toMatchObject({ aiQuestions: false }));
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeInTheDocument();

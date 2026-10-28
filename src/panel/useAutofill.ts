@@ -15,7 +15,7 @@ import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FillResult, PagePlan, Profile, ScanRequest } from '../shared/types';
 import { answersToLearn } from '../shared/learn';
-import { chunk, fitsPurpose, LETTER, needsDraft, needsSuggestion, pool, rowsFor, type Row } from './rows';
+import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
 
 export { needsYou, type Row } from './rows';
@@ -248,6 +248,34 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     if (failed) warn(describeError(cause, `Wera couldn't draft ${failed} answer${failed === 1 ? '' : 's'}; write ${failed === 1 ? 'it' : 'them'} on the form, or use the Wera button in the box`), cause);
   }, [api, fill, jobId, merge, posting, settings.aiQuestions, warn]);
 
+  /**
+   * A form that asks for a cover letter when this job has none yet: Wera
+   * writes one for the job (from the resume and the posting) and attaches
+   * it, as a PDF or in the box, for the user to read. Only when drafting
+   * is on.
+   */
+  const letterAndFill = useCallback(async (list: Row[]) => {
+    const want = list.filter(needsLetter);
+    if (!want.length || files.current.letter || !settings.aiQuestions) return;
+    const forJob = await ensureJob();
+    if (forJob == null) {
+      merge(want.map((r) => ({ ...r, note: 'save the job from its posting, then write its letter in the panel' })));
+      return;
+    }
+    try {
+      const l = await api.writeCoverLetter(forJob);
+      files.current = { ...files.current, letter: l.body };
+      setLetter(l.body);
+      log.info('autofill', 'wrote a cover letter for this job');
+    } catch (e) {
+      warn(describeError(e, "Couldn't write a cover letter for this job; attach your own"), e);
+      return;
+    }
+    const rows = want.map((r): Row => ({ ...r, value: LETTER, source: 'ai', note: 'Wera wrote this letter for this job: read it', checked: true, drafted: true }));
+    merge(rows);
+    await fill(rows);
+  }, [api, ensureJob, fill, merge, settings.aiQuestions, warn]);
+
   /** Remembers the page's answers for the next form (details are learned by the page itself, on Next or Submit). */
   const learn = useCallback(async (list: Row[]) => {
     if (!settings.learn || !list.length) return;
@@ -306,8 +334,8 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
         }
       }
       setPhase('thinking');
-      setThinking(all.filter(needsSuggestion).length + all.filter(needsDraft).length);
-      await Promise.all([suggestAndFill(all), draftAndFill(all)]);
+      setThinking(all.filter(needsSuggestion).length + all.filter(needsDraft).length + (all.some(needsLetter) && settings.aiQuestions ? 1 : 0));
+      await Promise.all([suggestAndFill(all), draftAndFill(all), letterAndFill(all)]);
       setThinking(0);
       const forJob = await ensureJob();
       const filled = latest.current.filter((x) => x.status === 'filled');
@@ -320,7 +348,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       setRows((rs) => rs.map((r) => (r.status === 'filling' ? { ...r, status: undefined } : r)));
       setPhase('idle');
     }
-  }, [read, fill, revealDelay, suggestAndFill, draftAndFill, ensureJob, count, page]);
+  }, [read, fill, revealDelay, suggestAndFill, draftAndFill, letterAndFill, settings.aiQuestions, ensureJob, count, page]);
 
   /** Fills one value the user approved (an AI guess, or a choice they made in the panel). */
   const fillOne = useCallback(async (r: Row, value: string) => {
