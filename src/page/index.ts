@@ -7,10 +7,11 @@ import { isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/de
 import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
 import { listen } from '../content/listen';
-import { snapshot } from '../content/plan';
+import { groupOf, snapshot } from '../content/plan';
 import { bodyText, looksSubmitted, submittedAddress } from '../content/watch';
 import { extensionAlive, sendSafe } from '../shared/alive';
 import { detailPurpose } from '../shared/details';
+import { answersToLearn, type LearnedAnswer } from '../shared/learn';
 import type { JobConfirmed, JobRequest, SubmitReply } from '../shared/jobs';
 import { SETTINGS_KEY } from '../shared/settings';
 import type { FieldPurpose, JobDraft } from '../shared/types';
@@ -48,10 +49,18 @@ const SENDS = /^(submit|submit (my |your )?application|send|send application|app
  * only those it lacks, see shared/details.ts). Open answers, job and
  * school blocks and lone tick boxes are not details.
  */
-export function formDetails(doc: Document): { purpose: FieldPurpose; value: string }[] {
-  return snapshot(doc)
+export function formDetails(doc: Document, snap = snapshot(doc)): { purpose: FieldPurpose; value: string }[] {
+  return snap
     .filter((f): f is typeof f & { purpose: FieldPurpose } => detailPurpose(f.purpose) && !ENTRY_PURPOSES.has(f.purpose) && f.kind !== 'checkbox')
     .map((f) => ({ purpose: f.purpose, value: f.value }));
+}
+
+/**
+ * The form's own questions as the user answered them (open questions,
+ * choices, anything not a detail): what Wera remembers for the next form.
+ */
+export function formAnswers(doc: Document, company: string, snap = snapshot(doc)): LearnedAnswer[] {
+  return answersToLearn(snap.map((s) => ({ id: s.id, label: s.label, group: groupOf(s.purpose) })), snap, [], company);
 }
 
 /** Whether the panel may show on this page: turned on, and not the user's own Wera. */
@@ -152,8 +161,11 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     const text = (b instanceof HTMLInputElement ? b.value : b.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (!MOVES_ON.test(text)) return;
     if (SENDS.test(text)) void ask({ type: 'wera:job-sending' });
-    const entries = formDetails(doc);
-    if (entries.length) void ask({ type: 'wera:job-learn', entries });
+    // Read now: the page may be gone a moment later.
+    const snap = snapshot(doc);
+    const entries = formDetails(doc, snap);
+    const answers = formAnswers(doc, handle.company, snap);
+    if (entries.length || answers.length) void ask({ type: 'wera:job-learn', entries, answers });
   };
   // Sent with Enter in a field: the form's own submit.
   const onSubmit = () => {

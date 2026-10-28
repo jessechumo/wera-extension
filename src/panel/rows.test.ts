@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FieldPlan } from '../shared/types';
-import { needsDraft, needsSuggestion, rowsFor, type Row } from './rows';
+import { needsDraft, needsLetter, needsSuggestion, rowsFor, type Row } from './rows';
 
 const row = (over: Partial<Row>): Row => ({
   id: 'w1', label: 'Field', purpose: null, kind: 'text', options: [], required: false, current: '', value: '', source: null, group: 'other', checked: false, ...over,
@@ -29,5 +29,17 @@ describe('which rows Wera fills, asks the AI about, or drafts', () => {
     expect(needsDraft(q('Additional Information'))).toBe(false);
     expect(needsDraft(q('Anything else you would like us to know?'))).toBe(false);
     expect(needsDraft(q('Additional information', true))).toBe(true);
+  });
+
+  it('writes a cover letter only where the form insists or asks for one by name', () => {
+    const letter = (over: Partial<Row>) => row({ purpose: 'cover_letter', group: 'documents', kind: 'file', label: 'Cover Letter', ...over });
+    expect(needsLetter(letter({}))).toBe(true);
+    expect(needsLetter(letter({ kind: 'textarea', label: 'Motivation letter' }))).toBe(true);
+    // Lever's optional "Additional information" takes a letter Wera has, but is not worth writing one for.
+    expect(needsLetter(letter({ kind: 'textarea', label: 'Additional information' }))).toBe(false);
+    expect(needsLetter(letter({ kind: 'textarea', label: 'Additional information', required: true }))).toBe(true);
+    // A letter Wera has, or one already on the page, needs nothing.
+    expect(needsLetter(letter({ value: '\u0000letter' }))).toBe(false);
+    expect(needsLetter(letter({ current: 'Letter.pdf' }))).toBe(false);
   });
 });

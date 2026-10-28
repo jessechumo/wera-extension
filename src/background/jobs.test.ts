@@ -147,6 +147,27 @@ describe('job requests in the background', () => {
     expect(toTab).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: 'wera:job-confirmed', reply: expect.objectContaining({ state: 'marked' }) }), { frameId: 0 });
   });
 
+  it('remembers answers from a form the user moved on from: new ones only, with the posting\'s company', async () => {
+    setup();
+    await handleJobRequest({ type: 'wera:job-seen', kind: 'posting', draft }, TAB, draft.url);
+    let saved: { question: string; answer: string; company: string }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+      const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (url.endsWith('/api/applicant/answers') && init.method === 'PUT') {
+        saved = (JSON.parse(init.body as string) as { answers: typeof saved }).answers;
+        return json({ answers: saved });
+      }
+      if (url.endsWith('/api/applicant/answers')) return json({ answers: [{ id: 1, question: 'Favorite tool?', answer: 'Go', kind: 'text', company: '', updated_at: '' }] });
+      return json({});
+    }));
+    const n = await handleJobRequest({ type: 'wera:job-learn', entries: [], answers: [
+      { question: 'Favorite tool?', answer: 'Go', kind: 'text', company: '' },
+      { question: 'How did you hear about us?', answer: 'A friend', kind: 'choice', company: '' },
+    ] }, TAB, URL1);
+    expect(n).toEqual([]);
+    expect(saved).toEqual([{ question: 'How did you hear about us?', answer: 'A friend', kind: 'choice', company: 'Acme' }]);
+  });
+
   it('learns details the profile lacks from a form the user moved on from, and keeps the rest', async () => {
     setup();
     let saved: Record<string, string> | null = null;

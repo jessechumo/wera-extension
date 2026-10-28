@@ -89,6 +89,21 @@ test.afterEach(async ({}, info) => {
   }
 });
 
+/** Calls the API as the test user with a short-lived token. */
+async function asUser<T>(path: string): Promise<T> {
+  const conn = await fetch(`${API}/api/ext/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'chrome-extension://e2e' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: 'e2e check' }),
+  });
+  const { token } = (await conn.json()) as { token: string };
+  try {
+    return (await (await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } })).json()) as T;
+  } finally {
+    await fetch(`${API}/api/ext/tokens/current`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  }
+}
+
 /** Screenshots for review when WERA_SHOTS is set. */
 async function shot(p: Page, name: string) {
   if (process.env.WERA_SHOTS) await p.screenshot({ path: `${process.env.WERA_SHOTS}/${name}.png` });
@@ -160,7 +175,9 @@ test('fill a multi-step application, then mark it applied', async () => {
   await expect(panel.getByText(/Last page/)).toBeVisible({ timeout: 20_000 });
   await shot(job, 'steps');
 
-  // The user submits; Wera sees the thank-you, moves the job to Applied, says so, then closes the tab.
+  // The user writes their own answer (CI's API has no AI to draft one), then submits; Wera sees the
+  // thank-you, moves the job to Applied, says so, then closes the tab.
+  await job.locator('#why').fill('I want to keep a fleet of robots online, and Fixture runs the biggest one.');
   const closed = job.waitForEvent('close', { timeout: 30_000 });
   await job.locator('#submit').click();
   await expect(panel.getByRole('alertdialog', { name: 'Application submitted' })).toBeVisible({ timeout: 15_000 });
@@ -168,6 +185,9 @@ test('fill a multi-step application, then mark it applied', async () => {
   await expect(panel.getByText(/Application sent. Marked as applied/)).toBeVisible();
   await shot(job, 'applied');
   await closed;
+  // The answer on the form the user submitted is remembered for the next one.
+  await expect.poll(async () => (await asUser<{ answers: { question: string }[] }>('/api/applicant/answers')).answers.map((a) => a.question))
+    .toContain('Why do you want to join Fixture Robotics?');
 });
 
 test('stays off a mail inbox full of job emails and "thank you for applying"', async () => {

@@ -3,7 +3,9 @@
 // the application. Signed-in calls happen here, never in the page.
 import { WeraApi, type WeraJob } from '../shared/api';
 import { notifyDashboard, sameRole, tabHandoff } from '../shared/bridge';
+import { answerKey } from '../shared/answers';
 import { learnedDetails } from '../shared/details';
+import type { LearnedAnswer } from '../shared/learn';
 import { briefOf, PAST_APPLIED, type JobConfirmed, type JobRequest, type JobContext, type SubmitReply } from '../shared/jobs';
 import { log } from '../shared/log';
 import { loadFlow } from '../shared/flow';
@@ -85,8 +87,14 @@ export async function handleJobRequest(msg: JobRequest, tabId: number, tabUrl: s
       }
       return reply;
     }
-    case 'wera:job-learn':
-      return api ? learnDetails(api, msg.entries) : null;
+    case 'wera:job-learn': {
+      if (!api) return null;
+      const [keys] = await Promise.all([
+        msg.entries.length ? learnDetails(api, msg.entries) : Promise.resolve([] as string[]),
+        msg.answers?.length ? learnAnswers(api, tabId, msg.answers) : Promise.resolve(0),
+      ]);
+      return keys;
+    }
     case 'wera:job-remember':
       await rememberTabJob(tabId, originOf(tabUrl), msg.jobId);
       return true;
@@ -124,6 +132,25 @@ function sameApplication(seen: { formHost?: string } | undefined, url: string, t
   if (!seen?.formHost) return true;
   const site = siteOf(seen.formHost);
   return siteOf(hostOf(url)) === site || siteOf(hostOf(tabUrl)) === site;
+}
+
+/**
+ * Remembers the answers the user gave on a form they moved on, for the
+ * next form (when they want that), leaving out those Wera has already.
+ * A form in a frame does not know its company: the tab's posting does.
+ * Returns how many were saved.
+ */
+export async function learnAnswers(api: WeraApi, tabId: number, answers: LearnedAnswer[]): Promise<number> {
+  if (!(await loadSettings()).learn) return 0;
+  const [bank, seen] = await Promise.all([api.answers().catch(() => []), pages().then((p) => p[tabId])]);
+  const known = new Map(bank.map((a) => [answerKey(a.question), a.answer]));
+  const company = seen?.draft?.company ?? '';
+  const fresh = answers
+    .filter((a) => known.get(answerKey(a.question)) !== a.answer)
+    .map((a) => ({ ...a, company: a.company || company }));
+  if (fresh.length) await api.saveAnswers(fresh);
+  log.info('jobs', fresh.length ? `remembered ${fresh.length} answer(s) from the form` : 'no new answers to remember');
+  return fresh.length;
 }
 
 /**

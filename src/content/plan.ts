@@ -52,7 +52,8 @@ export function currentValue(f: Field): string {
   }
 }
 
-function groupOf(purpose: FieldPurpose | null): FieldGroup {
+/** Which part of the form a field belongs to, by what it asks. */
+export function groupOf(purpose: FieldPurpose | null): FieldGroup {
   if (purpose === null) return 'other';
   if (purpose === 'consent') return 'consent';
   if (purpose === 'resume' || purpose === 'cover_letter') return 'documents';
@@ -222,7 +223,7 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
     if (!v && DERIVED.has(purpose)) quiet = true;
   }
   if (!SELF_ID.has(purpose as FieldPurpose)) {
-    const hit = bestAnswer(opts.answers ?? [], f.label);
+    const hit = bestAnswer(opts.answers ?? [], f.label, 0.75, opts.company ?? '');
     // An earlier form's start date is as stale as a saved one.
     if (hit && !(/\bstart|availab/i.test(f.label) && startHasPassed(hit.answer))) {
       const fit = asOption(f, hit.answer, purpose);

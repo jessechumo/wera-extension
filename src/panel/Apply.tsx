@@ -150,7 +150,7 @@ function CopyDiagnostics({ a }: { a: ReturnType<typeof useAutofill> }) {
 /** One field that needs the user: why, a click to it on the page, and Wera's guess to use when it has one. */
 function NeedRow({ r, onUse }: { r: Row; onUse: (value: string) => void }) {
   const guess = r.source === 'ai' && r.value && !r.checked && r.status !== 'filled';
-  const why = r.drafted ? 'Wera drafted this answer: read it and make it yours'
+  const why = r.drafted ? (r.purpose === 'cover_letter' ? 'Wera wrote this letter for this job: read it in the panel below' : 'Wera drafted this answer: read it and make it yours')
     : r.status === 'review' ? r.result || r.note || 'check it'
     : guess ? `Wera's guess: ${r.value}`
     : r.group === 'consent' ? 'agree yourself after reading it'

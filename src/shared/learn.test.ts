@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FieldPlan, FieldSnapshot } from '../shared/types';
+import type { FieldPlan, FieldSnapshot } from './types';
 import { answersToLearn } from './learn';
 
 const plan = (id: string, label: string, over: Partial<FieldPlan> = {}): FieldPlan => ({

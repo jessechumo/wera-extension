@@ -236,7 +236,10 @@ export function startAssist(doc: Document): () => void {
       log.warn('assist', 'loading earlier answers failed', e);
       return [];
     }) : Promise.resolve([]);
-    const hit = bestAnswer(await bank, label);
+    // Not an answer that names another company ("Why Stripe?" on Ramp's form).
+    context ??= sendSafe<JobContext>({ type: 'wera:job-context' });
+    const company = (await context.catch(() => null))?.posting?.company ?? '';
+    const hit = bestAnswer(await bank, label, 0.75, company);
     if (hit && hit.answer.length >= 20) {
       const useSaved = el(doc, 'button', { class: 'btn', type: 'button' }, icon(doc, 'history'), 'Use this');
       useSaved.addEventListener('click', () => show({ text: hit.answer, needs: '' }));
