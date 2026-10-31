@@ -28,8 +28,7 @@ export interface Trap {
 
 // Characters that show nothing: they hide words from a reader, or split a
 // word so that a filter misses it.
-// eslint-disable-next-line no-misleading-character-class, no-irregular-whitespace -- the class lists invisible and joining characters on purpose
-const INVISIBLE = /[­͏؜ᅟᅠ឴឵᠋-᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]/g;
+const INVISIBLE = new RegExp('[\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0]', 'g');
 // Unicode tag characters spell out ASCII that nothing displays.
 const TAGS = /[\u{e0000}-\u{e007f}]+/gu;
 // Letters from other alphabets that read like Latin ones, for telling what a line says.
@@ -155,10 +154,13 @@ function sentences(text: string): { start: number; line: string }[] {
 // What joins a clause to the sentence's real question: left off once the clause is gone.
 const LEFT_OVER = /[\s,;:([{–—-]*(?:\b(?:and|but|or|also|however|note|please|note that|then)\b[\s,:;–—-]*)*$/i;
 
+// An opening that only sets up the order ("If you can read this,").
+const LEAD_IN = /^(?:if|when|to help|to show|in order to)\b/i;
+
 /** A sentence without the words aimed at machines: the part before them when it says something, else nothing. */
 function withoutClause(line: string, at: number): string {
   const before = line.slice(0, at).replace(LEFT_OVER, '').trim();
-  return before.split(/\s+/).filter(Boolean).length >= 3 ? before : '';
+  return before.split(/\s+/).filter(Boolean).length >= 3 && !LEAD_IN.test(before) ? before : '';
 }
 
 export interface Scrubbed {
