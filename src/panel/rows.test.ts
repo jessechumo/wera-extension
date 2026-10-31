@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FieldPlan } from '../shared/types';
-import { needsDraft, needsLetter, needsSuggestion, readsLikeAnswer, rowsFor, type Row } from './rows';
+import { isGuess, needsDraft, needsLetter, needsSuggestion, readsLikeAnswer, rowsFor, type Row } from './rows';
 
 const row = (over: Partial<Row>): Row => ({
   id: 'w1', label: 'Field', purpose: null, kind: 'text', options: [], required: false, current: '', value: '', source: null, group: 'other', checked: false, ...over,
@@ -63,5 +63,17 @@ describe('traps', () => {
     expect(readsLikeAnswer(open({}), ' 42. ')).toBe(false);
     expect(readsLikeAnswer(open({}), 'Two weeks')).toBe(true);
     expect(readsLikeAnswer(open({ kind: 'text', purpose: 'years_experience' }), '5')).toBe(true);
+  });
+});
+
+describe('guesses', () => {
+  const guess = (over: Partial<Row>) => row({ value: 'x', source: 'ai', ...over });
+
+  it('are AI answers Wera did not trust enough to enter', () => {
+    expect(isGuess(guess({}))).toBe(true);
+    expect(isGuess(guess({ checked: true }))).toBe(false);
+    expect(isGuess(guess({ status: 'filled' }))).toBe(false);
+    expect(isGuess(guess({ value: '' }))).toBe(false);
+    expect(isGuess(guess({ source: 'details' }))).toBe(false);
   });
 });
