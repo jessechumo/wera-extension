@@ -41,6 +41,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('an application that starts with the email alone', () => {
+  const form = '<label for="e">Email Address</label><input id="e" type="email"><label><input type="checkbox"> I agree with the terms and conditions</label><button>Next</button>';
+  const at = (url: string) => new JSDOM(`<!doctype html>${form}`, { url }).window.document;
+
+  it('is an application on a system that says so in its address', () => {
+    expect(pageKind(at('https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210597507/apply/email'))).toBe('form');
+    expect(pageKind(at('https://careers-acme.icims.com/jobs/7968/qa-engineer/login?in_iframe=1'))).toBe('form');
+  });
+
+  it('is not a job alert or a newsletter', () => {
+    expect(pageKind(at('https://careers.acme.com/job-alerts'))).toBeNull();
+    expect(pageKind(at('https://www.acme.com/apply/newsletter'))).toBeNull();
+  });
+});
+
 describe('a page shown in a frame of its own (iCIMS)', () => {
   /** The empty page around iCIMS's frame, with what the frame shows. */
   function wrapped(inner: string) {

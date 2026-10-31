@@ -49,6 +49,20 @@ function readPage(): PageInfo {
   };
 }
 
+/** Pressing Apply can ask how to go on (Workday's "Apply Manually"): the user asked Wera to fill it, so that way. */
+async function takeApplyChoice(doc: Document) {
+  const site = siteFor(doc);
+  if (!site?.applyChoice) return;
+  for (let i = 0; i < 30; i++) {
+    const choice = site.applyChoice(doc);
+    if (choice) {
+      press(choice);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 export function listen() {
   // Set once per loaded document, so the panel can tell a reload from a step of the same form.
   window.__weraDocId = Math.random().toString(36).slice(2);
@@ -104,8 +118,12 @@ export function listen() {
         reply(pressNext(document));
         return false;
       case 'wera:press-apply': {
-        const b = findApply(pageDocument(document));
-        if (b) press(b);
+        const shown = pageDocument(document);
+        const b = findApply(shown);
+        if (b) {
+          press(b);
+          void takeApplyChoice(shown);
+        }
         reply({ ok: !!b });
         return false;
       }

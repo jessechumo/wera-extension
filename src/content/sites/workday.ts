@@ -119,6 +119,7 @@ export const workday: Site = {
   next,
   step,
   gate,
+  applyChoice: (doc) => doc.querySelector<HTMLElement>('[data-automation-id="applyManually"]'),
   // Workday re-renders after each choice and loses input typed too soon.
   pace: 120,
 };
