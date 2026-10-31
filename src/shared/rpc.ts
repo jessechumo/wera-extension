@@ -30,11 +30,13 @@ export type PanelRequest =
   /** The page script found a job page (or a form in a frame): show the panel. */
   | { type: 'wera:panel-ensure'; open?: boolean; fill?: boolean }
   /** The application went through and the user wants the tab gone (see panel/AppliedAlert.tsx). */
-  | { type: 'wera:tab-close' };
+  | { type: 'wera:tab-close' }
+  /** The user takes up the next match from the application they just sent: it opens in this tab. */
+  | { type: 'wera:open-next'; jobId: number; url: string };
 
 export const isPanelRequest = (m: unknown): m is PanelRequest => {
   const t = (m as { type?: unknown } | null)?.type;
-  return t === 'wera:api' || t === 'wera:frames' || t === 'wera:sign-in' || t === 'wera:sign-out' || t === 'wera:panel-ensure' || t === 'wera:tab-close';
+  return t === 'wera:api' || t === 'wera:frames' || t === 'wera:sign-in' || t === 'wera:sign-out' || t === 'wera:panel-ensure' || t === 'wera:tab-close' || t === 'wera:open-next';
 };
 
 export type RpcReply<T = unknown> = { ok: true; value: T } | { ok: false; status: number; error: string };

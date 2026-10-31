@@ -8,7 +8,8 @@ import type { ApplicationStatus, JobH1B, JobKeywords, WeraApi, WeraJob } from '.
 import { describeError } from '../shared/errors';
 import { markApplying } from '../shared/flow';
 import { log } from '../shared/log';
-import { frames } from '../shared/rpc';
+import { frames, rpc } from '../shared/rpc';
+import { NextMatch, useNextMatch } from './AppliedAlert';
 import { Traps } from './Traps';
 import { BigButton, Button, Notice, ScoreRing, Skeleton } from './ui';
 import type { PanelPageState } from './usePanelPage';
@@ -179,6 +180,7 @@ export function Submitted({ api, page }: { api: WeraApi; page: PanelPageState })
   const s = page.submitted!;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const next = useNextMatch(api, page.job?.id ?? null);
   const undo = async (job: WeraJob, to: ApplicationStatus) => {
     setBusy(true);
     try {
@@ -228,6 +230,9 @@ export function Submitted({ api, page }: { api: WeraApi; page: PanelPageState })
             </>
           ) : null}
           {error && <div className="mt-2"><Notice tone="bad">{error}</Notice></div>}
+          {next && <div className="mt-2"><NextMatch job={next} onOpen={() => {
+            rpc({ type: 'wera:open-next', jobId: next.id, url: next.url }).catch((e: unknown) => setError(describeError(e, "Couldn't open that job")));
+          }} /></div>}
         </div>
         <button type="button" className="text-faint hover:text-text" onClick={page.clearSubmitted} aria-label="Close"><X className="size-3.5" /></button>
       </div>
