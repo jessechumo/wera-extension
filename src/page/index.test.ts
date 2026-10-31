@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { careerAddress, isJobUrl, isNotJobSite, jobSummary, pageKind } from '../content/detect';
+import { careerAddress, findApply, isJobUrl, isNotJobSite, jobSummary, pageDocument, pageKind } from '../content/detect';
 import type { SubmitReply } from '../shared/jobs';
 import { watchForJobs } from './index';
 
@@ -39,6 +39,40 @@ afterEach(() => {
   at('/');
   delete window.__weraPage;
   vi.unstubAllGlobals();
+});
+
+describe('a page shown in a frame of its own (iCIMS)', () => {
+  /** The empty page around iCIMS's frame, with what the frame shows. */
+  function wrapped(inner: string) {
+    const dom = new JSDOM('<!doctype html><iframe id="icims_content_iframe"></iframe>', { url: 'https://careers-acme.icims.com/jobs/7946/analyst/job?mobile=false' });
+    const frame = dom.window.document.querySelector('iframe')!;
+    frame.contentDocument!.body.innerHTML = inner;
+    return dom.window.document;
+  }
+
+  it('is read through the frame', () => {
+    const doc = wrapped(posting);
+    expect(pageKind(doc)).toBe('posting');
+    expect(jobSummary(pageDocument(doc)).title).toBe('SRE');
+  });
+
+  it('finds an Apply button that says it twice for screen readers', () => {
+    const doc = wrapped(`${posting}<a href="?mode=apply"><span>Apply</span><span>Apply</span></a>`);
+    expect(findApply(pageDocument(doc))?.getAttribute('href')).toBe('?mode=apply');
+  });
+
+  it('is left alone when the frame is empty', () => {
+    expect(pageKind(wrapped(''))).toBeNull();
+  });
+});
+
+describe('Apply buttons in other languages', () => {
+  it('are found on a job page', () => {
+    for (const says of ['Auf diese Stelle bewerben', 'Jetzt bewerben', 'Postuler', 'Solicitar', 'Candidatar-se', 'Solliciteer nu']) {
+      const { document } = new JSDOM(`<a href="#">${says}</a>`).window;
+      expect(findApply(document)?.textContent).toBe(says);
+    }
+  });
 });
 
 describe('telling job pages from other pages', () => {
