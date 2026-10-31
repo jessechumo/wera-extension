@@ -186,6 +186,11 @@ function applyAddress(url: string): boolean {
   }
 }
 
+/** Whether the address is a step of an application on an applicant system (which may also be called its login). */
+function applyStep(url: string): boolean {
+  return applyAddress(url) || /[?&]mode=(apply|login)\b/i.test(url) || /\.icims\.com\/jobs\/\d+\/[^?]*\/login\b/i.test(url);
+}
+
 const APPLY = /^\s*(apply|apply now|apply (for|to) (this|the) (job|position|role|opening|vacancy)|apply (online|here|today)|easy apply|quick apply|apply on (the )?(company|employer)('s)? (site|website)|(start|begin) (your |my )?application|submit (your |my )?application|i'?m interested|(jetzt |hier |online )?bewerben|(auf diese stelle|für diese stelle) bewerben|postuler( maintenant| à cette offre)?|candidatez|solicitar( empleo| ahora)?|aplicar( ahora)?|postular(me|se)?|candidatar(-se)?|candidati( ora)?|solliciteer( nu)?|solliciteren)\s*[→›>]?\s*$/i;
 const SECTIONS = [
   /responsibilit/i, /qualification/i, /requirement/i, /what you('|’)?ll do/i, /about the (role|job|position|team)/i,
@@ -260,6 +265,8 @@ export function ownApplicationForm(doc: Document): boolean {
   if (!applicantSite && doc.querySelectorAll('input, select, textarea').length < 2) return false;
   const fields = collectFields(doc).map(classify);
   const known = fields.filter((p) => p !== null && p !== 'question' && p !== 'consent').length;
+  // Some systems start with nothing but the applicant's email (Oracle, iCIMS).
+  if (known === 1 && applicantSite && applyStep(url) && fields.includes('email')) return true;
   if (known < 2) return false;
   const only = new Set(fields.filter((p) => p !== null && APPLICATION_ONLY.has(p)));
   const too = new Set(fields.filter((p) => p !== null && APPLICATION_TOO.has(p)));
