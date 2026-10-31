@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectFields } from '../content/fields';
-import { isOpenQuestion, startAssist, wordsFor } from './assist';
+import { isOpenQuestion, startAssist, wordsFor, lookedLately } from './assist';
 
 const FORM = `<form>
   <label for="fn">First name</label><input id="fn">
@@ -93,5 +93,28 @@ describe('the Wera button', () => {
     document.querySelector<HTMLTextAreaElement>('#c')!.focus();
     await new Promise((r) => setTimeout(r, 50));
     expect(button('Draft this answer with Wera')).toBeUndefined();
+  });
+});
+
+describe('looking at a focused box', () => {
+  it('reads a box once however often the page focuses it', () => {
+    let t = 0;
+    const looked = lookedLately(1500, () => t);
+    const box = document.createElement('input');
+    expect(looked(box)).toBe(false);
+    for (let i = 0; i < 300; i++) {
+      t += 5;
+      if (t < 1500) expect(looked(box)).toBe(true);
+    }
+  });
+
+  it('reads it again later, and another box at once', () => {
+    let t = 0;
+    const looked = lookedLately(1500, () => t);
+    const box = document.createElement('input');
+    expect(looked(box)).toBe(false);
+    expect(looked(document.createElement('textarea'))).toBe(false);
+    t = 1600;
+    expect(looked(box)).toBe(false);
   });
 });
