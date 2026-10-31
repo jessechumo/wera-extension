@@ -1,5 +1,5 @@
 // Site rules: what Wera knows about the application systems people meet
-// most (Workday, Greenhouse, Lever, Ashby). Each knows its site's own
+// most (Workday, Greenhouse, Lever, Ashby, Jobvite). Each knows its site's own
 // field names, how its widgets behave, where its way forward is and which
 // step the user is on (how it fills its widgets is in sites/fill.ts).
 // Wera's general rules handle everything a site rule leaves alone, and
@@ -8,6 +8,7 @@ import type { FieldPurpose } from '../../shared/types';
 import type { Field } from '../fields';
 import { ashby } from './ashby';
 import { greenhouse } from './greenhouse';
+import { jobvite } from './jobvite';
 import { lever } from './lever';
 import { workday } from './workday';
 
@@ -35,7 +36,7 @@ export interface Site {
   readsResume?: number;
 }
 
-const SITES: Site[] = [workday, greenhouse, lever, ashby];
+const SITES: Site[] = [workday, greenhouse, lever, ashby, jobvite];
 
 /** The site rules for a document, if Wera has some. Not remembered: a single-page site can change what it shows. */
 export function siteFor(doc: Document): Site | null {
