@@ -84,6 +84,13 @@ describe('planForm', () => {
     expect(byLabel(plan.fields, 'Cover letter').note).toBe('no cover letter for this job yet');
   });
 
+  it('leaves an upload that does not take PDFs to the user', () => {
+    document.body.innerHTML = `<label for="r">Resume</label><input id="r" type="file" accept=".doc,.docx"><label for="c">Cover letter</label><input id="c" type="file" accept="application/pdf">`;
+    const plan = planForm(document, ada, { resumeName: 'Ada.pdf', coverLetter: true });
+    expect(plan.fields[0]).toMatchObject({ value: '', note: 'this form does not take a PDF: attach a copy it accepts yourself' });
+    expect(plan.fields[1]).toMatchObject({ value: LETTER });
+  });
+
   it('never proposes an earlier answer for self-identification', () => {
     const plan = planForm(document, { ...ada, sexual_orientation: '' }, { answers: [{ question: 'Sexual orientation', answer: 'Heterosexual' }] });
     expect(byLabel(plan.fields, 'Sexual orientation').value).toBe('');
