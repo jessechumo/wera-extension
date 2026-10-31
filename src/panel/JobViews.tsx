@@ -89,7 +89,7 @@ export function Fit({ api, page }: { api: WeraApi; page: PanelPageState }) {
   return (
     <div className="rounded-card border border-border bg-surface text-xs">
       <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="min-w-0 flex-1 font-medium">{coverage ? `Your resume has ${coverage.percent}% of this job's keywords` : 'Why this fit'}</span>
+        <span className="min-w-0 flex-1 font-medium">{coverage?.matched.length ? `Your resume has ${coverage.percent}% of this job's keywords` : 'Why this fit'}</span>
         <ChevronDown className={clsx('size-3 shrink-0 text-muted transition-transform', open && 'rotate-180')} />
       </button>
       {open && (

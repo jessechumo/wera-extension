@@ -178,6 +178,45 @@ describe('answers that depend on the job', () => {
   });
 });
 
+describe('uploads as real systems draw them', () => {
+  const purposes = () => collectFields(document).map((f) => [f.label, classify(f)]);
+
+  it('Rippling: its one resume field says it is read, and its test ids say what each takes', () => {
+    document.body.innerHTML = `<form><div><div>Résumé*</div><label><input type="file" accept=".doc,.docx,.pdf" data-testid="input-resume"><span>Total 0 file selected Drop or select (.doc / .docx / .pdf)</span></label><p>The résumé will be parsed to fill in the application details.</p></div></form>`;
+    expect(classify(collectFields(document)[0]!)).toBe('resume');
+    document.body.innerHTML = `<form><div><label><input type="file" accept=".pdf" data-testid="input-cover_letter"><span>Drop or select (.doc / .docx / .pdf)</span></label></div></form>`;
+    expect(classify(collectFields(document)[0]!)).toBe('cover_letter');
+  });
+
+  it('Breezy: skips the parser\'s dropzone, and finds the resume field under its heading', () => {
+    document.body.innerHTML = `<div><h3>Fill in with Resume</h3><p>Upload your resume to fill in the data automatically</p><div><input type="file" aria-label="Upload a file" data-testid="public-resume-parser-dropzone"></div></div>
+      <section><div>RESUME*</div><div><div><input type="file" aria-label="Upload a file"><span>Click to upload a file or drag and drop .pdf, .doc</span></div></div></section>`;
+    expect(purposes().map(([, p]) => p)).toEqual([null, 'resume']);
+  });
+
+  it('Ashby: "Autofill from resume" is not the resume field', () => {
+    document.body.innerHTML = `<div><label for="a">Autofill from resume</label><p>Upload your resume here to autofill key application fields.</p><input id="a" type="file"></div>`;
+    expect(purposes()[0]![1]).toBeNull();
+  });
+
+  it('a web component\'s upload reads the heading outside it', () => {
+    document.body.innerHTML = `<section><h3>Cover letter</h3><x-drop></x-drop></section>`;
+    const root = document.querySelector('x-drop')!.attachShadow({ mode: 'open' });
+    root.innerHTML = `<input type="file" aria-label="Choose a file or drop it here">`;
+    expect(purposes()[0]).toEqual(['Cover letter', 'cover_letter']);
+  });
+
+  it('a dropdown named "Select" for screen readers reads the question beside it', () => {
+    document.body.innerHTML = `<div><div>Do you require sponsorship now or in the future to work in the US</div><div role="combobox" aria-label="Select" tabindex="0">Select</div></div>`;
+    expect(purposes()[0]).toEqual(['Do you require sponsorship now or in the future to work in the US', 'needs_sponsorship']);
+  });
+
+  it('leaves other names to the user', () => {
+    expect(at('First Name (Other)')).toBeNull();
+    expect(at('Other names you have used')).toBeNull();
+  });
+});
+
 describe('labels that do not say', () => {
   it('reads the question over a lone tick box labelled "Yes"', () => {
     document.body.innerHTML = `<li><div class="q"><div>Are you comfortable with this schedule? ✱</div></div><ul><li><label><input type="checkbox" name="c" value="Yes"><span>Yes</span></label></li></ul></li>`;

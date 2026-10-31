@@ -181,7 +181,7 @@ function groupTitle(group: Element): string {
 }
 
 // What an upload's button says, not what it takes.
-const UPLOAD_WORDS = /^(attach|upload|browse|choose( a)? file|select( a)? files?|add( a)? files?|drop .*)$/i;
+const UPLOAD_WORDS = /^(attach|upload|browse|(upload|choose|select|add)( a)? files?( or drop it here)?|drop .*|drag .*|click to upload.*)$/i;
 
 // What a lone tick box says that means nothing without the question over it...
 const BARE_ANSWER = /^(yes|no|ok|okay|true)\.?$/i;
@@ -190,24 +190,31 @@ const BARE_ASSENT = /^(i agree|agree|i understand|understood|i confirm|confirm|a
 
 /** The text over a control in the block that holds only it, without its own label. */
 function textOver(el: HTMLElement, own: string): string {
-  for (let n = el.parentElement, i = 0; n && i < 6; i++, n = n.parentElement) {
+  for (let n: Element | null = parentOf(el), i = 0; n && i < 7; i++, n = parentOf(n)) {
     if (n.querySelectorAll(FIELDS).length > 1) break;
     const t = textOf(n);
-    if (t.length > own.length + 8 && t.endsWith(own)) return t.slice(0, -own.length).trim();
+    if (own && t.endsWith(own) && t.length > own.length + 8) return t.slice(0, -own.length).trim();
+    if (t.length > 3 && t !== own && (!own || !t.endsWith(own))) return t;
   }
   return '';
 }
+
+/** The element around one, across a web component's edge. */
+const parentOf = (el: Element): Element | null => el.parentElement ?? (el.getRootNode() instanceof ShadowRoot ? (el.getRootNode() as ShadowRoot).host : null);
 
 /** A field's label as the page shows it, required marker ("*") included. */
 function rawLabel(el: HTMLElement, groupName?: string): string {
   const raw = labelText(el, groupName);
   const type = (el as HTMLInputElement).type;
   if (groupName) return raw;
-  if (type === 'file' && UPLOAD_WORDS.test(raw.trim())) {
-    const group = el.closest('[role="group"], fieldset');
-    return (group && groupTitle(group)) || textOver(el, raw) || raw;
+  if (type === 'file') {
+    const bare = !raw.trim() || UPLOAD_WORDS.test(raw.trim());
+    const group = bare ? el.closest('[role="group"], fieldset') : null;
+    const shown = bare ? (group && groupTitle(group)) || textOver(el, raw) || raw : raw;
+    return shown.replace(UPLOAD_NOISE, '').trim() || shown;
   }
-  if (type === 'file') return raw.replace(UPLOAD_NOISE, '').trim() || raw;
+  // Nothing near it says: the text over the block it sits in.
+  if (!raw.trim()) return textOver(el, '').slice(0, 300);
   if (type === 'checkbox' && BARE_ANSWER.test(raw.trim())) return textOver(el, raw) || raw;
   if (type === 'checkbox' && BARE_ASSENT.test(raw.trim())) {
     const over = textOver(el, raw);
@@ -217,7 +224,9 @@ function rawLabel(el: HTMLElement, groupName?: string): string {
 }
 
 // What an upload's label adds to its name: "Resume/CV* Accepted file types: pdf, doc", "Resume/CV ✱ ATTACH RESUME/CV".
-const UPLOAD_NOISE = /\s*(accepted file types?\b.*|attach\s+(your\s+)?(resume|cv|cover).*|(upload|attach|browse)( a)?( file)?\s*|(max|maximum)\.? (file )?size.*)$/i;
+const UPLOAD_NOISE = /\s*(accepted file types?\b.*|attach\s+(your\s+)?(resume|cv|cover).*|(upload|attach|browse)( a)?( file)?\s*|(max|maximum)\.? (file )?size.*|click to upload.*|drop or select.*|drag and drop.*|total \d+ files? selected.*|the r[eé]sum[eé] will be .*)$/i;
+// What a screen reader is told about a widget in place of a name: the label beside it says what it asks.
+const NO_NAME = /^(select|search|choose|choose one|textbox|combobox|dropdown|input|text|field)(\.{3}|…)?$/i;
 
 function labelText(el: HTMLElement, groupName?: string): string {
   const scope = scopeOf(el);
@@ -237,7 +246,8 @@ function labelText(el: HTMLElement, groupName?: string): string {
     }
     const parentLabel = el.closest('label');
     if (parentLabel && textOf(parentLabel)) return textOf(parentLabel);
-    if (el.getAttribute('aria-label')) return clean(el.getAttribute('aria-label'));
+    const aria = clean(el.getAttribute('aria-label'));
+    if (aria && !NO_NAME.test(aria) && !(UPLOAD_WORDS.test(aria) && (el as HTMLInputElement).type === 'file')) return aria;
   }
   const w = wrapper(el, groupName);
   const wt = textOf(w, groupName);
@@ -411,7 +421,7 @@ export function collectFields(root: ParentNode, found?: Trap[]): Field[] {
     if (['hidden', 'submit', 'button', 'reset', 'image', 'search', 'password'].includes(type)) continue;
     if (input.disabled || input.readOnly) continue;
     if (type !== 'file' && isHidden(node)) continue;
-    const hints = clean(`${input.name} ${node.id} ${node.getAttribute('autocomplete') ?? ''}`).toLowerCase();
+    const hints = clean(`${input.name} ${node.id} ${node.getAttribute('autocomplete') ?? ''} ${node.getAttribute('data-testid') ?? ''} ${node.getAttribute('data-test') ?? ''} ${node.getAttribute('data-qa') ?? ''}`).toLowerCase();
     if (type !== 'file' && isDecoy(node, hints)) {
       found?.push({ kind: 'decoy_field', text: labelFor(node).slice(0, 80) || input.name || 'a hidden box' });
       continue;

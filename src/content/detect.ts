@@ -33,6 +33,7 @@ const JOB_ADDRESSES: RegExp[] = [
   /\.rippling-ats\.com\/job\//,
   /\/hcmui\/candidateexperience\/.*\/(job|apply)\//i,
   /\.icims\.com\/jobs\/\d+/,
+  /\/careers-home\/jobs\/\d+/,
   /^jobs\.jobvite\.com\/[^/]+\/job\//,
   /\.bamboohr\.com\/(careers|jobs)\/(\d+|view\.php)/,
   /\.taleo\.net\/.*(jobdetail|jobapply|application\.jss|flow\.jsf|requisition)/i,
@@ -270,7 +271,8 @@ export function hasApplicationForm(doc: Document): boolean {
     if (EMBEDDED_FORM.test(src)) return true;
     try {
       const u = new URL(src, doc.location.href);
-      return isApplicantHost(u.hostname) && /apply|application|job|candidate/i.test(u.pathname);
+      // Any other frame of a system (its job search, say) speaks for itself if it holds a form.
+      return isApplicantHost(u.hostname) && /apply|application/i.test(u.pathname);
     } catch {
       return false;
     }

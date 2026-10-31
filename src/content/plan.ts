@@ -434,6 +434,8 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
     opts.onProgress?.(res);
     if (pace) await wait(pace);
   }
+  // Filling moves the focus from box to box: none is left in the last one, where Wera's button would show.
+  if (doc?.activeElement instanceof HTMLElement && out.length) doc.activeElement.blur();
   return out;
 }
 
