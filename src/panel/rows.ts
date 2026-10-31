@@ -15,6 +15,8 @@ export interface Row extends FieldPlan {
   result?: string;
   /** Wera drafted this answer (an open question): the user should read it. */
   drafted?: boolean;
+  /** What to ask the AI, when the label alone is not the whole question (see followUpOf). */
+  asked?: string;
 }
 
 /** The rows for a plan: values Wera trusts are filled; what the page already shows is left. */
@@ -56,6 +58,45 @@ export function needsLetter(r: Row): boolean {
     && (r.required || /cover\s*letter|motivation(al)?\s*letter|letter of (motivation|interest)/i.test(r.label));
 }
 
+// "If yes, please explain", "If no, why not?", "If other, please specify":
+// asked only on one answer to the question before.
+const FOLLOW_UP = /^\s*if\s+(?:you\s+(?:answered|selected|said|chose|responded)\s+)?["'“‘]?(yes|no|other)\b/i;
+
+export const isFollowUp = (r: Pick<Row, 'label'>) => FOLLOW_UP.test(r.label);
+
+/** What a field holds now, in the page or on its way there. */
+function answerOf(r: Row): string {
+  if (r.status === 'filled' || r.status === 'already') return r.result ?? r.value;
+  return r.current;
+}
+
+export interface FollowUp {
+  /** The question it follows. */
+  question: Row;
+  said: string;
+  /** Whether it applies; null until the question has an answer it can tell from. */
+  applies: boolean | null;
+}
+
+/** The row at i as a follow-up to the question before it. rows are in page order. */
+export function followUpOf(rows: Row[], i: number): FollowUp | null {
+  const when = FOLLOW_UP.exec(rows[i]!.label)?.[1]?.toLowerCase();
+  if (!when) return null;
+  let at = i - 1;
+  while (at >= 0 && isFollowUp(rows[at]!)) at--;
+  const question = rows[at];
+  if (!question) return null;
+  const said = answerOf(question).trim();
+  const text = said.toLowerCase();
+  if (when === 'other') return { question, said, applies: said ? text.includes('other') : null };
+  const yes = /^yes\b/.test(text);
+  const no = /^no\b/.test(text);
+  return { question, said, applies: yes || no ? (when === 'yes' ? yes : no) : null };
+}
+
+/** An AI answer Wera did not trust enough to enter by itself. */
+export const isGuess = (r: Row) => r.source === 'ai' && !!r.value && !r.checked && r.status !== 'filled';
+
 /**
  * What still needs the user once Wera is done: required fields left
  * empty or that did not take, self-identification not in their profile,
@@ -66,7 +107,7 @@ export function needsYou(rows: Row[]): Row[] {
     if (r.status === 'filled' && r.drafted) return true;
     if (r.status === 'filled' || r.status === 'already') return false;
     if (r.status === 'review') return true;
-    if (r.source === 'ai' && r.value && !r.checked) return true;
+    if (isGuess(r)) return true;
     return r.group === 'consent' || r.group === 'self_id' || (r.required && r.current === '');
   });
 }

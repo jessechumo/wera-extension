@@ -9,7 +9,7 @@ import { PAST_APPLIED } from '../shared/jobs';
 import { frames } from '../shared/rpc';
 import { diagnostics } from './diagnostics';
 import type { PanelProps } from './Panel';
-import { rowLabel } from './rows';
+import { isGuess, rowLabel } from './rows';
 import { BigButton, Button, Notice } from './ui';
 import { LETTER, RESUME, needsYou, useAutofill, type Row } from './useAutofill';
 import type { PanelPageState } from './usePanelPage';
@@ -32,6 +32,7 @@ export function Apply({ api, page, settings, tabId, fillRequest }: PanelProps & 
   }, [fillRequest, handled, page.loading, a]);
 
   const needs = useMemo(() => needsYou(a.rows), [a.rows]);
+  const guesses = needs.filter(isGuess).length;
   const filled = a.rows.filter((r) => r.status === 'filled' || r.status === 'already');
   const total = a.rows.length;
   const done = a.phase === 'filled' || a.phase === 'final';
@@ -87,6 +88,7 @@ export function Apply({ api, page, settings, tabId, fillRequest }: PanelProps & 
         <div className="anim-rise space-y-1.5">
           <h3 className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase"><AlertTriangle className="size-3.5 text-warn" /> Needs you ({needs.length})</h3>
           <ul className="space-y-1.5">{needs.map((r) => <NeedRow key={r.id} r={r} onUse={(v) => void a.fillOne(r, v)} />)}</ul>
+          {guesses > 1 && <Button className="w-full" busy={a.busy} onClick={() => void a.acceptGuesses()}>Use all {guesses} guesses</Button>}
         </div>
       )}
       {done && needs.length === 0 && total > 0 && (
@@ -155,7 +157,7 @@ function CopyDiagnostics({ a }: { a: ReturnType<typeof useAutofill> }) {
 
 /** One field that needs the user: why, a click to it on the page, and Wera's guess to use when it has one. */
 function NeedRow({ r, onUse }: { r: Row; onUse: (value: string) => void }) {
-  const guess = r.source === 'ai' && r.value && !r.checked && r.status !== 'filled';
+  const guess = isGuess(r);
   const why = r.drafted ? (r.purpose === 'cover_letter' ? 'Wera wrote this letter for this job: read it in the panel below' : 'Wera drafted this answer: read it and make it yours')
     : r.status === 'review' ? r.result || r.note || 'check it'
     : guess ? `Wera's guess: ${r.value}`

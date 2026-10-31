@@ -3,7 +3,7 @@
 // forms, and adds Wera's answer button to open questions. When the site
 // then says "thank you for applying", it tells the background, which
 // marks the job applied. Nothing leaves the page unless Wera is on it.
-import { findApply, isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/detect';
+import { findApply, isNotJobSite, jobSummary, pageDocument, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
 import { listen } from '../content/listen';
@@ -135,7 +135,8 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     }
     // A form in a frame (an ATS embedded in a careers page) shows its own "thank you".
     if (sawForm || (top && !kind && looks++ < 8)) checkSubmitted();
-    const canApply = kind === 'posting' && !!findApply(doc);
+    const shown = pageDocument(doc);
+    const canApply = kind === 'posting' && !!findApply(shown);
     const key = `${doc.location.href}|${kind}|${canApply}`;
     if (key === shownFor) return;
     shownFor = key;
@@ -147,8 +148,8 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
       }
       return;
     }
-    const { title, company } = jobSummary(doc);
-    Object.assign(handle, { kind, title, company, draft: readJobPosting(doc, doc.location.href), canApply });
+    const { title, company } = jobSummary(shown);
+    Object.assign(handle, { kind, title, company, draft: readJobPosting(shown, doc.location.href), canApply });
     subscribers.forEach((fn) => fn(handle));
     if (kind && !asked && (await allowed(doc))) {
       asked = true;

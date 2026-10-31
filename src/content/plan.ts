@@ -2,6 +2,7 @@
 // typed: every field, what it shows now, and what Wera would enter and
 // why. Then fills exactly the values the user approved, one at a time,
 // reporting each as it lands.
+import { gateOf } from './gate';
 import { startHasPassed } from '../shared/dates';
 import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, FillItem, FillResult, KnownAnswer, PagePlan, Profile, ValueSource } from '../shared/types';
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
@@ -15,7 +16,7 @@ import { byId, collectFields, isPressed, isWorkdayPrompt, listboxValue, type Fie
 import { attachFile, base64ToFile, comboboxChoice, enterValue, mark, setNativeValue, wait } from './fill';
 import { isPlaceholderOption, matchOption } from './match';
 import { countryAnswer, countryIn, norm, sameCountry, stateName } from './places';
-import { choicesOf, firstChoice, valueFor } from './values';
+import { choicesOf, firstChoice, OR, valueFor } from './values';
 import { findNext, invalidCount } from './next';
 import { siteFor } from './sites';
 import { siteFiller } from './sites/fill';
@@ -152,11 +153,15 @@ function takesPdf(f: Field): boolean {
   return !accept || /pdf|\*\/\*|application\/\*/.test(accept);
 }
 
+// Uploads some sites leave without a name: the panel still has to say what went in.
+const UNNAMED: Record<string, string> = { resume: 'Resume', cover_letter: 'Cover letter' };
+const NO_REAL_NAME = /^(file|attachment|upload)?$/i;
+
 /** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
 export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
   const purpose = f.trap ? null : placed?.purpose ?? classify(f);
   const plan: FieldPlan = {
-    id: f.id, label: f.label.slice(0, 200), purpose, kind: f.kind,
+    id: f.id, label: (NO_REAL_NAME.test(f.label) ? UNNAMED[purpose ?? ''] ?? f.label : f.label).slice(0, 200), purpose, kind: f.kind,
     options: f.options.map((o) => o.label).filter((l) => l && !isPlaceholderOption(l)).slice(0, 120),
     required: f.required, current: currentValue(f), value: '', source: null, group: groupOf(purpose),
   };
@@ -297,11 +302,18 @@ export function fullAddress(a: Applicant): string {
   return [a.address, a.address_line2, cityLine].filter(Boolean).join(', ');
 }
 
-/** A form with one address box and no city, state or code boxes wants the whole address in it. */
+/**
+ * A form with one address box and no city, state or code boxes wants the
+ * whole address in it. So does a box that searches addresses, whatever
+ * else the form has: the street alone finds its namesakes in other towns.
+ * Such a box gets the town as a second try, for the ones that know only towns.
+ */
 function wholeAddress(fields: FieldPlan[], a: Applicant) {
-  if (fields.some((f) => f.purpose === 'city' || f.purpose === 'state' || f.purpose === 'postal_code' || f.purpose === 'address_line2')) return;
+  const split = fields.some((f) => f.purpose === 'city' || f.purpose === 'state' || f.purpose === 'postal_code' || f.purpose === 'address_line2');
   for (const f of fields) {
-    if (f.purpose === 'address' && f.source === 'details' && (f.kind === 'text' || f.kind === 'textarea') && a.address) f.value = fullAddress(a);
+    if (f.purpose !== 'address' || f.source !== 'details' || !a.address) continue;
+    if (f.kind === 'combobox') f.value = [fullAddress({ ...a, address_line2: '' }), [a.city, a.state].filter(Boolean).join(', ')].filter(Boolean).join(OR);
+    else if (!split && (f.kind === 'text' || f.kind === 'textarea')) f.value = fullAddress(a);
   }
 }
 
@@ -310,6 +322,8 @@ const MAX_BLOCKS: Record<Section, number> = { experience: 3, education: 2 };
 
 /** Sections that could take more of the resume's jobs or schools through their Add button. */
 function adders(root: ParentNode, fields: FieldPlan[], p: Profile): NonNullable<PagePlan['adders']> {
+  const doc = root instanceof Document ? root : (root as Node).ownerDocument;
+  if (doc && siteFor(doc)?.noBlocks) return [];
   const out: NonNullable<PagePlan['adders']> = [];
   for (const section of ['experience', 'education'] as Section[]) {
     const have = (section === 'experience' ? p.experience : p.education)?.length ?? 0;
@@ -346,7 +360,7 @@ export function planForm(root: ParentNode, a: Applicant | Profile, opts: PlanOpt
   const traps = uniqueTraps([...found, ...all.flatMap((f) => [...(f.said ?? []), ...(f.trap ? [f.trap] : [])])]);
   return {
     fields, next: findNext(root), errors: invalidCount(root), adders: adders(root, fields, a),
-    site: site?.name, step: (doc && site?.step?.(doc)) || undefined, gate: (doc && site?.gate?.(doc)) || undefined,
+    site: site?.name, step: (doc && site?.step?.(doc)) || undefined, gate: (doc && gateOf(doc)) || undefined,
     ...(traps.length ? { traps } : {}),
   };
 }

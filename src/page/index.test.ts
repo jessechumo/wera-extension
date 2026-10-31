@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { careerAddress, isJobUrl, isNotJobSite, jobSummary, pageKind } from '../content/detect';
+import { careerAddress, findApply, isJobUrl, isNotJobSite, jobSummary, pageDocument, pageKind } from '../content/detect';
 import type { SubmitReply } from '../shared/jobs';
 import { watchForJobs } from './index';
 
@@ -39,6 +39,55 @@ afterEach(() => {
   at('/');
   delete window.__weraPage;
   vi.unstubAllGlobals();
+});
+
+describe('an application that starts with the email alone', () => {
+  const form = '<label for="e">Email Address</label><input id="e" type="email"><label><input type="checkbox"> I agree with the terms and conditions</label><button>Next</button>';
+  const at = (url: string) => new JSDOM(`<!doctype html>${form}`, { url }).window.document;
+
+  it('is an application on a system that says so in its address', () => {
+    expect(pageKind(at('https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210597507/apply/email'))).toBe('form');
+    expect(pageKind(at('https://careers-acme.icims.com/jobs/7968/qa-engineer/login?in_iframe=1'))).toBe('form');
+  });
+
+  it('is not a job alert or a newsletter', () => {
+    expect(pageKind(at('https://careers.acme.com/job-alerts'))).toBeNull();
+    expect(pageKind(at('https://www.acme.com/apply/newsletter'))).toBeNull();
+  });
+});
+
+describe('a page shown in a frame of its own (iCIMS)', () => {
+  /** The empty page around iCIMS's frame, with what the frame shows. */
+  function wrapped(inner: string) {
+    const dom = new JSDOM('<!doctype html><iframe id="icims_content_iframe"></iframe>', { url: 'https://careers-acme.icims.com/jobs/7946/analyst/job?mobile=false' });
+    const frame = dom.window.document.querySelector('iframe')!;
+    frame.contentDocument!.body.innerHTML = inner;
+    return dom.window.document;
+  }
+
+  it('is read through the frame', () => {
+    const doc = wrapped(posting);
+    expect(pageKind(doc)).toBe('posting');
+    expect(jobSummary(pageDocument(doc)).title).toBe('SRE');
+  });
+
+  it('finds an Apply button that says it twice for screen readers', () => {
+    const doc = wrapped(`${posting}<a href="?mode=apply"><span>Apply</span><span>Apply</span></a>`);
+    expect(findApply(pageDocument(doc))?.getAttribute('href')).toBe('?mode=apply');
+  });
+
+  it('is left alone when the frame is empty', () => {
+    expect(pageKind(wrapped(''))).toBeNull();
+  });
+});
+
+describe('Apply buttons in other languages', () => {
+  it('are found on a job page', () => {
+    for (const says of ['Auf diese Stelle bewerben', 'Jetzt bewerben', 'Postuler', 'Solicitar', 'Candidatar-se', 'Solliciteer nu']) {
+      const { document } = new JSDOM(`<a href="#">${says}</a>`).window;
+      expect(findApply(document)?.textContent).toBe(says);
+    }
+  });
 });
 
 describe('telling job pages from other pages', () => {

@@ -186,7 +186,12 @@ function applyAddress(url: string): boolean {
   }
 }
 
-const APPLY = /^\s*(apply|apply now|apply (for|to) (this|the) (job|position|role|opening|vacancy)|apply (online|here|today)|easy apply|quick apply|apply on (the )?(company|employer)('s)? (site|website)|(start|begin) (your |my )?application|submit (your |my )?application|i'?m interested)\s*[→›>]?\s*$/i;
+/** Whether the address is a step of an application on an applicant system (which may also be called its login). */
+function applyStep(url: string): boolean {
+  return applyAddress(url) || /[?&]mode=(apply|login)\b/i.test(url) || /\.icims\.com\/jobs\/\d+\/[^?]*\/login\b/i.test(url);
+}
+
+const APPLY = /^\s*(apply|apply now|apply (for|to) (this|the) (job|position|role|opening|vacancy)|apply (online|here|today)|easy apply|quick apply|apply on (the )?(company|employer)('s)? (site|website)|(start|begin) (your |my )?application|submit (your |my )?application|i'?m interested|(jetzt |hier |online )?bewerben|(auf diese stelle|für diese stelle) bewerben|postuler( maintenant| à cette offre)?|candidatez|solicitar( empleo| ahora)?|aplicar( ahora)?|postular(me|se)?|candidatar(-se)?|candidati( ora)?|solliciteer( nu)?|solliciteren)\s*[→›>]?\s*$/i;
 const SECTIONS = [
   /responsibilit/i, /qualification/i, /requirement/i, /what you('|’)?ll do/i, /about the (role|job|position|team)/i,
   /about you/i, /benefits/i, /job description/i, /years of (professional |relevant )?experience/i,
@@ -201,11 +206,18 @@ function headline(doc: Document): string {
   return h1 ?? '';
 }
 
+/** What a button says. Some say it twice, once for screen readers ("ApplyApply"). */
+function buttonText(b: Element): string {
+  const text = (b.tagName === 'INPUT' ? (b as HTMLInputElement).value : (b.textContent ?? '')).trim();
+  const half = text.slice(0, text.length / 2);
+  return half && text === half + half ? half : text;
+}
+
 /** Whether the page has a way to apply: on a careers address a bare "Apply" means that; on a shop it applies a coupon. */
 function hasApplyButton(doc: Document): boolean {
   const buttons = doc.querySelectorAll('a, button, input[type="submit"], [role="button"]');
   return [...buttons].slice(0, 600).some((b) => {
-    const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
+    const text = buttonText(b);
     return text.length < 60 && APPLY.test(text);
   });
 }
@@ -214,7 +226,7 @@ function hasApplyButton(doc: Document): boolean {
 export function findApply(doc: Document): HTMLElement | null {
   const buttons = [...doc.querySelectorAll<HTMLElement>('a, button, input[type="submit"], [role="button"]')].slice(0, 600);
   const says = (re: RegExp) => buttons.find((b) => {
-    const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
+    const text = buttonText(b);
     return text.length < 60 && re.test(text) && !outOfSight(b);
   });
   // Ashby has an Application tab beside the posting.
@@ -253,6 +265,8 @@ export function ownApplicationForm(doc: Document): boolean {
   if (!applicantSite && doc.querySelectorAll('input, select, textarea').length < 2) return false;
   const fields = collectFields(doc).map(classify);
   const known = fields.filter((p) => p !== null && p !== 'question' && p !== 'consent').length;
+  // Some systems start with nothing but the applicant's email (Oracle, iCIMS).
+  if (known === 1 && applicantSite && applyStep(url) && fields.includes('email')) return true;
   if (known < 2) return false;
   const only = new Set(fields.filter((p) => p !== null && APPLICATION_ONLY.has(p)));
   const too = new Set(fields.filter((p) => p !== null && APPLICATION_TOO.has(p)));
@@ -284,11 +298,26 @@ export function hasApplicationForm(doc: Document): boolean {
 const EMBEDDED_FORM = /greenhouse\.io\/embed\/job_app|jobs\.(eu\.)?lever\.co\/[^?#]+\/apply|ashbyhq\.com\/[^?#]+\/(application|embed)/;
 
 /** Whether the page is an application form, one job's posting, or neither. */
+/**
+ * The document that shows the page. iCIMS puts its whole page in a frame
+ * on its own site, around which the top document is empty.
+ */
+export function pageDocument(doc: Document): Document {
+  const frame = doc.querySelector<HTMLIFrameElement>('iframe#icims_content_iframe');
+  try {
+    return frame?.contentDocument?.body ? frame.contentDocument : doc;
+  } catch {
+    return doc; // another site's frame
+  }
+}
+
 export function pageKind(doc: Document): PageKind {
   // The bridge marks the user's own Wera dashboard: its forms are not applications.
   if (doc.documentElement.dataset.weraExtension) return null;
   const url = doc.location.href;
   if (isNotJobSite(url) || insideNotJobSite(doc)) return null;
+  const shown = pageDocument(doc);
+  if (shown !== doc) return pageKind(shown);
   if (hasApplicationForm(doc)) return 'form';
   if (readJobPosting(doc, url)) return 'posting';
   if (isJobUrl(url) && headline(doc) && !GONE.test(`${headline(doc)} ${doc.title}`)) return 'posting';

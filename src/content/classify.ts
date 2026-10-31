@@ -60,7 +60,7 @@ const RULES: [FieldPurpose, RegExp][] = [
   // What the applicant wants: "our compensation is standardized..." is a notice.
   ['salary_expectation', /^(desired |expected |target |your )?(salary|compensation|pay)( expectations?| range| requirements?)?$|(salary|compensation|pay) (expectation|requirement|range you)|(desired|expected|target|minimum) (annual |base |total )?(salary|compensation|pay)/],
   ['today', /today'?s date|date (signed|of signature)|signature date|^date$/],
-  ['start_date', /^(?!.*\b(school|college|university|degree|program|current (job|role|position|employer|company))\b).*(start date|available to (start|begin)|availab(le|ility) (for|to) (full|part|work)|earliest (possible |available )?(start|availability)|soonest available|when can you start|date available|availability date|when (are|would) you (be )?available)/],
+  ['start_date', /^(?!.*\b(school|college|university|degree|program|current (job|role|position|employer|company))\b).*(start date|available to (start|begin)|availab(le|ility) (for|to) (full|part|work)|earliest (possible |available )?(start|availability)|earliest .{0,30}\b(start|begin)\b|soonest available|when can you start|date available|availability date|when (are|would) you (be )?available)/],
   ['lgbtq', /lgbt|queer community/],
   ['skills', /^(technical |key |relevant |your )?skills\b|^skill set|list (your )?skills/],
   ['languages', /language skill|^languages?\b|^(?!.*programming).*(languages? (do you )?(speak|spoken|fluent)|which languages|language proficiency|fluent in|languages you speak)/],
@@ -132,9 +132,12 @@ export function classify(f: Field): FieldPurpose | null {
 const YES_NO_WORD = /^(are|do|does|did|have|has|had|will|would|is|can|could|were|was|should|may)\b/;
 const YES_NO_CHOICE = /^(yes|no|n\/a|maybe|not sure|prefer not|decline)\b/i;
 
+// Dots that end no sentence: "(e.g. H-1B)", "in the U.S. today".
+const ABBREVIATED = /\b(?:e\.g|i\.e|etc|vs|u\.s\.a|u\.s|u\.k)\./gi;
+
 /** The sentence of a label that asks: its question when it has one ("Based in Austin. Are you nearby?"), else all of it. */
 function asked(label: string): string {
-  const question = label.match(/[^.?!:]*\?/g)?.map((q) => q.trim()).find((q) => q.split(/\s+/).length >= 2);
+  const question = label.replace(ABBREVIATED, (m) => m.replace(/\./g, '')).match(/[^.?!:]*\?/g)?.map((q) => q.trim()).find((q) => q.split(/\s+/).length >= 2);
   return question ?? label;
 }
 

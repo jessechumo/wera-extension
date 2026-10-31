@@ -4,6 +4,8 @@ import { ashby } from './ashby';
 import { greenhouse } from './greenhouse';
 import { lever } from './lever';
 import type { Site } from './index';
+import { jobvite } from './jobvite';
+import { workable } from './workable';
 import { workday } from './workday';
 
 /** What a site's rules make of each field on a page, by label. */
@@ -13,6 +15,28 @@ function read(site: Site, html: string): Record<string, string | null | undefine
 }
 
 describe('site rules', () => {
+  it('Workable: its job and school blocks are left to the user', () => {
+    expect(workable.noBlocks).toBe(true);
+    expect(workable.matches({ location: { hostname: 'apply.workable.com' } } as Document)).toBe(true);
+    expect(workable.matches({ location: { hostname: 'jobs.lever.co' } } as Document)).toBe(false);
+  });
+
+  it('Workday: the way on after Apply is to fill it by hand, which Wera does', () => {
+    document.body.innerHTML = '<a data-automation-id="autofillWithResume">Autofill with Resume</a><a data-automation-id="applyManually">Apply Manually</a>';
+    expect(workday.applyChoice?.(document)?.textContent).toBe('Apply Manually');
+    document.body.innerHTML = '<p>Posting</p>';
+    expect(workday.applyChoice?.(document)).toBeNull();
+  });
+
+  it('Jobvite: the upload inputs sit in unnamed popups, matched to their Add buttons by order', () => {
+    document.body.innerHTML = `
+      <h3 id="h">Add Resume*</h3><button jv-add-attachment attachment-label="Resume" aria-labelledby="h">Select</button>
+      <button jv-add-attachment attachment-label="Cover Letter">Add Cover Letter</button>
+      <div role="dialog" aria-label="Attachment Options" class="ng-hide"><div><input id="file-input-0" type="file"></div></div>
+      <div role="dialog" aria-label="Attachment Options" class="ng-hide"><div><input id="file-input-1" type="file"></div></div>`;
+    expect(collectFields(document).map((f) => jobvite.purpose?.(f))).toEqual(['resume', 'cover_letter']);
+  });
+
   it('Greenhouse job boards: its own field names, its education blocks, and the phone box\'s country picker left alone', () => {
     expect(read(greenhouse, `
       <label for="first_name">First Name</label><input id="first_name">

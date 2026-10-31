@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FieldPlan } from '../shared/types';
-import { needsDraft, needsLetter, needsSuggestion, readsLikeAnswer, rowsFor, type Row } from './rows';
+import { followUpOf, isGuess, needsDraft, needsLetter, needsSuggestion, readsLikeAnswer, rowsFor, type Row } from './rows';
 
 const row = (over: Partial<Row>): Row => ({
   id: 'w1', label: 'Field', purpose: null, kind: 'text', options: [], required: false, current: '', value: '', source: null, group: 'other', checked: false, ...over,
@@ -63,5 +63,50 @@ describe('traps', () => {
     expect(readsLikeAnswer(open({}), ' 42. ')).toBe(false);
     expect(readsLikeAnswer(open({}), 'Two weeks')).toBe(true);
     expect(readsLikeAnswer(open({ kind: 'text', purpose: 'years_experience' }), '5')).toBe(true);
+  });
+});
+
+describe('follow-up questions', () => {
+  const asks = row({ id: 'q', label: 'Have you worked here before?', kind: 'radio', status: 'filled', result: 'No' });
+  const then = (label: string, question = asks) => followUpOf([row({ id: 'x', label: 'Email' }), question, row({ id: 'f', label })], 2);
+
+  it('apply on the answer they name', () => {
+    expect(then('If yes, please explain')).toMatchObject({ applies: false, said: 'No' });
+    expect(then('If no, why not?')).toMatchObject({ applies: true });
+    expect(then('If you answered "yes", tell us when')).toMatchObject({ applies: false });
+    expect(then('If other, please specify')).toMatchObject({ applies: false });
+    expect(then('If other, please specify', { ...asks, result: 'Other' })).toMatchObject({ applies: true });
+  });
+
+  it('wait for an answer they can tell from', () => {
+    expect(then('If yes, please explain', { ...asks, status: undefined, result: undefined })?.applies).toBeNull();
+    expect(then('If yes, please explain', { ...asks, status: undefined, result: undefined, source: 'ai', value: 'Yes', checked: false })?.applies).toBeNull();
+    expect(then('If yes, please explain', { ...asks, result: 'Sometimes' })?.applies).toBeNull();
+  });
+
+  it('read an answer already on the page', () => {
+    expect(then('If yes, please explain', { ...asks, status: undefined, result: undefined, current: 'Yes' })?.applies).toBe(true);
+  });
+
+  it('look past another follow-up to the question', () => {
+    const rows = [asks, row({ id: 'a', label: 'If yes, when?' }), row({ id: 'b', label: 'If yes, where?' })];
+    expect(followUpOf(rows, 2)?.question.id).toBe('q');
+  });
+
+  it('are nothing else', () => {
+    expect(followUpOf([asks, row({ id: 'f', label: 'What makes you a good fit?' })], 1)).toBeNull();
+    expect(followUpOf([row({ id: 'f', label: 'If yes, explain' })], 0)).toBeNull();
+  });
+});
+
+describe('guesses', () => {
+  const guess = (over: Partial<Row>) => row({ value: 'x', source: 'ai', ...over });
+
+  it('are AI answers Wera did not trust enough to enter', () => {
+    expect(isGuess(guess({}))).toBe(true);
+    expect(isGuess(guess({ checked: true }))).toBe(false);
+    expect(isGuess(guess({ status: 'filled' }))).toBe(false);
+    expect(isGuess(guess({ value: '' }))).toBe(false);
+    expect(isGuess(guess({ source: 'details' }))).toBe(false);
   });
 });

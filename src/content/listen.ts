@@ -1,6 +1,7 @@
 // What every frame's page script does when the Wera panel asks: read the
 // page, plan and fill the form, press Next (never Submit). The panel's
 // requests come through the background, by frame.
+import { gateOf } from './gate';
 import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { collectFields } from './fields';
@@ -9,7 +10,7 @@ import { log } from '../shared/log';
 import { scrub, uniqueTraps } from '../shared/traps';
 import { postingTraps, readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
-import { findApply, ownApplicationForm, pageKind } from './detect';
+import { findApply, ownApplicationForm, pageDocument, pageKind } from './detect';
 import { siteFor } from './sites';
 import { pressNext } from './next';
 import { addEntries, applyItems, highlight, planForm, snapshot } from './plan';
@@ -25,26 +26,41 @@ declare global {
 function readPage(): PageInfo {
   const url = location.href;
   const site = siteFor(document);
+  const shown = pageDocument(document);
   // What a person cannot read is not read; what it says to AI tools is noted, for the user to see.
   const hidden: string[] = [];
-  const { clean: text, traps } = scrub(mainText(document, 24000, hidden));
+  const { clean: text, traps } = scrub(mainText(shown, 24000, hidden));
   return {
     url,
     title: document.title,
     text,
-    draft: readJobPosting(document, url),
-    traps: uniqueTraps([...traps, ...scrub(hidden.join('\n')).traps, ...postingTraps(document)]),
+    draft: readJobPosting(shown, url),
+    traps: uniqueTraps([...traps, ...scrub(hidden.join('\n')).traps, ...postingTraps(shown)]),
     // This frame's own form: a careers page around an embedded one leaves it to that frame.
     hasForm: ownApplicationForm(document),
     submitted: looksSubmitted(bodyText(document)),
     frameOrigins: formFrameOrigins(document),
     jobLike: pageKind(document) !== null,
-    apply: findApply(document)?.textContent?.trim().slice(0, 40) || undefined,
+    apply: findApply(shown)?.textContent?.trim().slice(0, 40) || undefined,
     docId: window.__weraDocId,
     site: site?.name,
     step: site?.step?.(document) ?? undefined,
-    gate: site?.gate?.(document) ?? undefined,
+    gate: gateOf(document) ?? undefined,
   };
+}
+
+/** Pressing Apply can ask how to go on (Workday's "Apply Manually"): the user asked Wera to fill it, so that way. */
+async function takeApplyChoice(doc: Document) {
+  const site = siteFor(doc);
+  if (!site?.applyChoice) return;
+  for (let i = 0; i < 30; i++) {
+    const choice = site.applyChoice(doc);
+    if (choice) {
+      press(choice);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }
 
 export function listen() {
@@ -102,8 +118,12 @@ export function listen() {
         reply(pressNext(document));
         return false;
       case 'wera:press-apply': {
-        const b = findApply(document);
-        if (b) press(b);
+        const shown = pageDocument(document);
+        const b = findApply(shown);
+        if (b) {
+          press(b);
+          void takeApplyChoice(shown);
+        }
         reply({ ok: !!b });
         return false;
       }

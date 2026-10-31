@@ -139,7 +139,7 @@ export function App({ handle, show }: { handle: PageHandle; show: Show }) {
     <>
       <Panel api={api} page={page} settings={settings} setSettings={setSettings} tabId={show.tabId} open={open} onOpen={onOpen}
         fillRequest={show.fills} onSignedIn={reload} onSignedOut={reload} onHideSite={() => setGone(true)} />
-      {sent && sent !== stayed && <AppliedAlert reply={sent} onStay={() => setStayed(sent)} />}
+      {sent && sent !== stayed && <AppliedAlert api={api} reply={sent} onStay={() => setStayed(sent)} />}
     </>
   );
 }

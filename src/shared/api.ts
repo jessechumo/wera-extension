@@ -262,15 +262,25 @@ export class WeraApi {
     return this.call<WeraJob>(`/api/jobs/${id}`);
   }
 
-  extract(url: string, title: string, text: string) {
-    return this.call<JobDraft & { is_job_posting: boolean }>('/api/ext/extract', {
+  async extract(url: string, title: string, text: string) {
+    const d = await this.call<JobDraft & { is_job_posting: boolean }>('/api/ext/extract', {
       method: 'POST',
       body: JSON.stringify({ url, title, text }),
     });
+    return { ...d, url: d.url || url };
   }
 
   addJob(d: JobDraft) {
     return this.call<WeraJob>('/api/ext/jobs', { method: 'POST', body: JSON.stringify(d) });
+  }
+
+  /**
+   * The user's best match after this application, for the moment they have
+   * momentum: one they have not dealt with yet, or only saved.
+   */
+  async nextMatch(after: number | null): Promise<WeraJob | null> {
+    const { jobs } = await this.call<{ jobs: WeraJob[] }>('/api/today?limit=10');
+    return jobs.find((j) => j.id !== after && (!j.application_status || j.application_status === 'saved')) ?? null;
   }
 
   /**
