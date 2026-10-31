@@ -264,6 +264,48 @@ describe('address search boxes', () => {
   });
 });
 
+describe('degrees', () => {
+  const opt = (...labels: string[]) => labels.map((label) => ({ label, value: label }));
+  // Greenhouse's list, as on Stripe's form.
+  const list = opt("Associate's Degree", "Bachelor's Degree", 'Doctor of Medicine (M.D.)', 'Doctor of Pharmacy (Pharm.D.)', 'Doctor of Philosophy (Ph.D.)', "Engineer's Degree", 'High School', 'Juris Doctor (J.D.)', 'Master of Business Administration (M.B.A.)', "Master's Degree", 'Other');
+  const picks = (value: string, options = list) => matchOption(options, value, 'edu_degree')?.label ?? null;
+
+  it('never calls one degree another: a PhD is no M.D.', () => {
+    expect(picks('PhD')).toBe('Doctor of Philosophy (Ph.D.)');
+    expect(picks('Doctor of Philosophy')).toBe('Doctor of Philosophy (Ph.D.)');
+    expect(picks('MD')).toBe('Doctor of Medicine (M.D.)');
+    expect(picks('JD')).toBe('Juris Doctor (J.D.)');
+    expect(picks('Master of Science')).toBe("Master's Degree");
+    expect(picks('MBA')).toBe('Master of Business Administration (M.B.A.)');
+    expect(picks('B.S. in Computer Science')).toBe("Bachelor's Degree");
+  });
+
+  it('tells degrees of a level apart when the list names them', () => {
+    const named = opt('Bachelor of Arts (B.A.)', 'Bachelor of Science (B.S.)', 'Master of Arts (M.A.)', 'Master of Business Administration (M.B.A.)', 'Master of Science (M.S.)');
+    expect(picks('Master of Science', named)).toBe('Master of Science (M.S.)');
+    expect(picks('MS', named)).toBe('Master of Science (M.S.)');
+    expect(picks('BS Computer Science', named)).toBe('Bachelor of Science (B.S.)');
+    expect(picks('Bachelor of Arts', named)).toBe('Bachelor of Arts (B.A.)');
+  });
+
+  it('asks when the list has only other degrees of the level, or names several and the value none', () => {
+    expect(picks('PhD', opt('Doctor of Medicine (M.D.)', 'Juris Doctor (J.D.)'))).toBeNull();
+    expect(picks('MBA', opt('Master of Arts (M.A.)', 'Master of Science (M.S.)'))).toBeNull();
+    expect(picks("Master's", opt('Master of Arts (M.A.)', 'Master of Science (M.S.)'))).toBeNull();
+  });
+
+  it('tries the degree itself before its level', () => {
+    expect(picks('PhD || Doctorate')).toBe('Doctor of Philosophy (Ph.D.)');
+    expect(picks('PhD || Doctorate', opt('Doctorate', 'Masters'))).toBe('Doctorate');
+  });
+
+  it('takes a list that says only the level', () => {
+    expect(picks('PhD', opt('Doctorate', 'Masters', 'Bachelors'))).toBe('Doctorate');
+    expect(picks('Master of Science', opt('Doctorate', 'Masters', 'Bachelors'))).toBe('Masters');
+    expect(picks("Bachelor's", opt('Associate', 'Bachelor of Science (B.S.)'))).toBe('Bachelor of Science (B.S.)');
+  });
+});
+
 describe('values and options', () => {
   it('reads dates and shapes values for fields', () => {
     expect(parseDate('2026-11-03')?.getDate()).toBe(3);
