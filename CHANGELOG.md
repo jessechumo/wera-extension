@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.9.0...wera-extension-v0.10.0) (2026-10-31)
+
+
+### Features
+
+* **panel:** apply from the posting, see why a job fits, tailor in one click ([#66](https://github.com/jessechumo/wera-extension/issues/66)) ([3cf4987](https://github.com/jessechumo/wera-extension/commit/3cf4987fbfe59e2bb5d567a0ac7fc8e7a12c11c8))
+* stay off pages with no job, obey no traps for AI tools, fill smarter and apply in one press ([a6e36a3](https://github.com/jessechumo/wera-extension/commit/a6e36a31c4d23a9be15a3abb82512aeb55d1ebb2))
+* **traps:** obey nothing a job page says to AI tools ([#62](https://github.com/jessechumo/wera-extension/issues/62)) ([e582130](https://github.com/jessechumo/wera-extension/commit/e5821309179b40ed86005dfd88acb771fff61936))
+
+
+### Bug Fixes
+
+* **classify:** fill a detail only where a label asks for just that ([#63](https://github.com/jessechumo/wera-extension/issues/63)) ([31ec654](https://github.com/jessechumo/wera-extension/commit/31ec654b9341a0394460617ab8c4fe9720d43d3f))
+* **deps:** bump lucide-react ([#64](https://github.com/jessechumo/wera-extension/issues/64)) ([25b96cd](https://github.com/jessechumo/wera-extension/commit/25b96cdbee4f0716aa0abcd5640ab19bb4a89253))
+* **detect:** show Wera only on positive evidence of a job ([#61](https://github.com/jessechumo/wera-extension/issues/61)) ([ef1cad3](https://github.com/jessechumo/wera-extension/commit/ef1cad3da7c822b9d88040bef9985de837d79c3c))
+
 ## [0.9.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.8.0...wera-extension-v0.9.0) (2026-10-28)
 
 
