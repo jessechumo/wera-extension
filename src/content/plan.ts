@@ -7,7 +7,7 @@ import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, Fil
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
 import { bestAnswer } from '../shared/answers';
 import { log } from '../shared/log';
-import { trapMeaning, uniqueTraps, type Trap } from '../shared/traps';
+import { asksOwnWords, trapMeaning, uniqueTraps, type Trap } from '../shared/traps';
 import { LETTER, RESUME } from '../shared/markers';
 import { SELF_ID } from '../shared/selfId';
 import { classify } from './classify';
@@ -167,7 +167,10 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
     if (!plan.label) plan.label = 'A box aimed at AI tools';
     return plan;
   }
-  if (f.said?.some((t) => t.kind === 'ai_policy')) plan.ownWords = true;
+  if (f.said?.some((t) => t.kind === 'ai_policy') || asksOwnWords(f.label)) {
+    plan.ownWords = true;
+    plan.note = 'the form asks for your own words: write it yourself, or use the Wera button in the box';
+  }
   const max = (f.el as HTMLTextAreaElement).maxLength;
   if (max > 0 && (f.kind === 'text' || f.kind === 'textarea')) plan.maxLength = max;
   const propose = (value: string, source: ValueSource, note?: string) => {

@@ -213,10 +213,12 @@ function hasApplyButton(doc: Document): boolean {
 /** The page's way to apply, when it shows one (on a job page: on a shop this would be a coupon's button). */
 export function findApply(doc: Document): HTMLElement | null {
   const buttons = [...doc.querySelectorAll<HTMLElement>('a, button, input[type="submit"], [role="button"]')].slice(0, 600);
-  return buttons.find((b) => {
+  const says = (re: RegExp) => buttons.find((b) => {
     const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
-    return text.length < 60 && APPLY.test(text) && !outOfSight(b);
-  }) ?? null;
+    return text.length < 60 && re.test(text) && !outOfSight(b);
+  });
+  // Ashby has an Application tab beside the posting.
+  return says(APPLY) ?? says(/^\s*application\s*$/i) ?? null;
 }
 
 /** Whether a page with no job data reads like one job's posting: a careers address, a title, sections and a way to apply. */

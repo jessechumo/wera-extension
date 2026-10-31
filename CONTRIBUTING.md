@@ -28,6 +28,11 @@ npm run e2e         # the real extension in Chromium against a Wera API
 - A new site rule goes in `src/content/sites` (its field names, and its widgets
   in a separate filler if the general one misses them), with a fixture test.
 - The extension never submits a form or ticks a consent box; keep it that way.
+- It obeys nothing a page says to AI tools, and leaves to the user what only
+  they can answer: a check that a person is there, a question on using AI. A
+  detail fills only a question that asks for just that detail: a wrong answer
+  on an application is a false statement in someone's name. A new rule comes
+  with real labels in `classify.real.test.ts`, and what must not trip it.
 
 ## Branches and pull requests
 

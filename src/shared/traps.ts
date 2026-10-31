@@ -227,6 +227,11 @@ export function labelTrap(label: string): TrapKind | null {
   return null;
 }
 
+const OWN_WORDS = /\bwrite (it|this|your (answer|response)) yourself\b|\bin your own words\b|\bnot (be )?(written|generated) by (an? )?(ai|chat ?gpt|llm)\b/i;
+
+/** Whether a question asks for the applicant's own words: Wera drafts it only if they ask, with the Wera button. */
+export const asksOwnWords = (label: string) => OWN_WORDS.test(folded(readableText(label)));
+
 // Names forms give the boxes they set out for bots.
 const DECOY_NAME = /(^|[\s_.-])(honey-?pot|honey|hp|gotcha|bot-?(field|check|trap)|no-?spam|anti-?spam|trap|leave-?(this-?)?blank|do-?not-?fill)($|[\s_.-])/i;
 

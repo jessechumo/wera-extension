@@ -148,7 +148,7 @@ export function Posting({ api, page, tabId }: { api: WeraApi; page: PanelPageSta
       setBusy('');
     }
   };
-  const apply = page.info?.apply;
+  const apply = page.handle.canApply || !!page.info?.apply;
   return (
     <div className="space-y-2">
       {going ? <Notice tone="good">Opening the application: Wera fills it as soon as it shows.</Notice>

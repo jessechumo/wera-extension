@@ -115,7 +115,7 @@ function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?:
   return { calls, store, session, emit };
 }
 
-const handle = (kind: 'form' | 'posting' | null): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, subscribe: () => () => {} });
+const handle = (kind: 'form' | 'posting' | null): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, canApply: false, subscribe: () => () => {} });
 const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, collapsedHere: false, opens: 0, toggles: 0, fills: 0, formFrames: 0, ...over });
 
 afterEach(() => {
