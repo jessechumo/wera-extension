@@ -1,6 +1,7 @@
 // What every frame's page script does when the Wera panel asks: read the
 // page, plan and fill the form, press Next (never Submit). The panel's
 // requests come through the background, by frame.
+import { gateOf } from './gate';
 import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { collectFields } from './fields';
@@ -43,7 +44,7 @@ function readPage(): PageInfo {
     docId: window.__weraDocId,
     site: site?.name,
     step: site?.step?.(document) ?? undefined,
-    gate: site?.gate?.(document) ?? undefined,
+    gate: gateOf(document) ?? undefined,
   };
 }
 

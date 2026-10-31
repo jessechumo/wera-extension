@@ -17,8 +17,8 @@ export interface Flow {
 
 const KEY = 'wera.flows';
 const APPLYING = 'wera.applying';
-/** How long "Apply with Wera" waits for its application to show. */
-const APPLYING_TTL = 2 * 60_000;
+/** How long "Apply with Wera" waits for its application to show: long enough to sign in or make an account. */
+const APPLYING_TTL = 15 * 60_000;
 const TTL = 3 * 3600_000;
 
 async function all(): Promise<Record<string, Flow>> {
