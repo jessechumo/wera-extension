@@ -120,3 +120,29 @@ describe('normalizeServer', () => {
     ['', null],
   ])('%s -> %s', (raw, want) => expect(normalizeServer(raw)).toBe(want));
 });
+
+describe('reading a job off a page', () => {
+  it('keeps the page address when the AI gives none, or the job could not be saved', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ is_job_posting: true, title: 'SRE', company: 'Acme', url: '' }), { status: 200 }));
+    const api = new WeraApi('https://wera.test', 'tok', fetcher);
+    const got = await api.extract('https://acme.example/apply/1', 'SRE', 'text');
+    expect(got.url).toBe('https://acme.example/apply/1');
+  });
+});
+
+describe('the next best match', () => {
+  const job = (id: number, status: string | null = null) => ({ id, title: `Role ${id}`, company: 'Acme', fit_score: 90 - id, url: `https://acme.example/${id}`, application_status: status });
+  const api = (jobs: unknown[]) => new WeraApi('https://wera.test', 'tok', async () => new Response(JSON.stringify({ jobs }), { status: 200 }));
+
+  it('is the best one this application was not for', async () => {
+    await expect(api([job(1), job(2)]).nextMatch(1)).resolves.toMatchObject({ id: 2 });
+  });
+
+  it('skips what the user has dealt with, but not what they saved', async () => {
+    await expect(api([job(1, 'applied'), job(2, 'not_interested'), job(3, 'saved')]).nextMatch(null)).resolves.toMatchObject({ id: 3 });
+  });
+
+  it('is nothing when nothing is left', async () => {
+    await expect(api([job(1)]).nextMatch(1)).resolves.toBeNull();
+  });
+});

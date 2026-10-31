@@ -4,7 +4,7 @@
 import { ApiError, WeraApi } from '../shared/api';
 import { notifyDashboard } from '../shared/bridge';
 import { remoteCallable, settle, type PanelRequest, type RpcReply } from '../shared/rpc';
-import { loadSession, normalizeServer, saveSession } from '../shared/storage';
+import { loadSession, normalizeServer, rememberTabJob, saveSession } from '../shared/storage';
 import { signedInApi } from './jobs';
 import * as frames from './frames';
 
@@ -50,7 +50,17 @@ export async function handlePanel(msg: PanelRequest, tabId: number, frameId: num
     case 'wera:tab-close':
       if (frameId !== 0) return { ok: false, status: 403, error: 'only the Wera panel closes the tab' };
       return settle(() => closeTab(tabId));
+    case 'wera:open-next':
+      if (frameId !== 0) return { ok: false, status: 403, error: 'only the Wera panel moves the tab on' };
+      return settle(() => openNext(tabId, msg.jobId, msg.url));
   }
+}
+
+/** Takes the tab to the user's next match, and remembers which job that is: its address may differ from Wera's. */
+export async function openNext(tabId: number, jobId: number, url: string): Promise<void> {
+  if (!/^https?:\/\//.test(url)) throw new Error('not a web address');
+  await rememberTabJob(tabId, new URL(url).origin, jobId);
+  await chrome.tabs.update(tabId, { url });
 }
 
 /** Closes the tab; the last tab of its window goes to the Wera tracker instead, so the window stays. */

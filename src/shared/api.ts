@@ -275,6 +275,15 @@ export class WeraApi {
   }
 
   /**
+   * The user's best match after this application, for the moment they have
+   * momentum: one they have not dealt with yet, or only saved.
+   */
+  async nextMatch(after: number | null): Promise<WeraJob | null> {
+    const { jobs } = await this.call<{ jobs: WeraJob[] }>('/api/today?limit=10');
+    return jobs.find((j) => j.id !== after && (!j.application_status || j.application_status === 'saved')) ?? null;
+  }
+
+  /**
    * The application details, completed from the profile and the resume
    * (sources says which came from where), with the resume's jobs, schools
    * and skills. Older servers send only applicant and saved.
