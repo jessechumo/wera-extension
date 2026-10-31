@@ -225,6 +225,45 @@ describe('fillForm on harder forms', () => {
   });
 });
 
+describe('address search boxes', () => {
+  const me = { ...ada, address: '500 Market Street', address_line2: '', city: 'San Francisco', state: 'CA', postal_code: '94105' };
+
+  /** A search box like Teamtailor's, listing what a place search would for what is typed. */
+  function searchBox(places: (typed: string) => string[]) {
+    document.body.innerHTML = `<div><label for="a">Address</label><input id="a" role="combobox" autocomplete="street-address" aria-autocomplete="list"><ul role="listbox"></ul></div>`;
+    const box = document.getElementById('a') as HTMLInputElement;
+    const list = document.querySelector('ul')!;
+    const typed: string[] = [];
+    box.addEventListener('input', () => {
+      typed.push(box.value);
+      list.innerHTML = box.value ? places(box.value).map((p) => `<li role="option">${p}</li>`).join('') : '';
+      list.querySelectorAll('li').forEach((li) => li.addEventListener('click', () => { box.value = li.textContent!; list.innerHTML = ''; }));
+    });
+    return { box, typed };
+  }
+
+  it('never takes a namesake street in another town', async () => {
+    const { box } = searchBox(() => ['500 Market Street, Rochdale, OL12 8QW, United Kingdom', '500 Market Street, Philadelphia, PA 19106, USA']);
+    const out = await fillForm(document, me, {});
+    expect(out.find((r) => r.label === 'Address')).toMatchObject({ status: 'review', note: 'pick the matching option' });
+    expect(box.value).toBe('');
+  });
+
+  it('takes the applicant\'s own, however the street is written', async () => {
+    const { box, typed } = searchBox(() => ['500 Market St, Rochdale, OL12 8QW, United Kingdom', '500 Market St, San Francisco, CA 94105, USA']);
+    const out = await fillForm(document, me, {});
+    expect(box.value).toBe('500 Market St, San Francisco, CA 94105, USA');
+    expect(out.find((r) => r.label === 'Address')!.status).toBe('filled');
+    expect(typed.some((t) => t.includes('San Francisco'))).toBe(true); // the town helps the search too
+  });
+
+  it('settles for the town when the box only knows towns', async () => {
+    const { box } = searchBox((t) => (t.startsWith('San Francisco') ? ['San Francisco, CA, USA'] : []));
+    await fillForm(document, me, {});
+    expect(box.value).toBe('San Francisco, CA, USA');
+  });
+});
+
 describe('values and options', () => {
   it('reads dates and shapes values for fields', () => {
     expect(parseDate('2026-11-03')?.getDate()).toBe(3);

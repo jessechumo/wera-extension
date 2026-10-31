@@ -297,11 +297,18 @@ export function fullAddress(a: Applicant): string {
   return [a.address, a.address_line2, cityLine].filter(Boolean).join(', ');
 }
 
-/** A form with one address box and no city, state or code boxes wants the whole address in it. */
+/**
+ * A form with one address box and no city, state or code boxes wants the
+ * whole address in it. So does a box that searches addresses, whatever
+ * else the form has: the street alone finds its namesakes in other towns.
+ * Such a box gets the town as a second try, for the ones that know only towns.
+ */
 function wholeAddress(fields: FieldPlan[], a: Applicant) {
-  if (fields.some((f) => f.purpose === 'city' || f.purpose === 'state' || f.purpose === 'postal_code' || f.purpose === 'address_line2')) return;
+  const split = fields.some((f) => f.purpose === 'city' || f.purpose === 'state' || f.purpose === 'postal_code' || f.purpose === 'address_line2');
   for (const f of fields) {
-    if (f.purpose === 'address' && f.source === 'details' && (f.kind === 'text' || f.kind === 'textarea') && a.address) f.value = fullAddress(a);
+    if (f.purpose !== 'address' || f.source !== 'details' || !a.address) continue;
+    if (f.kind === 'combobox') f.value = [fullAddress({ ...a, address_line2: '' }), [a.city, a.state].filter(Boolean).join(', ')].filter(Boolean).join(OR);
+    else if (!split && (f.kind === 'text' || f.kind === 'textarea')) f.value = fullAddress(a);
   }
 }
 
