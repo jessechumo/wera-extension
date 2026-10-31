@@ -24,6 +24,6 @@ function purpose(f: Field): FieldPurpose | null | undefined {
 
 export const ashby: Site = {
   name: 'Ashby',
-  matches: (doc) => /(^|\.)ashbyhq\.com$/i.test(doc.location?.hostname ?? ''),
+  matches: (doc) => /^jobs\.ashbyhq\.com$/i.test(doc.location?.hostname ?? ''),
   purpose,
 };

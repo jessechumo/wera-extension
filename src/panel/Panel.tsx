@@ -31,6 +31,8 @@ export interface PanelProps {
   fillRequest: number;
   onSignedIn: () => void;
   onSignedOut: () => void;
+  /** The user turned Wera off on this site: it goes away now. */
+  onHideSite: () => void;
 }
 
 export function Panel(props: PanelProps) {

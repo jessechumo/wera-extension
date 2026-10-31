@@ -88,8 +88,8 @@ function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?:
   return { calls, store, emit };
 }
 
-const handle = (kind: 'form' | 'posting'): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, subscribe: () => () => {} });
-const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, collapsedHere: false, opens: 0, toggles: 0, fills: 0, ...over });
+const handle = (kind: 'form' | 'posting' | null): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, subscribe: () => () => {} });
+const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, collapsedHere: false, opens: 0, toggles: 0, fills: 0, formFrames: 0, ...over });
 
 afterEach(() => {
   cleanup(); // before the fake chrome goes: unmounting unhooks its listeners
@@ -128,6 +128,29 @@ describe('the Wera panel', () => {
     render(<App handle={handle('posting')} show={show({ initial: false, collapsedHere: true })} />);
     expect(await screen.findByRole('button', { name: 'Show the Wera panel' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('stays when a frame holds the form, even if it answered after the page was read', async () => {
+    let hasForm = false;
+    const { calls } = fakeBackground({ frames: { read: () => ({ url: draft.url, title: 'Careers', text: '', draft: null, hasForm }) } });
+    const { rerender } = render(<App handle={handle(null)} show={show({ formFrames: 1 })} />);
+    expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
+    hasForm = true;
+    const reads = calls.filter((c) => c.name === 'read').length;
+    rerender(<App handle={handle(null)} show={show({ formFrames: 2 })} />);
+    await waitFor(() => expect(calls.filter((c) => c.name === 'read').length).toBeGreaterThan(reads));
+    await screen.findByRole('button', { name: /^Autofill$/ });
+  });
+
+  it('goes at once when the user turns Wera off on this site, and comes back from the toolbar', async () => {
+    const { store } = fakeBackground({ job });
+    const { rerender } = render(<App handle={handle('posting')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: new RegExp(`Show Wera on ${location.hostname}`) }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(store['wera.hiddenSites']).toHaveProperty(location.hostname));
+    rerender(<App handle={handle('posting')} show={show({ toggles: 1 })} />);
+    expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
   });
 
   it('autofills: what Wera knows at once, then the AI\'s sure answers and drafts, and lists only what needs the user', async () => {

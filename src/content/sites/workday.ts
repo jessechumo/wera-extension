@@ -8,7 +8,7 @@ import type { FieldPurpose } from '../../shared/types';
 import type { Field } from '../fields';
 import type { Site, Step } from './index';
 
-const HOST = /(^|\.)(myworkdayjobs|myworkdaysite|workday)\.com$/i;
+const HOST = /(^|\.)(myworkdayjobs|myworkdaysite)\.com$/i;
 
 /** Automation ids that name a widget part, not the field (the field's name is on its wrapper). */
 const PART = /^(searchBox|dateSection(Month|Day|Year)-input|file-upload-input-ref|selectinput|textInputBox|checkboxPanel|radioBtn)$/i;

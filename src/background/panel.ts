@@ -8,8 +8,8 @@ import { loadSession, normalizeServer, saveSession } from '../shared/storage';
 import { signedInApi } from './jobs';
 import * as frames from './frames';
 
-/** Puts the panel on the tab's page (once) and tells it to show: open, and fill, when asked. */
-export async function ensurePanel(tabId: number, opts: { open?: boolean; fill?: boolean } = {}): Promise<boolean> {
+/** Puts the panel on the tab's page (once) and tells it to show: open, and fill, when asked; formFrame: a frame holds the form. */
+export async function ensurePanel(tabId: number, opts: { open?: boolean; fill?: boolean; formFrame?: boolean } = {}): Promise<boolean> {
   const ok = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ['panel.js'] }).then(() => true, () => false);
   if (ok) await chrome.tabs.sendMessage(tabId, { type: 'wera:panel-show', tabId, ...opts }, { frameId: 0 }).catch(() => {});
   return ok;
@@ -46,7 +46,7 @@ export async function handlePanel(msg: PanelRequest, tabId: number, frameId: num
         return null;
       });
     case 'wera:panel-ensure':
-      return settle(() => ensurePanel(tabId, { open: msg.open, fill: msg.fill }));
+      return settle(() => ensurePanel(tabId, { open: msg.open, fill: msg.fill, formFrame: frameId !== 0 }));
     case 'wera:tab-close':
       if (frameId !== 0) return { ok: false, status: 403, error: 'only the Wera panel closes the tab' };
       return settle(() => closeTab(tabId));

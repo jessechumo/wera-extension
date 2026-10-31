@@ -201,6 +201,22 @@ test('stays off a mail inbox full of job emails and "thank you for applying"', a
   await mail.close();
 });
 
+test('stays off a shop: a product with a coupon, and a checkout with a promo code', async () => {
+  await context.route('https://www.amazon.com/**', (route) => route.fulfill({ contentType: 'text/html', body: route.request().url().includes('/gp/buy/')
+    ? `<!doctype html><title>Checkout</title><h1>Checkout</h1><form><label for="a">Full name</label><input id="a"><label for="m">Email</label><input id="m" type="email">
+      <label for="p">Phone</label><input id="p" type="tel"><label for="s">Street address</label><input id="s"><label for="c">City</label><input id="c">
+      <label for="z">ZIP code</label><input id="z"><label for="o">Promo code</label><input id="o"><button type="button">Apply</button></form>`
+    : `<!doctype html><title>Wireless Earbuds</title><h1>Wireless Earbuds</h1><button>Apply</button><a href="/cart">Apply now</a><h2>Benefits</h2><h2>Requirements</h2>
+      <p>Qualifications for free delivery</p><h2>About the team</h2><p>Compensation for late delivery</p>` }));
+  for (const url of ['https://www.amazon.com/dp/B0D1XD1ZV3?ref=position_1_job', 'https://www.amazon.com/gp/buy/spc/handlers/display.html']) {
+    const shop = await context.newPage();
+    await shop.goto(url);
+    await shop.waitForTimeout(2500);
+    await expect(panelOf(shop)).toHaveCount(0);
+    await shop.close();
+  }
+});
+
 test('fill an application embedded from another site, and again after a reload', async () => {
   const job = await context.newPage();
   await job.goto(`${site}/jobs/${run}/sre/embedded`);
