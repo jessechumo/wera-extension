@@ -266,6 +266,31 @@ test('keeps filling when the site\'s own Next button shows the next step', async
   await job.close();
 });
 
+test('applying from the dashboard fills the application when it opens', async () => {
+  const conn = await fetch(`${API}/api/ext/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'chrome-extension://e2e' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: 'e2e handoff' }),
+  });
+  const { token } = (await conn.json()) as { token: string };
+  const found = await fetch(`${API}/api/ext/jobs/lookup?url=${encodeURIComponent(`${site}/jobs/${run}/sre`)}`, { headers: { Authorization: `Bearer ${token}` } });
+  const { job: saved } = (await found.json()) as { job: { id: number } };
+  await fetch(`${API}/api/ext/tokens/current`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  const form = `${site}/jobs/${run}/sre/apply`;
+  await context.route(`${API}/e2e-apply`, (route) =>
+    route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Wera</title><a id="go" href="${form}" target="_blank" rel="noreferrer">Apply on the company's site</a>` }));
+  const dash = await context.newPage();
+  await dash.goto(`${API}/e2e-apply`);
+  await expect.poll(() => dash.evaluate(() => document.documentElement.dataset.weraExtension ?? '')).not.toBe('');
+  await dash.evaluate(([id, url]) => window.postMessage({ source: 'wera-dashboard', type: 'open-job', jobId: id, url }, location.origin), [saved.id, form] as const);
+  const [tab] = await Promise.all([context.waitForEvent('page'), dash.click('#go')]);
+  await tab.waitForLoadState();
+  // No button pressed on the form: the application fills itself.
+  await expect(tab.locator('#fn')).not.toHaveValue('', { timeout: 20_000 });
+  await tab.close();
+  await dash.close();
+});
+
 test('the page makes room for the panel on an application', async () => {
   const job = await context.newPage();
   await job.setViewportSize({ width: 1280, height: 800 });

@@ -394,12 +394,25 @@ function mergeTickGroups(fields: Field[]): Field[] {
   return replaced.size ? fields.flatMap((f) => (replaced.has(f) ? (replaced.get(f) ? [replaced.get(f)!] : []) : [f])) : fields;
 }
 
+const TYPED = 'input:not([type]), input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="file"], textarea, select';
+
+/**
+ * The open dialog holding a form, when there is one (LinkedIn's Easy
+ * Apply, a careers page's Apply popup): while it is up, the page behind
+ * it is no part of the form. Toggles alone are a cookie banner.
+ */
+function dialogWithForm(root: ParentNode): HTMLElement | null {
+  const dialogs = deepQueryAll<HTMLElement>(root, 'dialog[open], [role="dialog"], [aria-modal="true"]').filter((d) => !isHidden(d));
+  return dialogs.reverse().find((d) => [...d.querySelectorAll<HTMLElement>(TYPED)].filter((c) => (c as HTMLInputElement).type === 'file' || !isHidden(c)).length >= 2) ?? null;
+}
+
 /**
  * All fillable fields in document order, radio and checkbox groups
  * merged. Decoys are left out (found hears of them), so nothing can fill
  * them.
  */
-export function collectFields(root: ParentNode, found?: Trap[]): Field[] {
+export function collectFields(page: ParentNode, found?: Trap[]): Field[] {
+  const root = dialogWithForm(page) ?? page;
   const fields: Field[] = [];
   const groups = new Map<string, Field>();
   for (const node of deepQueryAll<HTMLElement>(root, `${FIELDS}, button`)) {
