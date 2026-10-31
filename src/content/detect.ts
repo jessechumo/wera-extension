@@ -297,6 +297,13 @@ function companyFromUrl(url: string): string {
   return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** A title without what a form wraps it in: "Apply: SRE", "Job Application for SRE at Acme". */
+function bareTitle(title: string, company: string): string {
+  const t = title.replace(/^\s*(job\s+)?(application|apply)\s*(for|to|:|-|–)\s*/i, '').trim();
+  const at = company ? t.toLowerCase().lastIndexOf(` at ${company.toLowerCase()}`) : -1;
+  return at > 0 ? t.slice(0, at).trim() : t;
+}
+
 /** A first look at the job: its title and company, for the Wera panel's first look (it reads the page fully later). */
 export function jobSummary(doc: Document): { title: string; company: string } {
   const data = readJobPosting(doc, doc.location.href);
@@ -305,5 +312,6 @@ export function jobSummary(doc: Document): { title: string; company: string } {
   // LinkedIn and Indeed name the company next to the title.
   const site = doc.querySelector('.job-details-jobs-unified-top-card__company-name, [data-testid="inlineHeader-companyName"], [data-company-name="true"]')?.textContent?.trim() ?? '';
   const title = headline(doc) || meta('og:title') || doc.title.split(/\s[|–-]\s/)[0]!.trim();
-  return { title: title.slice(0, 140), company: (site || companyFromUrl(doc.location.href) || meta('og:site_name')).slice(0, 80) };
+  const company = (site || companyFromUrl(doc.location.href) || meta('og:site_name')).slice(0, 80);
+  return { title: bareTitle(title, company).slice(0, 140), company };
 }

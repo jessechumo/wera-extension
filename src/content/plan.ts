@@ -146,6 +146,12 @@ const DERIVED = new Set<FieldPurpose>(['in_country', 'citizen_of', 'previously_e
 /** Answers about the right to work: the details hold them for where the user lives. */
 const WORK_RIGHTS = new Set<FieldPurpose>(['authorized_to_work', 'needs_sponsorship', 'authorized_no_sponsorship']);
 
+/** Whether an upload takes the PDFs Wera has ("accept" may list only Word files). */
+function takesPdf(f: Field): boolean {
+  const accept = ((f.el as HTMLInputElement).getAttribute('accept') ?? '').toLowerCase();
+  return !accept || /pdf|\*\/\*|application\/\*/.test(accept);
+}
+
 /** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
 export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
   const purpose = f.trap ? null : placed?.purpose ?? classify(f);
@@ -176,12 +182,14 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
   }
   if (purpose === 'resume') {
     if (f.kind !== 'file') return plan;
-    if (opts.resumeName) propose(RESUME, 'resume', opts.resumeName);
+    if (!takesPdf(f)) plan.note = 'this form does not take a PDF: attach a copy it accepts yourself';
+    else if (opts.resumeName) propose(RESUME, 'resume', opts.resumeName);
     else plan.note = 'upload your resume in Wera to attach it';
     return plan;
   }
   if (purpose === 'cover_letter') {
-    if ((f.kind === 'textarea' || f.kind === 'file') && opts.coverLetter) propose(LETTER, 'letter', f.kind === 'file' ? 'your cover letter for this job, as a PDF' : 'your cover letter for this job');
+    if (f.kind === 'file' && !takesPdf(f)) plan.note = 'this form does not take a PDF: attach a copy it accepts yourself';
+    else if ((f.kind === 'textarea' || f.kind === 'file') && opts.coverLetter) propose(LETTER, 'letter', f.kind === 'file' ? 'your cover letter for this job, as a PDF' : 'your cover letter for this job');
     else plan.note = f.kind === 'file' || f.kind === 'textarea' ? 'no cover letter for this job yet' : 'paste your cover letter yourself';
     return plan;
   }
@@ -383,6 +391,9 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
           attachFile(f.el as HTMLInputElement, base64ToFile(opts.resume.base64, opts.resume.name));
           res.status = 'filled';
           res.value = opts.resume.name;
+          // Some systems read the resume and fill the form from it: let that finish first.
+          const reads = doc ? siteFor(doc)?.readsResume : 0;
+          if (reads) await wait(reads);
         } else {
           res.note = 'no resume to attach';
         }

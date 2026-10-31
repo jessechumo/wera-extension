@@ -206,6 +206,7 @@ function rawLabel(el: HTMLElement, groupName?: string): string {
     const group = el.closest('[role="group"], fieldset');
     return (group && groupTitle(group)) || textOver(el, raw) || raw;
   }
+  if (type === 'file') return raw.replace(UPLOAD_NOISE, '').trim() || raw;
   if (type === 'checkbox' && BARE_ANSWER.test(raw.trim())) return textOver(el, raw) || raw;
   if (type === 'checkbox' && BARE_ASSENT.test(raw.trim())) {
     const over = textOver(el, raw);
@@ -213,6 +214,9 @@ function rawLabel(el: HTMLElement, groupName?: string): string {
   }
   return raw;
 }
+
+// What an upload's label adds to its name: "Resume/CV* Accepted file types: pdf, doc", "Resume/CV ✱ ATTACH RESUME/CV".
+const UPLOAD_NOISE = /\s*(accepted file types?\b.*|attach\s+(your\s+)?(resume|cv|cover).*|(upload|attach|browse)( a)?( file)?\s*|(max|maximum)\.? (file )?size.*)$/i;
 
 function labelText(el: HTMLElement, groupName?: string): string {
   const scope = scopeOf(el);
