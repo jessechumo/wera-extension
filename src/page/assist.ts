@@ -55,7 +55,7 @@ const CSS = `${BASE}
 
 /** An open question a drafted answer fits: a text area, or a long text box asking a question. */
 export function isOpenQuestion(f: Field): boolean {
-  if (f.kind !== 'textarea' && f.kind !== 'text') return false;
+  if ((f.kind !== 'textarea' && f.kind !== 'text') || f.trap) return false;
   const p = classify(f);
   return p === 'question' || (p === 'cover_letter' && f.kind === 'textarea');
 }

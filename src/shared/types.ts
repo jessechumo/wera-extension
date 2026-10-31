@@ -1,4 +1,5 @@
 // Types shared by the side panel, the content script and the API client.
+import type { Trap, TrapKind } from './traps';
 
 /** A job as read off a page, edited by the user before saving. */
 export interface JobDraft {
@@ -159,6 +160,10 @@ export interface FieldPlan {
   group: FieldGroup;
   /** In a job or school block: which one (0 is the first on the page). */
   entry?: number;
+  /** The field is a trap: Wera leaves it to the user (see shared/traps.ts). */
+  trap?: TrapKind;
+  /** The form asks for the applicant's own words here: Wera does not draft it. */
+  ownWords?: boolean;
 }
 
 /** The button that moves a multi-page application on. */
@@ -183,6 +188,8 @@ export interface PagePlan {
   step?: { name: string; index: number; total: number };
   /** The page wants something first (a Workday account): what to do. */
   gate?: string;
+  /** What this page holds for catching or steering AI tools, for the user to see. */
+  traps?: Trap[];
 }
 
 /** An answer the user gave before, as the content script matches it. */
@@ -243,6 +250,8 @@ export interface PageInfo {
   site?: string;
   step?: { name: string; index: number; total: number };
   gate?: string;
+  /** What the page says to AI tools, hidden or not (taken out of text and draft). */
+  traps?: Trap[];
 }
 
 /** A file to put in a form's upload (a PDF). */

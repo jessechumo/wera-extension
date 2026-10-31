@@ -7,6 +7,7 @@ import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, Fil
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
 import { bestAnswer } from '../shared/answers';
 import { log } from '../shared/log';
+import { trapMeaning, uniqueTraps, type Trap } from '../shared/traps';
 import { LETTER, RESUME } from '../shared/markers';
 import { SELF_ID } from '../shared/selfId';
 import { classify } from './classify';
@@ -128,12 +129,20 @@ const DERIVED = new Set<FieldPurpose>(['in_country', 'citizen_of', 'previously_e
 
 /** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
 export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
-  const purpose = placed?.purpose ?? classify(f);
+  const purpose = f.trap ? null : placed?.purpose ?? classify(f);
   const plan: FieldPlan = {
     id: f.id, label: f.label.slice(0, 200), purpose, kind: f.kind,
     options: f.options.map((o) => o.label).filter((l) => l && !isPlaceholderOption(l)).slice(0, 120),
     required: f.required, current: currentValue(f), value: '', source: null, group: groupOf(purpose),
   };
+  // Never Wera's to answer, whatever it knows.
+  if (f.trap) {
+    plan.trap = f.trap.kind;
+    plan.note = trapMeaning(f.trap.kind);
+    if (!plan.label) plan.label = 'A box aimed at AI tools';
+    return plan;
+  }
+  if (f.said?.some((t) => t.kind === 'ai_policy')) plan.ownWords = true;
   const max = (f.el as HTMLTextAreaElement).maxLength;
   if (max > 0 && (f.kind === 'text' || f.kind === 'textarea')) plan.maxLength = max;
   const propose = (value: string, source: ValueSource, note?: string) => {
@@ -297,15 +306,18 @@ export async function addEntries(root: ParentNode, section: Section, count: numb
 
 /** The whole page: its fields in order, its Next button, and fields the site flags. */
 export function planForm(root: ParentNode, a: Applicant | Profile, opts: PlanOptions = {}): PagePlan {
-  const all = collectFields(root);
+  const found: Trap[] = [];
+  const all = collectFields(root, found);
   const placed = placeFields(all);
   const fields = all.map((f) => planField(f, a, opts, placed.get(f.id))).filter((p) => p.purpose !== null || p.label !== '' || p.required);
   wholeAddress(fields, a);
   const doc = root instanceof Document ? root : (root as Node).ownerDocument;
   const site = doc ? siteFor(doc) : null;
+  const traps = uniqueTraps([...found, ...all.flatMap((f) => [...(f.said ?? []), ...(f.trap ? [f.trap] : [])])]);
   return {
     fields, next: findNext(root), errors: invalidCount(root), adders: adders(root, fields, a),
     site: site?.name, step: (doc && site?.step?.(doc)) || undefined, gate: (doc && site?.gate?.(doc)) || undefined,
+    ...(traps.length ? { traps } : {}),
   };
 }
 
@@ -342,6 +354,9 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
     try {
       if (!f || !f.el.isConnected) {
         res.note = 'this field is no longer on the page';
+      } else if (f.trap) {
+        // Nothing fills these, whatever was asked.
+        res.note = trapMeaning(f.trap.kind);
       } else if (purpose === 'consent') {
         res.note = 'agree yourself after reading it';
       } else if (item.value === RESUME) {
@@ -392,10 +407,10 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
   return out;
 }
 
-/** Every field's value as the user left it, to learn answers from. */
+/** Every field's value as the user left it, to learn answers from (a one-time code or a check is never an answer to keep). */
 export function snapshot(root: ParentNode): FieldSnapshot[] {
   return collectFields(root)
-    .filter((f) => f.kind !== 'file')
+    .filter((f) => f.kind !== 'file' && !f.trap)
     .map((f) => ({ id: f.id, label: f.label.slice(0, 300), purpose: classify(f), kind: f.kind, value: currentValue(f) }))
     .filter((s) => s.value !== '');
 }
