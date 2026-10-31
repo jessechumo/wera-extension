@@ -322,6 +322,8 @@ const MAX_BLOCKS: Record<Section, number> = { experience: 3, education: 2 };
 
 /** Sections that could take more of the resume's jobs or schools through their Add button. */
 function adders(root: ParentNode, fields: FieldPlan[], p: Profile): NonNullable<PagePlan['adders']> {
+  const doc = root instanceof Document ? root : (root as Node).ownerDocument;
+  if (doc && siteFor(doc)?.noBlocks) return [];
   const out: NonNullable<PagePlan['adders']> = [];
   for (const section of ['experience', 'education'] as Section[]) {
     const have = (section === 'experience' ? p.experience : p.education)?.length ?? 0;

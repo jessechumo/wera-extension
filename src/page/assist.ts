@@ -53,6 +53,22 @@ const CSS = `${BASE}
 .saved p { margin: 0; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .pop { animation: none; } .spin { animation: none; } }`;
 
+/**
+ * Whether this box was looked at a moment ago. Reading the form on every
+ * focus is fine for a person, but a page can focus a box hundreds of times
+ * a second (two of Workable's date boxes fight over the focus), and each read
+ * takes the main thread: the page would freeze.
+ */
+export function lookedLately(wait = 1500, now: () => number = Date.now) {
+  const at = new WeakMap<Element, number>();
+  return (el: Element): boolean => {
+    const last = at.get(el);
+    if (last != null && now() - last < wait) return true;
+    at.set(el, now());
+    return false;
+  };
+}
+
 /** An open question a drafted answer fits: a text area, or a long text box asking a question. */
 export function isOpenQuestion(f: Field): boolean {
   if ((f.kind !== 'textarea' && f.kind !== 'text') || f.trap) return false;
@@ -249,11 +265,13 @@ export function startAssist(doc: Document): () => void {
     void run();
   };
 
+  const looked = lookedLately();
   const onFocus = (e: FocusEvent) => {
     const target = e.target as HTMLElement | null;
     if (!target || !(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) return;
     window.clearTimeout(hideTimer);
     if (field?.el === target) return showMark(field);
+    if (looked(target)) return;
     void (async () => {
       if (!extensionAlive() || !(await loadSettings().catch(() => null))?.assist) return;
       // Only on application forms: a comment box elsewhere is not Wera's business.
