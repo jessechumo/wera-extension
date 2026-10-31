@@ -152,11 +152,15 @@ function takesPdf(f: Field): boolean {
   return !accept || /pdf|\*\/\*|application\/\*/.test(accept);
 }
 
+// Uploads some sites leave without a name: the panel still has to say what went in.
+const UNNAMED: Record<string, string> = { resume: 'Resume', cover_letter: 'Cover letter' };
+const NO_REAL_NAME = /^(file|attachment|upload)?$/i;
+
 /** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
 export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
   const purpose = f.trap ? null : placed?.purpose ?? classify(f);
   const plan: FieldPlan = {
-    id: f.id, label: f.label.slice(0, 200), purpose, kind: f.kind,
+    id: f.id, label: (NO_REAL_NAME.test(f.label) ? UNNAMED[purpose ?? ''] ?? f.label : f.label).slice(0, 200), purpose, kind: f.kind,
     options: f.options.map((o) => o.label).filter((l) => l && !isPlaceholderOption(l)).slice(0, 120),
     required: f.required, current: currentValue(f), value: '', source: null, group: groupOf(purpose),
   };
