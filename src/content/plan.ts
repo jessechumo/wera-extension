@@ -2,6 +2,7 @@
 // typed: every field, what it shows now, and what Wera would enter and
 // why. Then fills exactly the values the user approved, one at a time,
 // reporting each as it lands.
+import { gateOf } from './gate';
 import { startHasPassed } from '../shared/dates';
 import type { Applicant, FieldGroup, FieldPlan, FieldPurpose, FieldSnapshot, FillItem, FillResult, KnownAnswer, PagePlan, Profile, ValueSource } from '../shared/types';
 import { datePart, ENTRY_PURPOSES, entryValue, findAdder, placeEntries, type Placed, type Section } from './entries';
@@ -15,7 +16,7 @@ import { byId, collectFields, isPressed, isWorkdayPrompt, listboxValue, type Fie
 import { attachFile, base64ToFile, comboboxChoice, enterValue, mark, setNativeValue, wait } from './fill';
 import { isPlaceholderOption, matchOption } from './match';
 import { countryAnswer, countryIn, norm, sameCountry, stateName } from './places';
-import { choicesOf, firstChoice, valueFor } from './values';
+import { choicesOf, firstChoice, OR, valueFor } from './values';
 import { findNext, invalidCount } from './next';
 import { siteFor } from './sites';
 import { siteFiller } from './sites/fill';
@@ -357,7 +358,7 @@ export function planForm(root: ParentNode, a: Applicant | Profile, opts: PlanOpt
   const traps = uniqueTraps([...found, ...all.flatMap((f) => [...(f.said ?? []), ...(f.trap ? [f.trap] : [])])]);
   return {
     fields, next: findNext(root), errors: invalidCount(root), adders: adders(root, fields, a),
-    site: site?.name, step: (doc && site?.step?.(doc)) || undefined, gate: (doc && site?.gate?.(doc)) || undefined,
+    site: site?.name, step: (doc && site?.step?.(doc)) || undefined, gate: (doc && gateOf(doc)) || undefined,
     ...(traps.length ? { traps } : {}),
   };
 }
