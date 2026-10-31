@@ -10,6 +10,7 @@ import type { FieldPurpose } from '../shared/types';
 import { classify } from './classify';
 import { ENTRY_PURPOSES } from './entries';
 import { collectFields } from './fields';
+import { outOfSight } from './hidden';
 import { isApplicantHost } from './frames';
 import { readJobPosting } from './jsonld';
 import { siteFor } from './sites';
@@ -32,6 +33,7 @@ const JOB_ADDRESSES: RegExp[] = [
   /\.rippling-ats\.com\/job\//,
   /\/hcmui\/candidateexperience\/.*\/(job|apply)\//i,
   /\.icims\.com\/jobs\/\d+/,
+  /\/careers-home\/jobs\/\d+/,
   /^jobs\.jobvite\.com\/[^/]+\/job\//,
   /\.bamboohr\.com\/(careers|jobs)\/(\d+|view\.php)/,
   /\.taleo\.net\/.*(jobdetail|jobapply|application\.jss|flow\.jsf|requisition)/i,
@@ -208,6 +210,17 @@ function hasApplyButton(doc: Document): boolean {
   });
 }
 
+/** The page's way to apply, when it shows one (on a job page: on a shop this would be a coupon's button). */
+export function findApply(doc: Document): HTMLElement | null {
+  const buttons = [...doc.querySelectorAll<HTMLElement>('a, button, input[type="submit"], [role="button"]')].slice(0, 600);
+  const says = (re: RegExp) => buttons.find((b) => {
+    const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
+    return text.length < 60 && re.test(text) && !outOfSight(b);
+  });
+  // Ashby has an Application tab beside the posting.
+  return says(APPLY) ?? says(/^\s*application\s*$/i) ?? null;
+}
+
 /** Whether a page with no job data reads like one job's posting: a careers address, a title, sections and a way to apply. */
 function readsLikePosting(doc: Document): boolean {
   if (!careerAddress(doc.location.href) || !headline(doc) || !hasApplyButton(doc)) return false;
@@ -260,7 +273,8 @@ export function hasApplicationForm(doc: Document): boolean {
     if (EMBEDDED_FORM.test(src)) return true;
     try {
       const u = new URL(src, doc.location.href);
-      return isApplicantHost(u.hostname) && /apply|application|job|candidate/i.test(u.pathname);
+      // Any other frame of a system (its job search, say) speaks for itself if it holds a form.
+      return isApplicantHost(u.hostname) && /apply|application/i.test(u.pathname);
     } catch {
       return false;
     }

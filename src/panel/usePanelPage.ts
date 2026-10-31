@@ -27,6 +27,9 @@ export type PanelEvent =
   | { type: 'wera:frame-event'; frameId: number; event: ContentEvent }
   | { type: 'wera:job-changed'; job: WeraJob; applied: boolean };
 
+const SCORE_TRIES = 12;
+const SCORE_WAIT = 3000;
+
 /**
  * The page the panel sits on and its job in Wera: read when the panel
  * comes up and again when the page moves on (a single-page job board,
@@ -80,7 +83,7 @@ export function usePanelPage(handle: PageHandle, signedIn: boolean, formFrames =
         setState((s) => ({ ...s, job: msg.job }));
       } else if (msg?.type === 'wera:frame-event') {
         const e = msg.event;
-        if (e.type === 'wera:form-changed') setState((s) => ({ ...s, newStep: e.fields }));
+        if (e.type === 'wera:form-changed' && e.step) setState((s) => ({ ...s, newStep: e.fields }));
         else if (e.type === 'wera:navigated') {
           window.clearTimeout(later.current);
           later.current = window.setTimeout(() => void refresh(), 600);
@@ -91,10 +94,24 @@ export function usePanelPage(handle: PageHandle, signedIn: boolean, formFrames =
     return () => chrome.runtime.onMessage.removeListener(onMessage);
   }, [refresh]);
 
+  // A job saved just now gets its score moments later: it shows when it is ready.
+  const scoring = useRef(0);
+  useEffect(() => () => void (scoring.current = 0), []);
   const setJob = useCallback((job: WeraJob | null) => {
     setState((s) => ({ ...s, job }));
     // The tab's next pages (the application after its posting) are for this job too.
     if (job) void sendSafe({ type: 'wera:job-remember', jobId: job.id });
+    if (!job || job.fit_score != null) return;
+    const mine = ++scoring.current;
+    void (async () => {
+      for (let i = 0; i < SCORE_TRIES && mine === scoring.current; i++) {
+        await new Promise((r) => setTimeout(r, SCORE_WAIT));
+        const now = await sendSafe<WeraJob | null>({ type: 'wera:job-resolve', url: location.href, title: job.title });
+        if (mine !== scoring.current || now?.id !== job.id) return;
+        setState((s) => (s.job?.id === job.id ? { ...s, job: { ...s.job, ...now } } : s));
+        if (now.fit_score != null) return;
+      }
+    })();
   }, []);
   const clearNewStep = useCallback(() => setState((s) => ({ ...s, newStep: 0 })), []);
   const clearSubmitted = useCallback(() => setState((s) => ({ ...s, submitted: null })), []);

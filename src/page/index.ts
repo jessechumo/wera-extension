@@ -3,7 +3,7 @@
 // forms, and adds Wera's answer button to open questions. When the site
 // then says "thank you for applying", it tells the background, which
 // marks the job applied. Nothing leaves the page unless Wera is on it.
-import { isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/detect';
+import { findApply, isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
 import { listen } from '../content/listen';
@@ -27,6 +27,8 @@ export interface PageHandle {
   draft: JobDraft | null;
   /** The site confirmed an application while the panel was not there yet. */
   submitted: SubmitReply | null;
+  /** The page has an Apply button to press (it may render after the page). */
+  canApply: boolean;
   /** Called with the page's kind whenever it changes (a single-page job board moved on). */
   subscribe: (fn: (h: PageHandle) => void) => () => void;
 }
@@ -80,7 +82,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   const top = doc.defaultView === doc.defaultView?.top;
   const subscribers = new Set<(h: PageHandle) => void>();
   const handle: PageHandle = {
-    kind: null, title: '', company: '', draft: null, submitted: null,
+    kind: null, title: '', company: '', draft: null, submitted: null, canApply: false,
     subscribe: (fn) => {
       subscribers.add(fn);
       return () => subscribers.delete(fn);
@@ -133,7 +135,8 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     }
     // A form in a frame (an ATS embedded in a careers page) shows its own "thank you".
     if (sawForm || (top && !kind && looks++ < 8)) checkSubmitted();
-    const key = `${doc.location.href}|${kind}`;
+    const canApply = kind === 'posting' && !!findApply(doc);
+    const key = `${doc.location.href}|${kind}|${canApply}`;
     if (key === shownFor) return;
     shownFor = key;
     if (!top) {
@@ -145,7 +148,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
       return;
     }
     const { title, company } = jobSummary(doc);
-    Object.assign(handle, { kind, title, company, draft: readJobPosting(doc, doc.location.href) });
+    Object.assign(handle, { kind, title, company, draft: readJobPosting(doc, doc.location.href), canApply });
     subscribers.forEach((fn) => fn(handle));
     if (kind && !asked && (await allowed(doc))) {
       asked = true;

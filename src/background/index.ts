@@ -4,6 +4,7 @@
 // or hide the panel; Alt+Shift+F (or the right-click menu) fills the form.
 // It also keeps the dashboard bridge: which job the dashboard opened in a tab.
 import { expectHandoff, syncBridge, takeHandoff } from '../shared/bridge';
+import { markApplying, passApplying } from '../shared/flow';
 import { isJobRequest } from '../shared/jobs';
 import { log } from '../shared/log';
 import { isPanelRequest } from '../shared/rpc';
@@ -106,5 +107,9 @@ chrome.runtime.onMessage.addListener((msg: { type?: string; jobId?: unknown; url
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
-  if (tab.id != null) void takeHandoff(tab);
+  const id = tab.id;
+  if (id == null) return;
+  // "Apply on the company's site" in the dashboard: the user is applying, so the application fills itself.
+  void takeHandoff(tab).then((handed) => (handed ? markApplying(id) : undefined)).catch(() => {});
+  if (tab.openerTabId != null) void passApplying(tab.openerTabId, id).catch(() => {});
 });

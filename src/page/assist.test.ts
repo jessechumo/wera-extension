@@ -33,7 +33,7 @@ describe('the Wera button', () => {
   beforeEach(() => {
     calls.length = 0;
     document.body.innerHTML = FORM;
-    window.__weraPage = { kind: 'form', title: 'SRE', company: 'Acme', draft: null, submitted: null, subscribe: () => () => {} };
+    window.__weraPage = { kind: 'form', title: 'SRE', company: 'Acme', draft: null, submitted: null, canApply: false, subscribe: () => () => {} };
     vi.stubGlobal('chrome', {
       runtime: {
         id: 'x', getURL: (p: string) => p,

@@ -252,6 +252,8 @@ export interface PageInfo {
   gate?: string;
   /** What the page says to AI tools, hidden or not (taken out of text and draft). */
   traps?: Trap[];
+  /** The words on the page's Apply button, when it has one. */
+  apply?: string;
 }
 
 /** A file to put in a form's upload (a PDF). */
@@ -292,6 +294,8 @@ export type ContentRequest =
   | { type: 'wera:snapshot' }
   | { type: 'wera:add-entries'; section: 'experience' | 'education'; count: number }
   | { type: 'wera:next' }
+  /** Presses the page's Apply button: the user asked Wera to apply from the posting. */
+  | { type: 'wera:press-apply' }
   | { type: 'wera:highlight'; id: string }
   /** The choices custom dropdowns offer (opened and closed again), by field id. */
   | { type: 'wera:options'; ids: string[] }
@@ -300,7 +304,8 @@ export type ContentRequest =
 
 /** Sent by the page script to the side panel when the page changes on its own. */
 export type ContentEvent =
-  | { type: 'wera:form-changed'; fields: number }
+  /** step: most of the form is new (another step), not a few fields a choice revealed. */
+  | { type: 'wera:form-changed'; fields: number; step: boolean }
   | { type: 'wera:fill-progress'; result: FillResult }
   | { type: 'wera:submitted' }
   | { type: 'wera:navigated'; url: string };

@@ -242,6 +242,19 @@ describe('on a page', () => {
     await vi.waitFor(() => expect(seen).toHaveBeenCalledWith(expect.objectContaining({ kind: 'form' })));
   });
 
+  it('tells the panel when an Apply button renders after the page (Ashby)', async () => {
+    fakeChrome();
+    document.body.innerHTML = posting;
+    run(document, 5);
+    await vi.waitFor(() => expect(window.__weraPage?.kind).toBe('posting'));
+    expect(window.__weraPage?.canApply).toBe(false);
+    const seen = vi.fn();
+    window.__weraPage!.subscribe(seen);
+    document.body.insertAdjacentHTML('beforeend', '<a href="/apply">Apply for this Job</a>');
+    await vi.waitFor(() => expect(window.__weraPage?.canApply).toBe(true));
+    expect(seen).toHaveBeenCalled();
+  });
+
   it('stays away on a site the user turned Wera off on', async () => {
     const sent = fakeChrome({ state: 'off' }, { 'wera.hiddenSites': { [location.hostname]: 1 } });
     document.body.innerHTML = posting;

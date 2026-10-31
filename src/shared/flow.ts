@@ -16,6 +16,9 @@ export interface Flow {
 }
 
 const KEY = 'wera.flows';
+const APPLYING = 'wera.applying';
+/** How long "Apply with Wera" waits for its application to show. */
+const APPLYING_TTL = 2 * 60_000;
 const TTL = 3 * 3600_000;
 
 async function all(): Promise<Record<string, Flow>> {
@@ -35,4 +38,26 @@ export async function saveFlow(tabId: number, f: Flow | null): Promise<void> {
   else delete map[tabId];
   for (const [k, v] of Object.entries(map)) if (Date.now() - v.at > TTL) delete map[k];
   await chrome.storage.session.set({ [KEY]: map });
+}
+
+/** The user pressed Apply with Wera on this tab: the application that shows next fills itself. */
+export async function markApplying(tabId: number): Promise<void> {
+  const got = await chrome.storage.session.get(APPLYING);
+  await chrome.storage.session.set({ [APPLYING]: { ...(got[APPLYING] as Record<string, number> | undefined), [tabId]: Date.now() } });
+}
+
+/** Whether the user pressed Apply with Wera on this tab moments ago; it counts once. */
+export async function takeApplying(tabId: number): Promise<boolean> {
+  const got = await chrome.storage.session.get(APPLYING);
+  const map = { ...(got[APPLYING] as Record<string, number> | undefined) };
+  const at = map[tabId];
+  if (at == null) return false;
+  delete map[tabId];
+  await chrome.storage.session.set({ [APPLYING]: map });
+  return Date.now() - at < APPLYING_TTL;
+}
+
+/** An Apply button often opens the application in a new tab: the wish goes with it. */
+export async function passApplying(fromTab: number, toTab: number): Promise<void> {
+  if (await takeApplying(fromTab)) await markApplying(toTab);
 }

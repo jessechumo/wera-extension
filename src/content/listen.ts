@@ -4,12 +4,12 @@
 import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { collectFields } from './fields';
-import { peekOptions } from './fill';
+import { peekOptions, press } from './fill';
 import { log } from '../shared/log';
 import { scrub, uniqueTraps } from '../shared/traps';
 import { postingTraps, readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
-import { ownApplicationForm, pageKind } from './detect';
+import { findApply, ownApplicationForm, pageKind } from './detect';
 import { siteFor } from './sites';
 import { pressNext } from './next';
 import { addEntries, applyItems, highlight, planForm, snapshot } from './plan';
@@ -39,6 +39,7 @@ function readPage(): PageInfo {
     submitted: looksSubmitted(bodyText(document)),
     frameOrigins: formFrameOrigins(document),
     jobLike: pageKind(document) !== null,
+    apply: findApply(document)?.textContent?.trim().slice(0, 40) || undefined,
     docId: window.__weraDocId,
     site: site?.name,
     step: site?.step?.(document) ?? undefined,
@@ -100,6 +101,12 @@ export function listen() {
       case 'wera:next':
         reply(pressNext(document));
         return false;
+      case 'wera:press-apply': {
+        const b = findApply(document);
+        if (b) press(b);
+        reply({ ok: !!b });
+        return false;
+      }
       case 'wera:highlight':
         reply({ ok: highlight(document, msg.id) });
         return false;

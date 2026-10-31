@@ -168,8 +168,11 @@ function generic(f: Field): FieldPurpose | null {
   if (f.kind !== 'text' && f.kind !== 'textarea' && f.kind !== 'file' && ACCEPTS.test(label)) return 'consent';
   // A choice between consenting or not (SMS updates, an AI notetaker): the user's to make.
   if (CHOICE_KINDS.has(f.kind) && f.options.some((o) => /\b(i )?(do not |don.?t )?(consent|agree)\b/i.test(o.label))) return 'consent';
-  // An upload that reads the resume to fill the form itself (Ashby's "Autofill from resume") would redo Wera's work.
-  if (f.kind === 'file' && /auto-?fill|parse|import (from|your)/.test(label)) return null;
+  // An upload that only reads a resume to fill the form (Ashby's "Autofill from resume", Breezy's "Fill in with Resume")
+  // would redo Wera's work; a form's one resume field may say it is read too (Rippling's).
+  if (f.kind === 'file' && (/pars(e|er)|auto-?fill/.test(f.hints) || (/auto-?fill|fill in (with|the data)|pars(e|ed|es)\b|import (from|your)/.test(label) && !/^(your )?(resume|cv|curriculum)\b/.test(label)))) return null;
+  // Other names they have gone by: the details hold only the legal one.
+  if (/\(other\)|other names?\b|previous (last )?name|former name|maiden/.test(label)) return null;
   // "Authorized to work without sponsorship?" asks both things at once.
   if (/without (the )?(need (for|of) |requiring )?(any )?(employer |visa )?sponsor/.test(label)) return 'authorized_no_sponsorship';
   // Pronouncing a name, or a yes/no question that mentions a detail ("...with your current employer?"), asks something else.

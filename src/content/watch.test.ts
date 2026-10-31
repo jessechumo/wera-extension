@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formSignature, looksSubmitted, submittedAddress, watchPage } from './watch';
+import { formSignature, isNewStep, looksSubmitted, submittedAddress, watchPage } from './watch';
 
 describe('looksSubmitted', () => {
   it.each([
@@ -33,7 +33,7 @@ describe('watchPage', () => {
     // Step 2 replaces the form.
     document.body.innerHTML = `<form><label>Phone <input type="tel" name="phone"></label><label>LinkedIn <input name="linkedin"></label></form>`;
     await vi.advanceTimersByTimeAsync(150);
-    expect(events).toEqual([{ type: 'wera:form-changed', fields: 2 }]);
+    expect(events).toEqual([{ type: 'wera:form-changed', fields: 2, step: true }]);
 
     document.body.innerHTML = `<h1>Thank you for applying!</h1>`;
     await vi.advanceTimersByTimeAsync(150);
@@ -56,5 +56,13 @@ describe('watchPage', () => {
     stop();
     history.replaceState({}, '', '/');
     vi.useRealTimers();
+  });
+});
+
+describe('isNewStep', () => {
+  it('tells another step from a few fields a choice revealed', () => {
+    expect(isNewStep(['Name', 'Email', 'Phone'], ['Name', 'Email', 'Phone', 'Race'])).toBe(false);
+    expect(isNewStep(['Name', 'Email'], ['City', 'State', 'Why us?'])).toBe(true);
+    expect(isNewStep(['Name', 'Email'], ['Email', 'City', 'State', 'Zip'])).toBe(true);
   });
 });

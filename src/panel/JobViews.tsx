@@ -1,12 +1,14 @@
 // The job the panel is on: its card (fit, title, company, tracker
 // status), Save for a posting, and what Wera did when the site confirmed
 // an application.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { Bookmark, ExternalLink, PartyPopper, X } from 'lucide-react';
-import type { ApplicationStatus, WeraApi, WeraJob } from '../shared/api';
+import { Bookmark, ChevronDown, ExternalLink, PartyPopper, Send, X } from 'lucide-react';
+import type { ApplicationStatus, JobH1B, JobKeywords, WeraApi, WeraJob } from '../shared/api';
 import { describeError } from '../shared/errors';
+import { markApplying } from '../shared/flow';
 import { log } from '../shared/log';
+import { frames } from '../shared/rpc';
 import { Traps } from './Traps';
 import { BigButton, Button, Notice, ScoreRing, Skeleton } from './ui';
 import type { PanelPageState } from './usePanelPage';
@@ -47,44 +49,125 @@ export function JobCard({ api, page }: { api: WeraApi; page: PanelPageState }) {
   );
 }
 
-/** A posting: save it (with its fit), or say how to apply. */
-export function Posting({ api, page }: { api: WeraApi; page: PanelPageState }) {
-  const [busy, setBusy] = useState(false);
+/** A job's words as chips: what the user has, then what they lack. */
+function Chips({ have, lack }: { have: string[]; lack: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {have.slice(0, 8).map((k) => <Badge key={k} className="border-good/25 bg-good/10 text-good">{k}</Badge>)}
+      {lack.slice(0, 8).map((k) => <Badge key={k} className="border-border bg-surface-2 text-muted">{k}</Badge>)}
+    </div>
+  );
+}
+
+const SPONSORS: Record<string, string> = { yes: 'This job offers visa sponsorship.', no: 'This job does not offer visa sponsorship.' };
+
+/** Why the job scored what it did, and how the resume meets it. */
+export function Fit({ api, page }: { api: WeraApi; page: PanelPageState }) {
+  const job = page.job;
+  const id = job?.id;
+  const [open, setOpen] = useState(false);
+  const [keywords, setKeywords] = useState<JobKeywords | null>(null);
+  const [h1b, setH1b] = useState<JobH1B | null>(null);
+  useEffect(() => {
+    if (id == null) return;
+    let live = true;
+    api.jobKeywords(id).then((k) => live && setKeywords(k), (e: unknown) => log.warn('fit', 'loading the job\'s keywords failed', e));
+    return () => {
+      live = false;
+    };
+  }, [api, id]);
+  useEffect(() => {
+    if (id == null || !open || h1b) return;
+    api.h1b(id).then(setH1b, (e: unknown) => log.warn('fit', 'loading H-1B filings failed', e));
+  }, [api, id, open, h1b]);
+  if (!job) return null;
+  const coverage = keywords?.coverage;
+  const have = coverage?.matched ?? job.skills_matched ?? [];
+  const lack = coverage?.missing ?? job.skills_missing ?? [];
+  const sponsor = job.sponsorship ? SPONSORS[job.sponsorship] : '';
+  if (!job.reason && !have.length && !lack.length && !sponsor) return null;
+  return (
+    <div className="rounded-card border border-border bg-surface text-xs">
+      <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="min-w-0 flex-1 font-medium">{coverage?.matched.length ? `Your resume has ${coverage.percent}% of this job's keywords` : 'Why this fit'}</span>
+        <ChevronDown className={clsx('size-3 shrink-0 text-muted transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-border px-3 py-2">
+          {job.reason && <p className="text-muted">{job.reason}</p>}
+          {(have.length > 0 || lack.length > 0) && <Chips have={have} lack={lack} />}
+          {sponsor && <p className="text-muted">{sponsor}</p>}
+          {h1b?.matched && h1b.filings > 0 && <p className="text-muted">{job.company} filed {h1b.filings} H-1B petition{h1b.filings === 1 ? '' : 's'}.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A posting: apply from here, save it (with its fit), or say how to apply. */
+export function Posting({ api, page, tabId }: { api: WeraApi; page: PanelPageState; tabId: number | null }) {
+  const [busy, setBusy] = useState<'' | 'save' | 'apply'>('');
+  const [going, setGoing] = useState(false);
   const [error, setError] = useState('');
   if (page.loading) return <Skeleton className="h-11" />;
-  if (page.job) {
-    return (
-      <>
-        <p className="text-xs text-muted">Press the site's <b className="text-text">Apply</b> button: Wera autofills the application there.</p>
-        <Traps traps={page.info?.traps ?? []} />
-      </>
-    );
-  }
   const save = async () => {
-    setBusy(true);
+    // The page's job data when it has some, else the AI reads the posting.
+    let draft = page.info?.draft ?? page.handle.draft;
+    if (!draft) {
+      const got = await api.extract(location.href, document.title, page.info?.text ?? '');
+      if (!got.is_job_posting) throw new Error("Wera doesn't see a job posting on this page");
+      draft = got;
+    }
+    page.setJob(await api.addJob(draft));
+  };
+  const onSave = async () => {
+    setBusy('save');
     setError('');
     try {
-      // The page's job data when it has some, else the AI reads the posting.
-      let draft = page.info?.draft ?? page.handle.draft;
-      if (!draft) {
-        const got = await api.extract(location.href, document.title, page.info?.text ?? '');
-        if (!got.is_job_posting) throw new Error("Wera doesn't see a job posting on this page");
-        draft = got;
-      }
-      page.setJob(await api.addJob(draft));
+      await save();
     } catch (e) {
       log.warn('posting', 'saving the job failed', e);
       setError(describeError(e, "Couldn't save this job"));
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   };
+  // Saves the job, presses the page's Apply button, and the application fills itself, here or in the tab it opens.
+  const onApply = async () => {
+    setBusy('apply');
+    setError('');
+    try {
+      if (!page.job) await save().catch((e: unknown) => log.warn('posting', 'saving the job before applying failed', e));
+      if (tabId != null) await markApplying(tabId);
+      const { ok } = await frames('press-apply');
+      if (ok) setGoing(true);
+      else setError("Wera couldn't press this page's Apply button. Press it yourself: Wera fills the application there.");
+    } catch (e) {
+      setError(describeError(e, "Couldn't open the application"));
+    } finally {
+      setBusy('');
+    }
+  };
+  const apply = page.handle.canApply || !!page.info?.apply;
   return (
     <div className="space-y-2">
-      <BigButton className="w-full" onClick={() => void save()} busy={busy}>
-        {!busy && <Bookmark className="size-4" />} Save to Wera
-      </BigButton>
-      <p className="text-[11px] text-faint">Saves it to your Jobs and Tracker with a fit score.</p>
+      {going ? <Notice tone="good">Opening the application: Wera fills it as soon as it shows.</Notice>
+        : apply && (
+          <BigButton className="w-full" onClick={() => void onApply()} busy={busy === 'apply'}>
+            {busy !== 'apply' && <Send className="size-4" />} Apply with Wera
+          </BigButton>
+        )}
+      {!page.job && (apply ? (
+        <Button className="w-full py-2" onClick={() => void onSave()} busy={busy === 'save'}>{busy !== 'save' && <Bookmark className="size-3.5" />} Save to Wera</Button>
+      ) : (
+        <BigButton className="w-full" onClick={() => void onSave()} busy={busy === 'save'}>
+          {busy !== 'save' && <Bookmark className="size-4" />} Save to Wera
+        </BigButton>
+      ))}
+      <p className="text-[11px] text-faint">
+        {page.job ? (apply ? 'Presses the Apply button, then fills the application.' : <>Press the site's <b className="text-text">Apply</b> button: Wera autofills the application there.</>)
+          : 'Saves it to your Jobs and Tracker with a fit score.'}
+      </p>
       {error && <Notice tone="bad">{error}</Notice>}
       <Traps traps={page.info?.traps ?? []} />
     </div>

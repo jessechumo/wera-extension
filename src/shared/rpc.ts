@@ -14,6 +14,7 @@ export interface FrameOps {
   'add-entries': { args: [frameId: number, section: 'experience' | 'education', count: number]; result: number };
   snapshot: { args: []; result: FieldSnapshot[] };
   next: { args: [nextId: string]; result: { ok: boolean; label?: string; final?: boolean } };
+  'press-apply': { args: []; result: { ok: boolean } };
   highlight: { args: [id: string]; result: void };
   options: { args: [ids: string[]]; result: Record<string, string[]> };
   log: { args: []; result: { frameId: number; url: string; entries: LogEntry[] }[] };

@@ -32,7 +32,7 @@ const NOT_FOR_AI = new Set(['referral', ...SELF_ID]);
 
 /** Fields worth asking the AI about: empty, not answered by anything Wera knows, and not the user's to answer. */
 export function needsSuggestion(r: Row): boolean {
-  return !r.trap && r.value === '' && r.current === '' && r.entry == null && !(r.purpose && NOT_FOR_AI.has(r.purpose))
+  return !r.trap && r.label.trim() !== '' && r.value === '' && r.current === '' && r.entry == null && !(r.purpose && NOT_FOR_AI.has(r.purpose))
     && (r.group === 'details' || r.group === 'other' || (r.group === 'questions' && r.kind !== 'textarea'))
     && r.kind !== 'file' && r.kind !== 'checkbox';
 }

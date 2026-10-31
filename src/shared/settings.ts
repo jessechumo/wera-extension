@@ -9,7 +9,7 @@ export interface Settings {
   closeAfterApply: boolean;
   /** Ask the AI for fields Wera could not fill from what it knows. */
   aiSuggest: boolean;
-  /** After Continue, fill the next page as soon as it appears. */
+  /** Fill each new step of an application Wera has started filling, as soon as it appears. */
   autoContinue: boolean;
   /** Remember answers typed into forms (in Wera, for every browser). */
   learn: boolean;
