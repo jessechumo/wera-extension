@@ -14,7 +14,7 @@ import { classify } from './classify';
 import { byId, collectFields, isPressed, isWorkdayPrompt, listboxValue, type Field } from './fields';
 import { attachFile, base64ToFile, comboboxChoice, enterValue, mark, setNativeValue, wait } from './fill';
 import { isPlaceholderOption, matchOption } from './match';
-import { countryAnswer, norm, stateName } from './places';
+import { countryAnswer, countryIn, norm, sameCountry, stateName } from './places';
 import { choicesOf, firstChoice, valueFor } from './values';
 import { findNext, invalidCount } from './next';
 import { siteFor } from './sites';
@@ -84,23 +84,38 @@ const shown = (v: string) => firstChoice(v);
 /** Words that don't tell one company from another ("The", "Inc"). */
 const COMPANY_FILLER = new Set(['the', 'inc', 'llc', 'ltd', 'corp', 'corporation', 'company', 'group', 'and']);
 
+/** Whether the question, or the job, is about another country than the one the user's details are about ("authorized to work in Canada?"). */
+function abroad(f: Field, a: Applicant | Profile, jobLocation = ''): boolean {
+  const there = countryIn(f.label) || countryIn(jobLocation);
+  return !!there && !!a.country && !sameCountry(there, a.country);
+}
+
 /**
  * Answers worked out from the question itself: whether the user is in or
  * a citizen of the country it names, whether they worked for the company
  * it names. '' when the question doesn't say enough (the AI may answer).
  */
-function derived(purpose: FieldPurpose, f: Field, a: Applicant | Profile, company: string): string {
+function derived(purpose: FieldPurpose, f: Field, a: Applicant | Profile, company: string, jobLocation = ''): string {
   switch (purpose) {
     case 'in_country':
       return countryAnswer(f.label, a.country);
     case 'citizen_of':
       return countryAnswer(f.label, a.citizenship ?? '');
+    case 'authorized_to_work':
+    case 'needs_sponsorship':
+    case 'authorized_no_sponsorship':
+      return abroad(f, a, jobLocation) ? '' : valueFor(purpose, a, { company });
     case 'previously_employed': {
+      // Whether a past employer was this one's customer is not on a resume.
+      if (/\b(customer|client|vendor|partner|competitor|supplier)s?\b/i.test(f.label)) return '';
       // Only about this company: "worked for a government agency" is something else.
       const label = ` ${norm(f.label)} `;
       const word = norm(company).split(' ').find((w) => w.length > 2 && !COMPANY_FILLER.has(w));
       const named = !!word && label.includes(` ${word} `);
-      return named || /\b(us|our company|this company|here)\b/.test(label) ? valueFor(purpose, a, { company }) : '';
+      if (!named && !/\b(us|our company|this company|here)\b/.test(label)) return '';
+      // A question may name several companies, or the one that became this one.
+      const mine = (a as Profile).experience?.some((x) => norm(x.company) !== '' && label.includes(` ${norm(x.company)} `));
+      return mine ? 'yes' : valueFor(purpose, a, { company });
     }
     default:
       return valueFor(purpose, a, { company });
@@ -115,6 +130,8 @@ export interface PlanOptions {
   coverLetter?: boolean;
   /** The company the application is for. */
   company?: string;
+  /** Where the job is ("Toronto, Ontario, Canada"): work authorization is about a place. */
+  jobLocation?: string;
 }
 
 /** Questions only the user can answer, never sent to the AI. */
@@ -126,6 +143,14 @@ const NOT_IN_PROFILE = 'not in your Wera profile yet: pick it on the form, and W
 
 /** Derived answers that, when Wera can't work them out, the AI may answer. */
 const DERIVED = new Set<FieldPurpose>(['in_country', 'citizen_of', 'previously_employed']);
+/** Answers about the right to work: the details hold them for where the user lives. */
+const WORK_RIGHTS = new Set<FieldPurpose>(['authorized_to_work', 'needs_sponsorship', 'authorized_no_sponsorship']);
+
+/** Whether an upload takes the PDFs Wera has ("accept" may list only Word files). */
+function takesPdf(f: Field): boolean {
+  const accept = ((f.el as HTMLInputElement).getAttribute('accept') ?? '').toLowerCase();
+  return !accept || /pdf|\*\/\*|application\/\*/.test(accept);
+}
 
 /** One field's plan: what it shows, what Wera proposes, from where. In a job or school block, placed says which. */
 export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = {}, placed?: Placed): FieldPlan {
@@ -157,12 +182,14 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
   }
   if (purpose === 'resume') {
     if (f.kind !== 'file') return plan;
-    if (opts.resumeName) propose(RESUME, 'resume', opts.resumeName);
+    if (!takesPdf(f)) plan.note = 'this form does not take a PDF: attach a copy it accepts yourself';
+    else if (opts.resumeName) propose(RESUME, 'resume', opts.resumeName);
     else plan.note = 'upload your resume in Wera to attach it';
     return plan;
   }
   if (purpose === 'cover_letter') {
-    if ((f.kind === 'textarea' || f.kind === 'file') && opts.coverLetter) propose(LETTER, 'letter', f.kind === 'file' ? 'your cover letter for this job, as a PDF' : 'your cover letter for this job');
+    if (f.kind === 'file' && !takesPdf(f)) plan.note = 'this form does not take a PDF: attach a copy it accepts yourself';
+    else if ((f.kind === 'textarea' || f.kind === 'file') && opts.coverLetter) propose(LETTER, 'letter', f.kind === 'file' ? 'your cover letter for this job, as a PDF' : 'your cover letter for this job');
     else plan.note = f.kind === 'file' || f.kind === 'textarea' ? 'no cover letter for this job yet' : 'paste your cover letter yourself';
     return plan;
   }
@@ -208,7 +235,7 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
   let quiet = false;
   // The user's details first (never for open questions), then answers they gave before.
   if (purpose && purpose !== 'question') {
-    let raw = derived(purpose, f, a, opts.company ?? '');
+    let raw = derived(purpose, f, a, opts.company ?? '', opts.jobLocation);
     // A saved start date that has gone by would tell the employer you start in the past.
     if (purpose === 'start_date' && startHasPassed(raw)) {
       plan.note = `your saved start date (${raw}) has passed: update it in Wera`;
@@ -229,7 +256,7 @@ export function planField(f: Field, a: Applicant | Profile, opts: PlanOptions = 
       plan.note = `no option matches "${shown(v)}"`;
     }
     // Wera couldn't work it out from the question: no note, so the AI may answer it.
-    if (!v && DERIVED.has(purpose)) quiet = true;
+    if (!v && (DERIVED.has(purpose) || (WORK_RIGHTS.has(purpose) && abroad(f, a, opts.jobLocation)))) quiet = true;
   }
   if (!SELF_ID.has(purpose as FieldPurpose)) {
     const hit = bestAnswer(opts.answers ?? [], f.label, 0.75, opts.company ?? '');
@@ -364,6 +391,9 @@ export async function applyItems(root: ParentNode, items: FillItem[], opts: Appl
           attachFile(f.el as HTMLInputElement, base64ToFile(opts.resume.base64, opts.resume.name));
           res.status = 'filled';
           res.value = opts.resume.name;
+          // Some systems read the resume and fill the form from it: let that finish first.
+          const reads = doc ? siteFor(doc)?.readsResume : 0;
+          if (reads) await wait(reads);
         } else {
           res.note = 'no resume to attach';
         }

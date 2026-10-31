@@ -1,10 +1,14 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, configure, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PageHandle } from '../page';
 import type { WeraJob } from '../shared/api';
 import type { ApplyRequest, FieldPlan, FillItem, FillResult, JobDraft, PageInfo, PagePlan } from '../shared/types';
 import { App, type Show } from './index';
+
+// A fill reads the page again as it settles.
+configure({ asyncUtilTimeout: 5000 });
+vi.setConfig({ testTimeout: 20_000 });
 
 const draft: JobDraft = { url: 'https://jobs.example/acme/1', company: 'Acme', title: 'SRE', location: 'Austin, TX', work_mode: '', employment_type: '',
   department: '', salary: '', industry: '', description: 'Keep things up.', source: 'page-data' };
@@ -17,6 +21,29 @@ const field = (id: string, label: string, over: Partial<FieldPlan> = {}): FieldP
 });
 
 type Fn = (...a: never[]) => unknown;
+
+/** A form that keeps what goes into it, and shows it the next time it is read. */
+function formPage(plan: PagePlan, onApply: (req: ApplyRequest) => void = () => {}) {
+  const shows = new Map<string, string>();
+  return {
+    shows,
+    scan: () => ({ ...plan, fields: plan.fields.map((f) => ({ ...f, current: shows.get(f.id) ?? f.current })) }),
+    apply: (req: ApplyRequest) => {
+      onApply(req);
+      req.items.forEach((i) => shows.set(i.id, i.value));
+      return req.items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }));
+    },
+  };
+}
+
+/** A fill has finished: a test that ends sooner leaves it running into the next test's page. */
+const finished = () => screen.findByRole('button', { name: /Fill again/ });
+
+/** Just the frames' side of formPage. */
+function formPageFrames(plan: PagePlan, onApply?: (req: ApplyRequest) => void): Record<string, Fn> {
+  const { scan, apply } = formPage(plan, onApply);
+  return { scan, apply };
+}
 
 /** The background as the panel talks to it: Wera's API and the page's frames, faked. */
 function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?: Partial<PageInfo>; api?: Record<string, Fn>; frames?: Record<string, Fn> } = {}) {
@@ -165,15 +192,10 @@ describe('the Wera panel', () => {
       next: { id: 'n1', label: 'Submit application', final: true }, errors: 0, site: 'Greenhouse',
     };
     const applied: FillItem[][] = [];
+    const { scan, apply } = formPage(plan, ({ items }) => applied.push(items.map(({ id, value }) => ({ id, value }))));
     const { calls } = fakeBackground({
       job, info: { hasForm: true },
-      frames: {
-        scan: () => plan,
-        apply: ({ items }: ApplyRequest) => {
-          applied.push(items.map(({ id, value }) => ({ id, value })));
-          return items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }));
-        },
-      },
+      frames: { scan, apply },
       api: {
         suggest: () => ({ answers: [{ id: 'w2', value: '4', confidence: 'high', why: 'resume' }, { id: 'w3', value: 'None', confidence: 'low', why: 'a guess' }] }),
         answer: () => ({ answer: 'Because Acme keeps robots running.' }),
@@ -207,13 +229,7 @@ describe('the Wera panel', () => {
     const applied: ApplyRequest[] = [];
     const { calls } = fakeBackground({
       job, info: { hasForm: true },
-      frames: {
-        scan: () => plan,
-        apply: (req: ApplyRequest) => {
-          applied.push(req);
-          return req.items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: 'Cover_Letter.pdf', required: false }));
-        },
-      },
+      frames: { ...formPageFrames(plan, (req) => applied.push(req)) },
       api: {
         writeCoverLetter: () => ({ body: 'Dear Acme, I keep robots running.' }),
         coverLetterPdf: () => ({ name: 'Cover_Letter.pdf', base64: 'JVBERi0=' }),
@@ -225,13 +241,96 @@ describe('the Wera panel', () => {
     expect(calls.find((c) => c.name === 'writeCoverLetter')?.args[0]).toBe(job.id);
     expect(applied.find((r) => r.items.some((i) => i.id === 'c1'))?.letterFile).toMatchObject({ name: 'Cover_Letter.pdf' });
     expect(await screen.findByText(/Wera wrote this letter for this job/)).toBeInTheDocument();
+    await finished();
+  });
+
+  it('attaches the files first: many systems read a resume and fill the form themselves', async () => {
+    const plan: PagePlan = {
+      fields: [
+        field('n', 'Full name', { purpose: 'full_name', value: 'Ada Byrne', source: 'details', group: 'details' }),
+        field('r', 'Resume', { purpose: 'resume', kind: 'file', value: '__resume__', source: 'resume', group: 'documents' }),
+      ],
+      next: null, errors: 0,
+    };
+    const applied: string[] = [];
+    fakeBackground({ job, info: { hasForm: true }, frames: formPageFrames(plan, ({ items }) => applied.push(...items.map((i) => i.id))) });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(applied).toEqual(['r', 'n']));
+    await finished();
+  });
+
+  it('fills again what the page emptied, and says so when it will not stay', async () => {
+    const plan: PagePlan = {
+      fields: [
+        field('a', 'Phone', { purpose: 'phone', value: '512 555 0142', source: 'details', group: 'details' }),
+        field('b', 'City', { purpose: 'city', value: 'Austin', source: 'details', group: 'details' }),
+      ],
+      next: null, errors: 0,
+    };
+    const applied: string[] = [];
+    const form = formPage(plan, ({ items }) => applied.push(...items.map((i) => i.id)));
+    // A page that re-renders: the phone is emptied once, the city every time.
+    let wipes = 0;
+    const scan = () => {
+      if (applied.length) form.shows.set('b', '');
+      if (applied.length && wipes++ === 0) form.shows.set('a', '');
+      return form.scan();
+    };
+    fakeBackground({ job, info: { hasForm: true }, frames: { scan, apply: form.apply } });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    expect(await screen.findByText(/the page keeps clearing this/)).toBeInTheDocument();
+    expect(applied.filter((i) => i === 'b')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /City/ })).toBeInTheDocument();
+  });
+
+  it('fills a question that appears only once the AI has answered another', async () => {
+    const first = field('w8', 'Do you have a favorite language?', { group: 'other', kind: 'select', options: ['Yes', 'No'] });
+    const follow = field('w9', 'Which language do you prefer?', { group: 'other' });
+    const plan: PagePlan = { fields: [first], next: null, errors: 0 };
+    const form = formPage(plan);
+    const { calls } = fakeBackground({
+      job, info: { hasForm: true },
+      frames: { apply: form.apply, scan: () => (form.shows.has('w8') ? { ...form.scan(), fields: [...form.scan().fields, follow] } : form.scan()) },
+      api: {
+        suggest: (fields: { id: string }[]) => ({ answers: fields.map((f) => ({ id: f.id, value: f.id === 'w8' ? 'Yes' : 'Go', confidence: 'high', why: 'resume' })) }),
+      },
+    });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(form.shows.get('w9')).toBe('Go'));
+    expect(calls.filter((c) => c.name === 'suggest')).toHaveLength(2);
+    await finished();
+  });
+
+  it('saves a job from a page with no job data, to write its letter', async () => {
+    const plan: PagePlan = {
+      fields: [field('c1', 'Cover Letter', { purpose: 'cover_letter', kind: 'file', group: 'documents', required: true, note: 'no cover letter for this job yet' })],
+      next: null, errors: 0,
+    };
+    const text = 'About the role. '.repeat(20);
+    const { calls } = fakeBackground({
+      info: { hasForm: true, draft: null, text },
+      frames: formPageFrames(plan),
+      api: {
+        extract: () => ({ ...draft, is_job_posting: true, title: 'Staff SRE', company: 'Globex' }),
+        writeCoverLetter: () => ({ body: 'Dear Globex, I keep robots running.' }),
+        coverLetterPdf: () => ({ name: 'Cover_Letter.pdf', base64: 'JVBERi0=' }),
+      },
+    });
+    render(<App handle={{ ...handle('form'), draft: null }} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(calls.find((c) => c.name === 'addJob')?.args[0]).toMatchObject({ title: 'Staff SRE', company: 'Globex' }));
+    await waitFor(() => expect(calls.some((c) => c.name === 'writeCoverLetter')).toBe(true));
+    await finished();
   });
 
   it('moves a multi-page application on, and says what Workday wants first', async () => {
     const plan: PagePlan = { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', group: 'details' })], next: { id: 'n1', label: 'Save and Continue', final: false }, errors: 0, site: 'Workday', step: { name: 'My Information', index: 1, total: 5 } };
     const { calls } = fakeBackground({
       job, info: { hasForm: true, gate: 'Sign in to your Workday account for this company, then press Autofill on the application.' },
-      frames: { scan: () => plan, apply: ({ items }: ApplyRequest) => items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false })), next: () => ({ ok: true }) },
+      frames: { ...formPageFrames(plan), next: () => ({ ok: true }) },
       api: { suggest: () => ({ answers: [] }) },
     });
     render(<App handle={handle('form')} show={show()} />);
@@ -254,7 +353,7 @@ describe('the Wera panel', () => {
     const applied: FillItem[] = [];
     fakeBackground({
       job, info: { hasForm: true },
-      frames: { scan: () => plan, apply: ({ items }: ApplyRequest) => (applied.push(...items), items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }))) },
+      frames: formPageFrames(plan, ({ items }) => applied.push(...items)),
       api: {
         resumeFile: () => {
           throw new Error('502 Bad Gateway');

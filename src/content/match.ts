@@ -177,8 +177,10 @@ export function matchOption(options: Option[], value: string, purpose: FieldPurp
   const v = norm(value);
   if (v === 'decline') return real.find((o) => DECLINE.test(o.label)) ?? null;
   if (v === 'yes' || v === 'no') {
-    const direct = real.find((o) => new RegExp(`^${v}\\b`).test(norm(o.label)));
-    if (direct) return direct;
+    const direct = real.filter((o) => new RegExp(`^${v}\\b`).test(norm(o.label)));
+    // Several ways of saying yes ("Yes, I live nearby", "Yes, I would relocate"): which one takes more than a yes.
+    if (direct.length > 1) return null;
+    if (direct[0]) return direct[0];
     // "I am authorized..." / "I am not authorized...": the one without a negation means yes.
     const answers = real.filter((o) => !DECLINE.test(o.label));
     if (answers.length === 2) {

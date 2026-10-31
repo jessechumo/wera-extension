@@ -179,8 +179,46 @@ function groupTitle(group: Element): string {
   return labelledBy(scope, group.getAttribute('aria-labelledby')) || clean(group.getAttribute('aria-label'));
 }
 
+// What an upload's button says, not what it takes.
+const UPLOAD_WORDS = /^(attach|upload|browse|choose( a)? file|select( a)? files?|add( a)? files?|drop .*)$/i;
+
+// What a lone tick box says that means nothing without the question over it...
+const BARE_ANSWER = /^(yes|no|ok|okay|true)\.?$/i;
+// ...and what it says that is only its answer to the statement over it.
+const BARE_ASSENT = /^(i agree|agree|i understand|understood|i confirm|confirm|acknowledged?|i acknowledge)\.?$/i;
+
+/** The text over a control in the block that holds only it, without its own label. */
+function textOver(el: HTMLElement, own: string): string {
+  for (let n = el.parentElement, i = 0; n && i < 6; i++, n = n.parentElement) {
+    if (n.querySelectorAll(FIELDS).length > 1) break;
+    const t = textOf(n);
+    if (t.length > own.length + 8 && t.endsWith(own)) return t.slice(0, -own.length).trim();
+  }
+  return '';
+}
+
 /** A field's label as the page shows it, required marker ("*") included. */
 function rawLabel(el: HTMLElement, groupName?: string): string {
+  const raw = labelText(el, groupName);
+  const type = (el as HTMLInputElement).type;
+  if (groupName) return raw;
+  if (type === 'file' && UPLOAD_WORDS.test(raw.trim())) {
+    const group = el.closest('[role="group"], fieldset');
+    return (group && groupTitle(group)) || textOver(el, raw) || raw;
+  }
+  if (type === 'file') return raw.replace(UPLOAD_NOISE, '').trim() || raw;
+  if (type === 'checkbox' && BARE_ANSWER.test(raw.trim())) return textOver(el, raw) || raw;
+  if (type === 'checkbox' && BARE_ASSENT.test(raw.trim())) {
+    const over = textOver(el, raw);
+    return over ? `${over} ${raw}` : raw;
+  }
+  return raw;
+}
+
+// What an upload's label adds to its name: "Resume/CV* Accepted file types: pdf, doc", "Resume/CV ✱ ATTACH RESUME/CV".
+const UPLOAD_NOISE = /\s*(accepted file types?\b.*|attach\s+(your\s+)?(resume|cv|cover).*|(upload|attach|browse)( a)?( file)?\s*|(max|maximum)\.? (file )?size.*)$/i;
+
+function labelText(el: HTMLElement, groupName?: string): string {
   const scope = scopeOf(el);
   const by = labelledBy(scope, el.getAttribute('aria-labelledby'));
   if (by) return by;

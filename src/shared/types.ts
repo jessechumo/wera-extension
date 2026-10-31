@@ -270,6 +270,8 @@ export interface ScanRequest {
   coverLetter?: boolean;
   /** The company the application is for (answers "Have you worked here before?"). */
   company?: string;
+  /** Where the job is (work authorization is about a place). */
+  jobLocation?: string;
 }
 
 /** The values the panel asks a frame to fill. */

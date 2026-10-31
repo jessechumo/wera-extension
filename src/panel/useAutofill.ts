@@ -13,7 +13,7 @@ import { loadFlow, saveFlow, type Flow } from '../shared/flow';
 import { log } from '../shared/log';
 import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
-import type { Applicant, FillResult, PagePlan, Profile, ScanRequest } from '../shared/types';
+import type { Applicant, FillResult, JobDraft, PagePlan, Profile, ScanRequest } from '../shared/types';
 import { answersToLearn } from '../shared/learn';
 import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
@@ -63,6 +63,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     company: page.job?.company ?? page.info?.draft?.company ?? page.handle.company,
     title: page.job?.title ?? (page.info?.draft?.title || page.handle.title || document.title),
     description: page.info?.draft?.description || page.info?.text || '',
+    location: page.job?.location_summary ?? page.job?.location_raw ?? page.info?.draft?.location ?? page.handle.draft?.location ?? '',
   }), [page.job, page.info, page.handle]);
 
   const warn = useCallback((msg: string, cause?: unknown) => {
@@ -105,7 +106,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       const profile: Profile = { ...view.applicant, experience: view.experience, education: view.education, skills: view.skills };
       const req: ScanRequest = {
         profile, answers: saved.map((s) => ({ question: s.question, answer: s.answer, company: s.company })),
-        resumeName: file?.name, coverLetter: !!cover?.body, company: posting.company || undefined,
+        resumeName: file?.name, coverLetter: !!cover?.body, company: posting.company || undefined, jobLocation: posting.location || undefined,
       };
       scanReq.current = req;
       let p = await frames('scan', req);
@@ -130,13 +131,31 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       setPhase('idle');
       return null;
     }
-  }, [api, jobId, posting.company, warn]);
+  }, [api, jobId, posting.company, posting.location, warn]);
+
+  /**
+   * The page's posting as Wera can save it: its job data, else what the
+   * AI reads off the page, else its title and text (a Greenhouse form has
+   * no job data, and a job must be saved to write its letter).
+   */
+  const draftOfPage = useCallback(async (): Promise<JobDraft | null> => {
+    const data = page.info?.draft ?? page.handle.draft;
+    if (data?.title && data.company) return data;
+    const text = page.info?.text ?? '';
+    const read = text.length >= 200 ? await api.extract(location.href, document.title, text).catch((e: unknown) => {
+      log.warn('autofill', 'reading the posting failed', e);
+      return null;
+    }) : null;
+    if (read?.is_job_posting && read.title && read.company) return read;
+    if (!posting.title || !posting.company || posting.description.length < 200) return null;
+    return { url: location.href, company: posting.company, title: posting.title, location: posting.location, work_mode: '', employment_type: '', department: '', salary: '', industry: '', description: posting.description, source: 'page-data' };
+  }, [api, page.handle.draft, page.info?.draft, page.info?.text, posting]);
 
   /** The job this application is for in Wera: the page's, else its posting saved now so the application shows up. */
   const ensureJob = useCallback(async (): Promise<number | null> => {
     if (jobId != null) return jobId;
-    const draft = page.info?.draft ?? page.handle.draft;
-    if (!draft?.title || !draft.company) return null;
+    const draft = await draftOfPage();
+    if (!draft) return null;
     try {
       const j = await api.addJob(draft);
       page.setJob(j);
@@ -146,7 +165,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       warn(describeError(e, "Couldn't save this job to your Wera lists"), e);
       return null;
     }
-  }, [api, jobId, page, warn]);
+  }, [api, draftOfPage, jobId, page, warn]);
 
   /** Fills rows in the page; each ticks off as its frame reports it. Returns the results. */
   const fill = useCallback(async (list: Row[]): Promise<FillResult[]> => {
@@ -322,36 +341,77 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     }
   }, [api, host, tabId]);
 
-  /** Autofill: read, fill what Wera knows, then the AI's answers and drafts as they come. */
+  /** The page as it is now, once what went in has settled. */
+  const rescan = useCallback(async (): Promise<PagePlan | null> => {
+    const req = scanReq.current;
+    if (!req) return null;
+    await wait(revealDelay);
+    return frames('scan', req).catch((e: unknown) => {
+      log.warn('autofill', 'reading the page again failed', e);
+      return null;
+    });
+  }, [revealDelay]);
+
+  /** Fills the fields that appeared since ("Race" once "Hispanic or Latino" is No). Returns them. */
+  const revealed = useCallback(async (now: PagePlan | null, known: Row[]): Promise<Row[]> => {
+    if (!now) return [];
+    // New fields only: one the page merely re-rendered (a new mark, same label and kind) is not new.
+    const seen = new Set(known.flatMap((x) => [x.id, `${x.label}|${x.kind}`]));
+    const fresh = rowsFor(now, sources.current).filter((x) => !seen.has(x.id) && !seen.has(`${x.label}|${x.kind}`));
+    if (!fresh.length) return [];
+    log.info('autofill', `${fresh.length} field(s) appeared after filling`);
+    setPlan(now);
+    setRows((rs) => [...rs, ...fresh]);
+    await fill(fresh);
+    return fresh;
+  }, [fill]);
+
+  /**
+   * Checks what filled still shows: some pages empty a field when they
+   * re-render or read a resume. A field left empty is filled once more,
+   * and listed if it will not stay. Files are left out: many pages take
+   * the file and drop the input it came through.
+   */
+  const repair = useCallback(async (now: PagePlan | null) => {
+    if (!now) return;
+    const emptied = (plan: PagePlan, list: Row[]) => {
+      const shows = new Map(plan.fields.flatMap((f) => [[f.id, f.current], [`${f.label}|${f.kind}`, f.current]]));
+      return list.filter((r) => r.status === 'filled' && r.group !== 'documents' && (shows.get(r.id) ?? shows.get(`${r.label}|${r.kind}`)) === '');
+    };
+    const lost = emptied(now, latest.current);
+    if (!lost.length) return;
+    log.info('autofill', `${lost.length} field(s) came back empty`, lost.map((r) => r.label));
+    await fill(lost.map((r) => ({ ...r, checked: true })));
+    const after = await rescan();
+    if (!after) return;
+    const gone = new Set(emptied(after, lost).map((r) => r.id));
+    if (gone.size) setRows((rs) => rs.map((r) => (gone.has(r.id) ? { ...r, status: 'review', result: 'the page keeps clearing this: fill it yourself' } : r)));
+  }, [fill, rescan]);
+
+  /** Autofill: read, attach the files, fill what Wera knows, then the AI's answers and drafts as they come. */
   const autofill = useCallback(async () => {
     const got = await read();
     if (!got) return;
     setPhase('filling');
     try {
-      const first = await fill(got.rows);
-      // Answers can reveal more fields ("Race" once "Hispanic or Latino" is No): read again and fill the new ones.
-      let all = got.rows;
-      if (first.some((x) => x.status === 'filled') && scanReq.current) {
-        await wait(revealDelay);
-        const again = await frames('scan', scanReq.current).catch((e: unknown) => {
-          log.warn('autofill', 'reading the page again failed', e);
-          return null;
-        });
-        // New fields only: one the page merely re-rendered (a new mark, same label and kind) is not new.
-        const seen = new Set(got.rows.flatMap((x) => [x.id, `${x.label}|${x.kind}`]));
-        const fresh = again ? rowsFor(again, sources.current).filter((x) => !seen.has(x.id) && !seen.has(`${x.label}|${x.kind}`)) : [];
-        if (fresh.length && again) {
-          log.info('autofill', `${fresh.length} field(s) appeared after filling`);
-          all = [...got.rows, ...fresh];
-          setPlan(again);
-          setRows((rs) => [...rs, ...fresh]);
-          await fill(fresh);
-        }
-      }
+      // The files first: many systems read an uploaded resume and fill the form themselves, over what is there.
+      const files = got.rows.filter((r) => r.group === 'documents');
+      await fill(files);
+      await fill(got.rows.filter((r) => r.group !== 'documents'));
+      // Answers can reveal more fields, and so can the AI's below.
+      let now = await rescan();
+      const all = [...got.rows, ...(await revealed(now, got.rows))];
       setPhase('thinking');
       setThinking(all.filter(needsSuggestion).length + all.filter(needsDraft).length + (all.some(needsLetter) && settings.aiQuestions ? 1 : 0));
       await Promise.all([suggestAndFill(all), draftAndFill(all), letterAndFill(all)]);
+      for (let round = 0; round < 2; round++) {
+        now = await rescan();
+        const more = await revealed(now, latest.current);
+        if (!more.length) break;
+        await Promise.all([suggestAndFill(more), draftAndFill(more)]);
+      }
       setThinking(0);
+      await repair(now);
       const forJob = await ensureJob();
       const filled = latest.current.filter((x) => x.status === 'filled');
       await count(filled.length, filled.filter((x) => x.source === 'ai').length, forJob);
@@ -363,7 +423,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       setRows((rs) => rs.map((r) => (r.status === 'filling' ? { ...r, status: undefined } : r)));
       setPhase('idle');
     }
-  }, [read, fill, revealDelay, suggestAndFill, draftAndFill, letterAndFill, settings.aiQuestions, ensureJob, count, page]);
+  }, [read, fill, rescan, revealed, repair, suggestAndFill, draftAndFill, letterAndFill, settings.aiQuestions, ensureJob, count, page]);
 
   /** Fills one value the user approved (an AI guess, or a choice they made in the panel). */
   const fillOne = useCallback(async (r: Row, value: string) => {

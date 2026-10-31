@@ -352,7 +352,7 @@ describe('names worded differently', () => {
     expect(at('Are you subject to any employment agreements and/or post-employment restrictions with your current employer?', 'select')).toBeNull();
     expect(at('Name Pronunciation | How do you pronounce your name?')).toBe('question');
     expect(at('Will you now or in the future require sponsorship for employment visa status?', 'select')).toBe('needs_sponsorship');
-    expect(at('Please tell us how you heard about this opportunity.', 'select')).toBe('how_heard');
+    expect(at('Please tell us how you heard about this opportunity.')).toBe('how_heard');
     expect(at("What's the name you'd prefer us to use throughout the interview process?")).toBe('preferred_name');
     expect(at('Are you legally authorized to work in the country for which you are applying?', 'select')).toBe('authorized_to_work');
     document.body.innerHTML = '<label>Attach<input type="file" id="cover_letter" name="cover_letter"></label>';
