@@ -60,7 +60,7 @@ const RULES: [FieldPurpose, RegExp][] = [
   // What the applicant wants: "our compensation is standardized..." is a notice.
   ['salary_expectation', /^(desired |expected |target |your )?(salary|compensation|pay)( expectations?| range| requirements?)?$|(salary|compensation|pay) (expectation|requirement|range you)|(desired|expected|target|minimum) (annual |base |total )?(salary|compensation|pay)/],
   ['today', /today'?s date|date (signed|of signature)|signature date|^date$/],
-  ['start_date', /^(?!.*\b(school|college|university|degree|program|current (job|role|position|employer|company))\b).*(start date|available to (start|begin)|availab(le|ility) (for|to) (full|part|work)|earliest (possible |available )?(start|availability)|soonest available|when can you start|date available|availability date|when (are|would) you (be )?available)/],
+  ['start_date', /^(?!.*\b(school|college|university|degree|program|current (job|role|position|employer|company))\b).*(start date|available to (start|begin)|availab(le|ility) (for|to) (full|part|work)|earliest (possible |available )?(start|availability)|earliest .{0,30}\b(start|begin)\b|soonest available|when can you start|date available|availability date|when (are|would) you (be )?available)/],
   ['lgbtq', /lgbt|queer community/],
   ['skills', /^(technical |key |relevant |your )?skills\b|^skill set|list (your )?skills/],
   ['languages', /language skill|^languages?\b|^(?!.*programming).*(languages? (do you )?(speak|spoken|fluent)|which languages|language proficiency|fluent in|languages you speak)/],

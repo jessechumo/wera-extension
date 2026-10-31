@@ -40,6 +40,11 @@ function proposed(label: string, kind: Kind, options: string[], opts = {}): stri
 }
 
 describe('what real forms ask', () => {
+  it('knows a start date however it is asked', () => {
+    expect(at('When is the earliest you would want to start working with us?')).toBe('start_date');
+    expect(proposed('When is the earliest you would want to start working with us?', 'text', [])).toBe('2031-01-15');
+  });
+
   it('reads a question through the abbreviations in it', () => {
     const asks = 'Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)?';
     expect(at(asks, 'radio', YES_NO)).toBe('needs_sponsorship');
