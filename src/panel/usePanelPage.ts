@@ -32,7 +32,7 @@ export type PanelEvent =
  * comes up and again when the page moves on (a single-page job board,
  * the next step of an application).
  */
-export function usePanelPage(handle: PageHandle, signedIn: boolean) {
+export function usePanelPage(handle: PageHandle, signedIn: boolean, formFrames = 0) {
   const [state, setState] = useState<PanelPage>({ handle, info: null, job: null, loading: true, error: '', newStep: 0, submitted: handle.submitted });
   const run = useRef(0);
 
@@ -64,6 +64,15 @@ export function usePanelPage(handle: PageHandle, signedIn: boolean) {
       window.clearTimeout(later.current);
     };
   }, [handle, refresh]);
+
+  // A frame found the form after the page was read (an application embedded from another site).
+  const framesSeen = useRef(formFrames);
+  useEffect(() => {
+    if (framesSeen.current === formFrames) return;
+    framesSeen.current = formFrames;
+    window.clearTimeout(later.current);
+    later.current = window.setTimeout(() => void refresh(), 200);
+  }, [formFrames, refresh]);
 
   useEffect(() => {
     const onMessage = (msg: PanelEvent) => {

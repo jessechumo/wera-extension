@@ -26,7 +26,7 @@ const COLLAPSED = 'wera.dockCollapsed';
 
 /** Messages the background sends the panel. */
 type PanelMessage =
-  | { type: 'wera:panel-show'; tabId: number; open?: boolean; fill?: boolean }
+  | { type: 'wera:panel-show'; tabId: number; open?: boolean; fill?: boolean; formFrame?: boolean }
   | { type: 'wera:panel-toggle' };
 
 /**
@@ -69,21 +69,28 @@ export interface Show {
   opens: number;
   toggles: number;
   fills: number;
+  /** A frame told Wera it holds the application (the page around it may not look like a job page). */
+  formFrames: number;
 }
 
 export function App({ handle, show }: { handle: PageHandle; show: Show }) {
   const [server, reload] = useSession();
   const api = useMemo(() => (server ? remoteApi(server) : null), [server]);
-  const page = usePanelPage(handle, !!server);
+  const page = usePanelPage(handle, !!server, show.formFrames);
   const [settings, setSettings] = useSettings();
   const [open, setOpen] = useState(show.initial);
   // The confirmation the user chose to stay on (the alert does not come back for it).
   const [stayed, setStayed] = useState<unknown>(null);
   // A new request from the background: open (asked to fill, or to show), or show/hide (toolbar icon).
   const [seen, setSeen] = useState(show);
+  // The user turned Wera off on this site: gone until they call it from the toolbar.
+  const [gone, setGone] = useState(false);
   if (seen !== show) {
     setSeen(show);
-    if (show.opens > seen.opens || show.fills > seen.fills) setOpen(true);
+    if (gone) {
+      setGone(false);
+      setOpen(true);
+    } else if (show.opens > seen.opens || show.fills > seen.fills) setOpen(true);
     else if (show.toggles > seen.toggles) setOpen((o) => !o);
   }
   // An application that loads after the page (Ashby, a form embedded from an ATS) opens the panel once.
@@ -102,22 +109,22 @@ export function App({ handle, show }: { handle: PageHandle; show: Show }) {
       return chrome.storage.local.set({ [COLLAPSED]: map });
     }).catch(() => {});
   }, []);
-  if (server === undefined) return null;
+  if (server === undefined || gone) return null;
   // A single-page site moved to something that is not a job page: step aside, unless the user opened Wera here.
-  const jobPage = !!page.handle.kind || !!page.info?.hasForm || !!page.submitted;
+  const jobPage = !!page.handle.kind || !!page.info?.hasForm || !!page.submitted || show.formFrames > 0;
   if (!jobPage && !page.loading && show.opens === 0 && show.toggles === 0 && show.fills === 0) return null;
   // The user sent the application and the site confirmed it: say so, then close the tab.
   const sent = page.submitted && page.submitted.state !== 'off' && page.submitted.close ? page.submitted : null;
   return (
     <>
       <Panel api={api} page={page} settings={settings} setSettings={setSettings} tabId={show.tabId} open={open} onOpen={onOpen}
-        fillRequest={show.fills} onSignedIn={reload} onSignedOut={reload} />
+        fillRequest={show.fills} onSignedIn={reload} onSignedOut={reload} onHideSite={() => setGone(true)} />
       {sent && sent !== stayed && <AppliedAlert reply={sent} onStay={() => setStayed(sent)} />}
     </>
   );
 }
 
-function mount(handle: PageHandle, first: { tabId: number; open?: boolean; fill?: boolean }) {
+function mount(handle: PageHandle, first: { tabId: number; open?: boolean; fill?: boolean; formFrame?: boolean }) {
   loadFonts(document);
   const host = document.createElement('wera-panel');
   const shadow = host.attachShadow({ mode: __WERA_E2E__ ? 'open' : 'closed' });
@@ -142,19 +149,19 @@ function mount(handle: PageHandle, first: { tabId: number; open?: boolean; fill?
   });
 
   const root = createRoot(box);
-  let show: Show = { tabId: first.tabId, initial: false, collapsedHere: false, opens: 0, toggles: 0, fills: 0 };
+  let show: Show = { tabId: first.tabId, initial: false, collapsedHere: false, opens: 0, toggles: 0, fills: 0, formFrames: first.formFrame ? 1 : 0 };
   const render = () => root.render(<StrictMode><App handle={handle} show={show} /></StrictMode>);
 
   // Open at first on an application (unless collapsed on this site before), or when asked.
   void chrome.storage.local.get(COLLAPSED).then((g) => {
     const collapsed = !!(g[COLLAPSED] as Record<string, number> | undefined)?.[location.host];
-    show = { ...show, collapsedHere: collapsed, initial: !!first.open || !!first.fill || (handle.kind === 'form' && !collapsed) || !!handle.submitted, fills: first.fill ? 1 : 0 };
+    show = { ...show, collapsedHere: collapsed, initial: !!first.open || !!first.fill || ((handle.kind === 'form' || !!first.formFrame) && !collapsed) || !!handle.submitted, fills: first.fill ? 1 : 0 };
     render();
   }, () => render());
 
   chrome.runtime.onMessage.addListener((msg: PanelMessage, _sender, reply) => {
     if (msg?.type === 'wera:panel-show') {
-      show = { ...show, tabId: msg.tabId, opens: show.opens + (msg.open ? 1 : 0), fills: show.fills + (msg.fill ? 1 : 0) };
+      show = { ...show, tabId: msg.tabId, opens: show.opens + (msg.open ? 1 : 0), fills: show.fills + (msg.fill ? 1 : 0), formFrames: show.formFrames + (msg.formFrame ? 1 : 0) };
       render();
     } else if (msg?.type === 'wera:panel-toggle') {
       show = { ...show, toggles: show.toggles + 1 };

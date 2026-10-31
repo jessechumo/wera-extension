@@ -13,7 +13,7 @@ import { extensionAlive, sendSafe } from '../shared/alive';
 import { detailPurpose } from '../shared/details';
 import { answersToLearn, type LearnedAnswer } from '../shared/learn';
 import type { JobConfirmed, JobRequest, SubmitReply } from '../shared/jobs';
-import { SETTINGS_KEY } from '../shared/settings';
+import { HIDDEN_SITES, SETTINGS_KEY, siteKey } from '../shared/settings';
 import type { FieldPurpose, JobDraft } from '../shared/types';
 import { startAssist } from './assist';
 
@@ -63,10 +63,11 @@ export function formAnswers(doc: Document, company: string, snap = snapshot(doc)
   return answersToLearn(snap.map((s) => ({ id: s.id, label: s.label, group: groupOf(s.purpose) })), snap, [], company);
 }
 
-/** Whether the panel may show on this page: turned on, and not the user's own Wera. */
+/** Whether the panel may show on this page: turned on, on this site too, and not the user's own Wera. */
 async function allowed(doc: Document): Promise<boolean> {
-  const got = await chrome.storage.local.get([SETTINGS_KEY, 'wera.session']).catch((): Record<string, unknown> => ({}));
+  const got = await chrome.storage.local.get([SETTINGS_KEY, HIDDEN_SITES, 'wera.session']).catch((): Record<string, unknown> => ({}));
   if ((got[SETTINGS_KEY] as { launcher?: boolean } | undefined)?.launcher === false) return false;
+  if ((got[HIDDEN_SITES] as Record<string, number> | undefined)?.[siteKey(doc)]) return false;
   return (got['wera.session'] as { server?: string } | undefined)?.server !== doc.location.origin;
 }
 
@@ -95,10 +96,14 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   let looks = 0;
   let looksFor = '';
   let asked = false;
+  // Looks in a row that found no job page: each costs the page some time, so they come less and less often.
+  let idle = 0;
 
+  // The page's text as laid out costs the page a layout: only when its raw text says it at all.
+  const saysSubmitted = () => looksSubmitted(doc.body?.textContent ?? '') && looksSubmitted(bodyText(doc));
   const checkSubmitted = () => {
     const key = doc.location.href;
-    if (submittedFor === key || isNotJobSite(key) || !(looksSubmitted(bodyText(doc)) || submittedAddress(key))) return;
+    if (submittedFor === key || isNotJobSite(key) || !(submittedAddress(key) || saysSubmitted())) return;
     submittedFor = key;
     void ask<SubmitReply>({ type: 'wera:job-submitted', url: key }).then((r) => {
       // A form embedded in a frame: the background tells the top frame (see onConfirmed).
@@ -120,6 +125,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     timer = 0;
     if (doc.hidden) return;
     const kind = pageKind(doc);
+    idle = kind ? 0 : idle + 1;
     if (kind === 'form') sawForm = true;
     if (looksFor !== doc.location.href) {
       looksFor = doc.location.href;
@@ -150,8 +156,10 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   const schedule = () => {
     if (!extensionAlive()) return stop();
     if (timer) return;
-    // The first look comes at once; later ones wait for the page to settle.
-    timer = window.setTimeout(() => void check().catch(() => {}), first ? Math.min(delay, 150) : delay);
+    // Another address is another page (a single-page site moved on): look at it as soon as it settles.
+    if (doc.location.href !== looksFor) idle = 0;
+    // The first look comes at once; later ones wait for the page to settle, longer while it shows no job.
+    timer = window.setTimeout(() => void check().catch(() => {}), first ? Math.min(delay, 150) : delay * Math.min(2 ** Math.floor(idle / 3), 16));
     first = false;
   };
   // Moving an application on (Next, Submit): Wera keeps the details it lacked, self-identification included.
