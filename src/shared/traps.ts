@@ -28,7 +28,9 @@ export interface Trap {
 
 // Characters that show nothing: they hide words from a reader, or split a
 // word so that a filter misses it.
-const INVISIBLE = new RegExp('[\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0]', 'g');
+const INVISIBLE_CHARS = [[0xad], [0x34f], [0x61c], [0x115f, 0x1160], [0x17b4, 0x17b5], [0x180b, 0x180e], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x206f], [0x3164], [0xfe00, 0xfe0f], [0xfeff], [0xffa0]] as const;
+const hex = (n: number) => `\\u${n.toString(16).padStart(4, '0')}`;
+const INVISIBLE = new RegExp(`[${INVISIBLE_CHARS.map(([a, b]) => (b ? `${hex(a)}-${hex(b)}` : hex(a))).join('')}]`, 'g');
 // Unicode tag characters spell out ASCII that nothing displays.
 const TAGS = /[\u{e0000}-\u{e007f}]+/gu;
 // Letters from other alphabets that read like Latin ones, for telling what a line says.
