@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, ClipboardCopy, FileText, PenLine, Sparkles, Zap } from 'lucide-react';
 import type { WeraApi } from '../shared/api';
+import { PAST_APPLIED } from '../shared/jobs';
 import { frames } from '../shared/rpc';
 import { diagnostics } from './diagnostics';
 import type { PanelProps } from './Panel';
@@ -49,6 +50,9 @@ export function Apply({ api, page, settings, tabId, fillRequest }: PanelProps & 
         </Notice>
       )}
       {(a.plan?.gate ?? page.info?.gate) && <Notice tone="warn">{a.plan?.gate ?? page.info?.gate}</Notice>}
+      {page.job?.application_status && PAST_APPLIED.has(page.job.application_status) && !page.submitted && (
+        <Notice tone="warn">Your tracker says you already applied to this job.</Notice>
+      )}
       <BigButton className="w-full" onClick={() => void a.autofill()} busy={a.busy} title="Alt+Shift+F">
         {!a.busy && <Zap className="size-4" />} {label}
       </BigButton>
@@ -173,6 +177,7 @@ function NeedRow({ r, onUse }: { r: Row; onUse: (value: string) => void }) {
 /** Resume and cover letter for this application. */
 function Docs({ api, page, a }: { api: WeraApi; page: PanelPageState; a: ReturnType<typeof useAutofill> }) {
   const [writing, setWriting] = useState(false);
+  const [tailoring, setTailoring] = useState(false);
   const job = page.job;
   const resumeText = !a.resume ? 'none yet' : a.resume.kind === 'tailored' ? `tailored for ${job?.company ?? 'this job'}` : a.resume.kind === 'base' ? 'your main resume' : 'your uploaded file';
   return (
@@ -183,9 +188,16 @@ function Docs({ api, page, a }: { api: WeraApi; page: PanelPageState; a: ReturnT
           <p className="text-xs font-medium">Resume</p>
           <p className="truncate text-[11px] text-muted">{a.plan ? resumeText : 'attached when Wera fills the form'}</p>
         </div>
-        <a href={api.dashboardUrl(job ? `/jobs/${job.id}` : '/profile/resume')} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-accent hover:underline">
-          {job && a.resume?.kind !== 'tailored' ? 'Tailor' : 'Edit'}
-        </a>
+        {a.resume?.kind === 'tailored' ? (
+          <a href={api.dashboardUrl(job ? `/jobs/${job.id}` : '/profile/resume')} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-accent hover:underline">Edit</a>
+        ) : (
+          <Button className="px-2 py-1" busy={tailoring} title="Write a copy of your resume for this job" onClick={() => {
+            setTailoring(true);
+            void a.tailor().finally(() => setTailoring(false));
+          }}>
+            {!tailoring && <Sparkles className="size-3.5" />} Tailor
+          </Button>
+        )}
       </div>
       <div className="flex items-center gap-2.5 px-3 py-2.5">
         <PenLine className="size-4 shrink-0 text-muted" />

@@ -10,6 +10,7 @@ import type { FieldPurpose } from '../shared/types';
 import { classify } from './classify';
 import { ENTRY_PURPOSES } from './entries';
 import { collectFields } from './fields';
+import { outOfSight } from './hidden';
 import { isApplicantHost } from './frames';
 import { readJobPosting } from './jsonld';
 import { siteFor } from './sites';
@@ -206,6 +207,15 @@ function hasApplyButton(doc: Document): boolean {
     const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
     return text.length < 60 && APPLY.test(text);
   });
+}
+
+/** The page's way to apply, when it shows one (on a job page: on a shop this would be a coupon's button). */
+export function findApply(doc: Document): HTMLElement | null {
+  const buttons = [...doc.querySelectorAll<HTMLElement>('a, button, input[type="submit"], [role="button"]')].slice(0, 600);
+  return buttons.find((b) => {
+    const text = b instanceof HTMLInputElement ? b.value : (b.textContent ?? '');
+    return text.length < 60 && APPLY.test(text) && !outOfSight(b);
+  }) ?? null;
 }
 
 /** Whether a page with no job data reads like one job's posting: a careers address, a title, sections and a way to apply. */

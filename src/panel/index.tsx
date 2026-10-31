@@ -43,6 +43,25 @@ export function propertyFallback(source: string): string {
   return decls.length ? `\n.wera-root,.wera-root *,.wera-root ::before,.wera-root ::after{${decls.join(';')}}` : '';
 }
 
+/** The page's width the panel takes, card and margin. */
+const PANEL_ROOM = 396;
+/** A window narrower than this has no room to give: the form would be squeezed, so the panel floats over it. */
+const ROOM_NEEDED = 1000;
+
+/** While the panel is open on an application, the page makes room, so the panel never covers the form. */
+function usePageRoom(active: boolean) {
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!active || innerWidth < ROOM_NEEDED) return;
+    const before = root.style.getPropertyValue('margin-right');
+    root.style.setProperty('margin-right', `${PANEL_ROOM}px`, 'important');
+    return () => {
+      if (before) root.style.setProperty('margin-right', before);
+      else root.style.removeProperty('margin-right');
+    };
+  }, [active]);
+}
+
 function useSession() {
   const [server, setServer] = useState<string | null | undefined>(undefined);
   const load = useCallback(() => {
@@ -109,10 +128,11 @@ export function App({ handle, show }: { handle: PageHandle; show: Show }) {
       return chrome.storage.local.set({ [COLLAPSED]: map });
     }).catch(() => {});
   }, []);
-  if (server === undefined || gone) return null;
   // A single-page site moved to something that is not a job page: step aside, unless the user opened Wera here.
   const jobPage = !!page.handle.kind || !!page.info?.hasForm || !!page.submitted || show.formFrames > 0;
-  if (!jobPage && !page.loading && show.opens === 0 && show.toggles === 0 && show.fills === 0) return null;
+  const shown = server !== undefined && !gone && (jobPage || page.loading || show.opens > 0 || show.toggles > 0 || show.fills > 0);
+  usePageRoom(shown && open && isForm);
+  if (!shown) return null;
   // The user sent the application and the site confirmed it: say so, then close the tab.
   const sent = page.submitted && page.submitted.state !== 'off' && page.submitted.close ? page.submitted : null;
   return (

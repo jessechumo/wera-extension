@@ -138,6 +138,11 @@ export async function pressNext(tabId: number, nextId: string): Promise<{ ok: bo
   return sendTo<{ ok: boolean; label?: string; final?: boolean }>(tabId, f.frameId, { type: 'wera:next' }).catch(() => ({ ok: false }));
 }
 
+/** Presses the Apply button on the posting (the top frame's page). */
+export function pressApply(tabId: number): Promise<{ ok: boolean }> {
+  return sendTo<{ ok: boolean }>(tabId, 0, { type: 'wera:press-apply' }).catch(() => ({ ok: false }));
+}
+
 export async function highlight(tabId: number, id: string): Promise<void> {
   const f = parseField(id);
   await sendTo(tabId, f.frameId, { type: 'wera:highlight', id: f.id }).catch(() => {});
@@ -172,6 +177,7 @@ export const run: { [K in keyof FrameOps]: (tabId: number, ...args: FrameOps[K][
   'add-entries': addEntries,
   snapshot,
   next: pressNext,
+  'press-apply': pressApply,
   highlight,
   options,
   log: logs,

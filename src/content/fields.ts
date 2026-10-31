@@ -51,7 +51,8 @@ export function allRoots(root: ParentNode): ParentNode[] {
   const out: ParentNode[] = [root];
   for (let i = 0; i < out.length; i++) {
     for (const el of out[i]!.querySelectorAll('*')) {
-      if (el.shadowRoot) out.push(el.shadowRoot);
+      // Wera's own panel and button are no part of the page (their roots are open in test builds).
+      if (el.shadowRoot && !el.localName.startsWith('wera-')) out.push(el.shadowRoot);
     }
   }
   return out;

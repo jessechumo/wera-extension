@@ -45,7 +45,7 @@ export function SettingsView({ api, settings, setSettings, onSignedOut, onClose,
         <Toggle label="Answer with AI" hint="Fields your details do not cover, from your profile and resume. Unsure answers wait for you." on={settings.aiSuggest} set={(v) => setSettings({ aiSuggest: v })} />
         <Toggle label="Draft open questions and cover letters while filling" hint={'"Why us?", "Tell me about a time...", and a letter for this job when the form asks for one: drafted for you to read.'} on={settings.aiQuestions} set={(v) => setSettings({ aiQuestions: v })} />
         <Toggle label="Wera button in open questions" hint="Draft, rework and insert an answer right in the box." on={settings.assist} set={(v) => setSettings({ assist: v })} />
-        <Toggle label="Fill the next page on Continue" hint="Multi-page applications (Workday) keep filling." on={settings.autoContinue} set={(v) => setSettings({ autoContinue: v })} />
+        <Toggle label="Keep filling multi-page applications" hint="Each new step fills itself once Wera has filled the first, whichever Next button you press." on={settings.autoContinue} set={(v) => setSettings({ autoContinue: v })} />
         <Toggle label="Remember my answers" hint="What you type into forms, for the next application." on={settings.learn} set={(v) => setSettings({ learn: v })} />
         <Toggle label="Mark applied when the site confirms" hint={'"Thank you for applying" moves the job to Applied.'} on={settings.autoApplied} set={(v) => setSettings({ autoApplied: v })} />
         <Toggle label="Close the tab after applying" hint="Once you submit and the site confirms it, Wera says so, then closes the tab." on={settings.closeAfterApply} set={(v) => setSettings({ closeAfterApply: v })} />

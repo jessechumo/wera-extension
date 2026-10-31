@@ -9,13 +9,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ResumeFile, SuggestField, Suggestion, WeraApi } from '../shared/api';
 import { bestAnswer, type SavedAnswer } from '../shared/answers';
 import { describeError } from '../shared/errors';
-import { loadFlow, saveFlow, type Flow } from '../shared/flow';
+import { loadFlow, saveFlow, takeApplying, type Flow } from '../shared/flow';
 import { log } from '../shared/log';
 import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FillResult, JobDraft, PagePlan, Profile, ScanRequest } from '../shared/types';
 import { answersToLearn } from '../shared/learn';
-import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, rowsFor, type Row } from './rows';
+import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, RESUME, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
 
 export { needsYou, type Row } from './rows';
@@ -480,19 +480,23 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     void (async () => {
       const f = await loadFlow(tabId, host).catch(() => null);
       setFlow(f);
-      if (f?.continuing) {
-        await saveFlow(tabId, { ...f, continuing: false }).catch(() => {});
-        if (settings.autoContinue) await autofill();
-      }
+      // "Apply with Wera" on the posting: this is the application it asked for.
+      const applying = await takeApplying(tabId).catch(() => false);
+      if (f?.continuing) await saveFlow(tabId, { ...f, continuing: false }).catch(() => {});
+      if (applying || (f?.continuing && settings.autoContinue)) await autofill();
     })();
   }, [tabId, page.loading, page.info?.hasForm, host, settings.autoContinue, autofill]);
+  // A new step: after Continue, or the site's own Next once Wera has filled this application.
+  const started2 = phase === 'continuing' || ((phase === 'filled' || phase === 'final') && !!plan);
   useEffect(() => {
-    if (phase === 'continuing' && page.newStep > 0 && settings.autoContinue) {
+    if (started2 && page.newStep > 0 && settings.autoContinue) {
+      counted.current = false;
+      addedBlocks.current = false;
       // A step the page rendered on its own (an external change): fill it now.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void autofill();
     }
-  }, [phase, page.newStep, settings.autoContinue, autofill]);
+  }, [started2, page.newStep, settings.autoContinue, autofill]);
   // Still on the same step a while after Next: the site probably flagged something.
   useEffect(() => {
     if (phase !== 'continuing') return;
@@ -522,6 +526,28 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     }
   }, [api, ensureJob]);
 
+  /** Writes a resume for this job, and puts it in the form if Wera already attached the other. */
+  const tailor = useCallback(async (): Promise<boolean> => {
+    setError('');
+    const forJob = await ensureJob();
+    if (forJob == null) {
+      setError("Wera couldn't tell which job this is, so it can't tailor your resume. Save the job from its posting first.");
+      return false;
+    }
+    try {
+      await api.tailorResume(forJob);
+      const file = await api.resumeFile(forJob);
+      files.current = { ...files.current, resume: file };
+      setResume(file);
+      const attached = latest.current.find((r) => r.value === RESUME && r.status === 'filled');
+      if (attached) await fill([{ ...attached, checked: true }]);
+      return true;
+    } catch (e) {
+      setError(describeError(e, "Couldn't tailor your resume"));
+      return false;
+    }
+  }, [api, ensureJob, fill]);
+
   const busy = phase === 'reading' || phase === 'filling' || phase === 'thinking' || phase === 'continuing';
-  return { phase, plan, rows, error, warnings, notice, resume, letter, flow, thinking, busy, noAiHere: noAiHere && !draftAnyway, autofill, fillOne, continueOn, writeLetter, learn, setNotice, draftDespitePolicy };
+  return { phase, plan, rows, error, warnings, notice, resume, letter, flow, thinking, busy, noAiHere: noAiHere && !draftAnyway, autofill, fillOne, continueOn, writeLetter, tailor, learn, setNotice, draftDespitePolicy };
 }

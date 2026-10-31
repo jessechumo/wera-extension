@@ -25,6 +25,13 @@ test.beforeAll(async () => {
         <iframe id="grnhse_iframe" src="http://localhost:${port}${req.url.replace('/embedded', '/apply')}" width="900" height="1200"></iframe></main>`);
       return;
     }
+    // A posting whose Apply button leads to its application (in a new tab, for /quick-tab).
+    if (req.url?.endsWith('/quick') || req.url?.endsWith('/quick-tab')) {
+      const page = readFileSync(join(import.meta.dirname, 'pages', 'job.html'), 'utf8');
+      const to = `${req.url.replace(/\/quick(-tab)?$/, '')}/apply`;
+      res.end(page.replace('<a href="apply.html">Apply</a>', `<a href="${to}"${req.url.endsWith('-tab') ? ' target="_blank"' : ''}>Apply now</a>`));
+      return;
+    }
     const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : req.url?.endsWith('/traps') ? 'traps.html' : 'job.html';
     res.end(readFileSync(join(import.meta.dirname, 'pages', file)));
   });
@@ -221,6 +228,53 @@ test('is not duped by a form set with traps for AI tools', async () => {
   await job.locator('#c3').focus();
   await job.waitForTimeout(400);
   await expect(job.locator('wera-assist').getByRole('button', { name: 'Draft this answer with Wera' })).toHaveCount(0);
+  await job.close();
+});
+
+test('applies from the posting: one press, and the application fills itself', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}-quick/quick`);
+  await open(job);
+  await panelOf(job).getByRole('button', { name: /Apply with Wera/ }).click();
+  await job.waitForURL(/\/apply$/);
+  await expect(job.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await expect(job.locator('#em')).toHaveValue(/@/);
+  await job.close();
+});
+
+test('applies from a posting that opens the application in a new tab', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}-tab/quick-tab`);
+  await open(job);
+  const [tab] = await Promise.all([context.waitForEvent('page'), panelOf(job).getByRole('button', { name: /Apply with Wera/ }).click()]);
+  await tab.waitForLoadState();
+  await expect(tab.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await tab.close();
+  await job.close();
+});
+
+test('keeps filling when the site\'s own Next button shows the next step', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre/steps`);
+  const panel = panelOf(job);
+  await panel.getByRole('button', { name: /^Autofill$/ }).click();
+  await expect(job.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await expect(panel.getByRole('button', { name: /Continue to the next page/ })).toBeVisible({ timeout: 20_000 });
+  // The user presses the page's own button, not Wera's.
+  await job.locator('#next').click();
+  await expect(job.locator('#sp')).not.toHaveValue('', { timeout: 15_000 });
+  await job.close();
+});
+
+test('the page makes room for the panel on an application', async () => {
+  const job = await context.newPage();
+  await job.setViewportSize({ width: 1280, height: 800 });
+  await job.goto(`${site}/jobs/${run}/sre/apply`);
+  await expect(panelOf(job).getByRole('dialog', { name: 'Wera' })).toBeVisible({ timeout: 10_000 });
+  await expect.poll(() => job.evaluate(() => document.documentElement.style.marginRight)).toBe('396px');
+  const form = await job.locator('#f').boundingBox();
+  const panel = await panelOf(job).getByRole('dialog', { name: 'Wera' }).boundingBox();
+  expect(form!.x + form!.width).toBeLessThanOrEqual(panel!.x);
   await job.close();
 });
 
