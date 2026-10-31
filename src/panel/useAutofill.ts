@@ -63,6 +63,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     company: page.job?.company ?? page.info?.draft?.company ?? page.handle.company,
     title: page.job?.title ?? (page.info?.draft?.title || page.handle.title || document.title),
     description: page.info?.draft?.description || page.info?.text || '',
+    location: page.job?.location_summary ?? page.job?.location_raw ?? page.info?.draft?.location ?? page.handle.draft?.location ?? '',
   }), [page.job, page.info, page.handle]);
 
   const warn = useCallback((msg: string, cause?: unknown) => {
@@ -105,7 +106,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       const profile: Profile = { ...view.applicant, experience: view.experience, education: view.education, skills: view.skills };
       const req: ScanRequest = {
         profile, answers: saved.map((s) => ({ question: s.question, answer: s.answer, company: s.company })),
-        resumeName: file?.name, coverLetter: !!cover?.body, company: posting.company || undefined,
+        resumeName: file?.name, coverLetter: !!cover?.body, company: posting.company || undefined, jobLocation: posting.location || undefined,
       };
       scanReq.current = req;
       let p = await frames('scan', req);
@@ -130,7 +131,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       setPhase('idle');
       return null;
     }
-  }, [api, jobId, posting.company, warn]);
+  }, [api, jobId, posting.company, posting.location, warn]);
 
   /** The job this application is for in Wera: the page's, else its posting saved now so the application shows up. */
   const ensureJob = useCallback(async (): Promise<number | null> => {
