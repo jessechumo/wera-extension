@@ -20,6 +20,6 @@ function purpose(f: Field): FieldPurpose | null | undefined {
 
 export const lever: Site = {
   name: 'Lever',
-  matches: (doc) => /(^|\.)lever\.co$/i.test(doc.location?.hostname ?? ''),
+  matches: (doc) => /^jobs(\.eu)?\.lever\.co$/i.test(doc.location?.hostname ?? ''),
   purpose,
 };

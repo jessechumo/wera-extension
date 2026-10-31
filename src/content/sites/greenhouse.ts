@@ -37,6 +37,6 @@ function purpose(f: Field): FieldPurpose | null | undefined {
 
 export const greenhouse: Site = {
   name: 'Greenhouse',
-  matches: (doc) => /(^|\.)greenhouse\.io$/i.test(doc.location?.hostname ?? '') || !!doc.querySelector('#application_form, #grnhse_app form'),
+  matches: (doc) => /^(job-)?boards(\.eu)?\.greenhouse\.io$/i.test(doc.location?.hostname ?? '') || !!doc.querySelector('#application_form, #grnhse_app form'),
   purpose,
 };
