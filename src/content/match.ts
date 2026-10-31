@@ -98,6 +98,19 @@ function samePlace(real: Option[], value: string): Option | null {
   }) ?? null;
 }
 
+/**
+ * The suggestion that is this address: same house number and same town.
+ * Streets repeat from town to town and country to country, and "St" and
+ * "Street" read the same, so the street's name settles nothing.
+ */
+function sameAddress(real: Option[], value: string): Option | null {
+  const [street = '', town = ''] = value.split(',').map((p) => p.trim());
+  const house = /^\d+\b/.exec(street)?.[0];
+  if (!house) return samePlace(real, value);
+  const t = norm(town);
+  return t ? real.find((o) => norm(o.label).startsWith(`${house} `) && ` ${norm(o.label)} `.includes(` ${t} `)) ?? null : null;
+}
+
 // Lists of names (schools, majors, employers) word the same name differently: "The University of Texas at Dallas".
 const NAMED = new Set<FieldPurpose>(['school', 'edu_school', 'major', 'edu_major', 'current_company', 'exp_company', 'how_heard']);
 const FILLER = new Set(['the', 'of', 'at', 'in', 'and', 'for', 'a', 'an', 'university', 'college', 'school', 'institute', 'inc', 'llc', 'ltd', 'co', 'corp', 'corporation', 'company']);
@@ -199,6 +212,7 @@ export function matchOption(options: Option[], value: string, purpose: FieldPurp
   }
   const exact = real.find((o) => wanted.has(norm(o.label)) || wanted.has(norm(o.value)));
   if (exact) return exact;
+  if (purpose === 'address') return sameAddress(real, value);
   if (purpose === 'location' || purpose === 'city') {
     const place = samePlace(real, value);
     if (place) return place;
