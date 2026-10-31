@@ -12,6 +12,7 @@ import { rowLabel } from './rows';
 import { BigButton, Button, Notice } from './ui';
 import { LETTER, RESUME, needsYou, useAutofill, type Row } from './useAutofill';
 import type { PanelPageState } from './usePanelPage';
+import { Traps } from './Traps';
 
 /** An application: Autofill, then what still needs the user, then Continue on multi-page forms. */
 export function Apply({ api, page, settings, tabId, fillRequest }: PanelProps & { api: WeraApi }) {
@@ -76,6 +77,7 @@ export function Apply({ api, page, settings, tabId, fillRequest }: PanelProps & 
         </Notice>
       )}
       {a.notice && <Notice tone="good">{a.notice}</Notice>}
+      <Traps traps={[...(page.info?.traps ?? []), ...(a.plan?.traps ?? [])]} onDraftAnyway={a.noAiHere && done ? () => void a.draftDespitePolicy() : undefined} />
 
       {done && needs.length > 0 && (
         <div className="anim-rise space-y-1.5">

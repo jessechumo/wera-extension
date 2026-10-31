@@ -7,6 +7,7 @@ import { Bookmark, ExternalLink, PartyPopper, X } from 'lucide-react';
 import type { ApplicationStatus, WeraApi, WeraJob } from '../shared/api';
 import { describeError } from '../shared/errors';
 import { log } from '../shared/log';
+import { Traps } from './Traps';
 import { BigButton, Button, Notice, ScoreRing, Skeleton } from './ui';
 import type { PanelPageState } from './usePanelPage';
 
@@ -52,7 +53,12 @@ export function Posting({ api, page }: { api: WeraApi; page: PanelPageState }) {
   const [error, setError] = useState('');
   if (page.loading) return <Skeleton className="h-11" />;
   if (page.job) {
-    return <p className="text-xs text-muted">Press the site's <b className="text-text">Apply</b> button: Wera autofills the application there.</p>;
+    return (
+      <>
+        <p className="text-xs text-muted">Press the site's <b className="text-text">Apply</b> button: Wera autofills the application there.</p>
+        <Traps traps={page.info?.traps ?? []} />
+      </>
+    );
   }
   const save = async () => {
     setBusy(true);
@@ -80,6 +86,7 @@ export function Posting({ api, page }: { api: WeraApi; page: PanelPageState }) {
       </BigButton>
       <p className="text-[11px] text-faint">Saves it to your Jobs and Tracker with a fit score.</p>
       {error && <Notice tone="bad">{error}</Notice>}
+      <Traps traps={page.info?.traps ?? []} />
     </div>
   );
 }
