@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.11.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.10.0...wera-extension-v0.11.0) (2026-10-31)
+
+
+### Features
+
+* **autofill:** attach the resume and cover letter on Jobvite ([ee23cb4](https://github.com/jessechumo/wera-extension/commit/ee23cb46a58efd8f872e75f3b1e5561e77f97caa))
+* correct answers on more application systems, and what comes after applying ([e8c1c98](https://github.com/jessechumo/wera-extension/commit/e8c1c9880a511d9239b929c8193d345a484f1434))
+* **detect:** carry "Apply with Wera" through Workday, Oracle and iCIMS ([fd3a489](https://github.com/jessechumo/wera-extension/commit/fd3a48937ecee04e9258f3c5437443f0dc301c22))
+* **detect:** read iCIMS postings and Apply buttons in other languages ([7ccd4c6](https://github.com/jessechumo/wera-extension/commit/7ccd4c6321bb12ea3cb6eec05f8c509a97c0f943))
+* **panel:** answer follow-up questions from the question before them ([9468a9d](https://github.com/jessechumo/wera-extension/commit/9468a9d1a86543f7e99b01c3194def544fc1cf5e))
+* **panel:** enter all of Wera's guesses with one click ([1ddd13c](https://github.com/jessechumo/wera-extension/commit/1ddd13cacba9a14bf7fcdf6f9b463d5871d2c74c))
+* **panel:** offer the next best match after applying ([985c3ce](https://github.com/jessechumo/wera-extension/commit/985c3ce239c48a0bd1f769252a9e36960d3bd042))
+* **panel:** say when a site wants an account, and fill once past it ([42fa39f](https://github.com/jessechumo/wera-extension/commit/42fa39f24aefe560aef0cd49b5217262409d72df))
+
+
+### Bug Fixes
+
+* **autofill:** know a start date however it is asked ([d5e8e6d](https://github.com/jessechumo/wera-extension/commit/d5e8e6d40f396f47238a9c9c488ce1f122ba4d54))
+* **autofill:** never call one degree another ([5edd7ea](https://github.com/jessechumo/wera-extension/commit/5edd7eae22343788da4dcb79638344ab24e95dc8))
+* **autofill:** never take a namesake address from a search box ([bc4a51a](https://github.com/jessechumo/wera-extension/commit/bc4a51ae501d1f8a00974e73a87b0310aef85ee1))
+* **autofill:** read a question through "e.g." and "U.S." ([29f1ac7](https://github.com/jessechumo/wera-extension/commit/29f1ac7095aeda59401139be4f193bf9ffdd8352))
+* **autofill:** stop freezing the page on Workable ([8a3dbca](https://github.com/jessechumo/wera-extension/commit/8a3dbca9363aa1d0b3f90151120857a548070a29))
+* **panel:** keep the page's address on a job the AI read ([44d34da](https://github.com/jessechumo/wera-extension/commit/44d34da1280193f285262568bb6ab72282500bca))
+
+
+### Documentation
+
+* **readme:** add follow-ups, sign-in walls, next match and new site rules ([edc1524](https://github.com/jessechumo/wera-extension/commit/edc1524e014e3a71ed005debda936da149f90e60))
+
 ## [0.10.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.9.0...wera-extension-v0.10.0) (2026-10-31)
 
 
