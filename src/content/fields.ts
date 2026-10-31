@@ -13,6 +13,7 @@ export interface Option {
 export interface Field {
   id: string;
   kind: FieldKind;
+  /** What a person reads as its label: nothing hidden, and nothing aimed at AI tools. */
   label: string;
   /** name, id and autocomplete hints, lowercased. */
   hints: string;
@@ -23,9 +24,15 @@ export interface Field {
   options: Option[];
   /** The repeating section it sits in (a job or school block), if any. */
   section?: Section | null;
+  /** The field is itself a trap: Wera leaves it to the user. */
+  trap?: Trap;
+  /** What its label said to AI tools, taken out of the label above. */
+  said?: Trap[];
 }
 
+import { labelTrap, decoyName, scrub, type Trap } from '../shared/traps';
 import { sectionOf, type Section } from './entries';
+import { boxConcealed, boxOutOfReach, outOfSight, textConcealed } from './hidden';
 
 const ID_ATTR = 'data-wera-id';
 let seq = 0;
@@ -100,7 +107,9 @@ function textOf(el: Element | null, groupName?: string): string {
   const out: string[] = [];
   const walk = (n: Node) => {
     if (n.nodeType === Node.TEXT_NODE) {
-      out.push(n.textContent ?? '');
+      // Read at the text itself: a parent's "font-size: 0" is a layout trick its children undo.
+      const p = n.parentElement;
+      if (!p || !view || !textConcealed(p, view.getComputedStyle(p))) out.push(n.textContent ?? '');
       return;
     }
     if (n.nodeType !== Node.ELEMENT_NODE) return;
@@ -108,7 +117,7 @@ function textOf(el: Element | null, groupName?: string): string {
     if (NOT_LABEL.has(e.tagName.toUpperCase()) || optionLabels.has(e) || e.hidden || e.getAttribute('aria-hidden') === 'true') return;
     if (e.matches(`[role="radio"], [role="option"], [role="listbox"], ${LISTBOX}`)) return;
     const style = view?.getComputedStyle(e);
-    if (style && (style.display === 'none' || style.visibility === 'hidden')) return;
+    if (style && boxConcealed(style)) return;
     for (const c of e.childNodes) walk(c);
     // Blocks read as separate words ("Phone" + "Required" is not "PhoneRequired").
     if (style && style.display !== 'inline' && style.display !== '') out.push(' ');
@@ -265,9 +274,44 @@ export function promptChoice(el: Element): string {
   return [...(box?.querySelectorAll('[data-automation-id="selectedItem"]') ?? [])].map((p) => (p.textContent ?? '').trim()).filter(Boolean).join(' | ');
 }
 
-/** Raw label -> the field's label and whether it is required. */
-function named(el: HTMLElement, raw: string): { label: string; required: boolean } {
-  return { label: stripMarker(raw), required: isRequired(el, raw) };
+/**
+ * Raw label -> the field's label and whether it is required, with what
+ * the label said to AI tools taken out. A label that was nothing else, or
+ * that asks what only the person can answer, makes the field a trap.
+ */
+function named(el: HTMLElement, raw: string): { label: string; required: boolean; said?: Trap[]; trap?: Trap } {
+  const { clean, traps } = scrub(raw);
+  const label = stripMarker(clean);
+  const out = { label, required: isRequired(el, raw), ...(traps.length ? { said: traps } : {}) };
+  const kind = labelTrap(label);
+  if (kind) return { ...out, trap: { kind, text: label.slice(0, 220) } };
+  // Only words for AI tools: there is no question here to answer.
+  if (traps.length && !/[a-z]{3}/i.test(label)) return { ...out, trap: { kind: traps[0]!.kind, text: traps[0]!.text } };
+  return out;
+}
+
+/** Whether a person sees the control's label: a decoy's label is hidden along with it. */
+function labelInSight(el: HTMLElement): boolean {
+  const scope = scopeOf(el);
+  const label = (el.id ? scope.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null) ?? el.closest('label') ?? wrapper(el);
+  return !!label && !outOfSight(label) && !!textOf(label);
+}
+
+/**
+ * Whether a control is there for programs only: named for it, or out of
+ * a person's sight (widgets hide their real input too, but beside a label
+ * that shows). Honeypots catch bots by being filled.
+ */
+function isDecoy(el: HTMLElement, hints: string): boolean {
+  if (decoyName(hints)) return true;
+  return (outOfSight(el) || boxOutOfReach(el)) && !labelInSight(el);
+}
+
+/** An option a person can pick; one that speaks to AI tools is no option, and is noted. */
+function realOption(label: string, disabled: boolean, found?: Trap[]): boolean {
+  const { traps } = scrub(label);
+  if (traps.length) found?.push(...traps);
+  return !traps.length && !disabled;
 }
 
 // A tick box that agrees to something is its own question, never one choice of a list.
@@ -301,8 +345,12 @@ function mergeTickGroups(fields: Field[]): Field[] {
   return replaced.size ? fields.flatMap((f) => (replaced.has(f) ? (replaced.get(f) ? [replaced.get(f)!] : []) : [f])) : fields;
 }
 
-/** All fillable fields in document order, radio and checkbox groups merged. */
-export function collectFields(root: ParentNode): Field[] {
+/**
+ * All fillable fields in document order, radio and checkbox groups
+ * merged. Decoys are left out (found hears of them), so nothing can fill
+ * them.
+ */
+export function collectFields(root: ParentNode, found?: Trap[]): Field[] {
   const fields: Field[] = [];
   const groups = new Map<string, Field>();
   for (const node of deepQueryAll<HTMLElement>(root, `${FIELDS}, button`)) {
@@ -325,6 +373,10 @@ export function collectFields(root: ParentNode): Field[] {
     if (input.disabled || input.readOnly) continue;
     if (type !== 'file' && isHidden(node)) continue;
     const hints = clean(`${input.name} ${node.id} ${node.getAttribute('autocomplete') ?? ''}`).toLowerCase();
+    if (type !== 'file' && isDecoy(node, hints)) {
+      found?.push({ kind: 'decoy_field', text: labelFor(node).slice(0, 80) || input.name || 'a hidden box' });
+      continue;
+    }
 
     if ((type === 'radio' || type === 'checkbox') && input.name) {
       const key = `${type}:${input.name}`;
@@ -339,7 +391,8 @@ export function collectFields(root: ParentNode): Field[] {
           groups.set(key, g);
           fields.push(g);
         }
-        g.options.push({ label: optionLabel(input), value: input.value, el: input });
+        const said = optionLabel(input);
+        if (realOption(said, input.disabled, found)) g.options.push({ label: said, value: input.value, el: input });
         continue;
       }
     }
@@ -360,7 +413,7 @@ export function collectFields(root: ParentNode): Field[] {
       el: node,
       options:
         kind === 'select'
-          ? [...(node as HTMLSelectElement).options].map((o) => ({ label: clean(o.textContent), value: o.value, el: o }))
+          ? [...(node as HTMLSelectElement).options].filter((o) => realOption(clean(o.textContent), o.disabled && !!o.value, found)).map((o) => ({ label: clean(o.textContent), value: o.value, el: o }))
           : [],
     });
   }
@@ -375,7 +428,11 @@ export function collectFields(root: ParentNode): Field[] {
       options: radios.map((r) => ({ label: clean(r.getAttribute('aria-label') || r.textContent), value: clean(r.getAttribute('aria-label') || r.textContent), el: r })),
     });
   }
-  const out = mergeTickGroups(fields);
+  const out = mergeTickGroups(fields).filter((f) => {
+    if (f.trap?.kind !== 'decoy_field') return true;
+    found?.push(f.trap);
+    return false;
+  });
   for (const f of out) f.section = sectionOf(f.el);
   return out;
 }

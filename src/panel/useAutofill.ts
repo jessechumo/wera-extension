@@ -15,7 +15,7 @@ import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FillResult, PagePlan, Profile, ScanRequest } from '../shared/types';
 import { answersToLearn } from '../shared/learn';
-import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, rowsFor, type Row } from './rows';
+import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
 
 export { needsYou, type Row } from './rows';
@@ -41,6 +41,9 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
   const [letter, setLetter] = useState('');
   const [flow, setFlow] = useState<Flow | null>(null);
   const [thinking, setThinking] = useState(0);
+  // The employer asks for no AI, and the user chose to have Wera draft anyway.
+  const [draftAnyway, setDraftAnyway] = useState(false);
+  const noAiHere = useMemo(() => [...(page.info?.traps ?? []), ...(plan?.traps ?? [])].some((t) => t.kind === 'ai_policy'), [page.info?.traps, plan?.traps]);
   const applicant = useRef<Applicant | null>(null);
   const bank = useRef<SavedAnswer[]>([]);
   const scanReq = useRef<ScanRequest | null>(null);
@@ -187,7 +190,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       const out: Row[] = [];
       for (const r of batch) {
         const s = suggested.get(suggestKey(r));
-        if (s && fitsPurpose(r.purpose, s.value)) out.push({ ...r, value: s.value, source: 'ai', confidence: s.confidence, note: s.why || (s.confidence === 'low' ? 'a guess: check it' : ''), checked: s.confidence === 'high' });
+        if (s && fitsPurpose(r.purpose, s.value) && readsLikeAnswer(r, s.value)) out.push({ ...r, value: s.value, source: 'ai', confidence: s.confidence, note: s.why || (s.confidence === 'low' ? 'a guess: check it' : ''), checked: s.confidence === 'high' });
       }
       if (!out.length) return;
       merge(out);
@@ -213,7 +216,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
   }, [api, fill, jobId, merge, posting, settings.aiSuggest, warn]);
 
   /** Answers open questions: the user's earlier answer when the question matches, else a draft (three at a time). */
-  const draftAndFill = useCallback(async (list: Row[]) => {
+  const draftAndFill = useCallback(async (list: Row[], anyway = draftAnyway) => {
     const open = list.filter(needsDraft);
     if (!open.length) return;
     const fromBank: Row[] = [];
@@ -228,6 +231,10 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       await fill(fromBank);
     }
     if (!settings.aiQuestions) return;
+    if (noAiHere && !anyway) {
+      merge(toDraft.map((r) => ({ ...r, note: 'the employer asks for your own words here: write it yourself' })));
+      return;
+    }
     let failed = 0;
     let cause: unknown = null;
     await pool(toDraft, 3, async (r) => {
@@ -237,7 +244,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
         cause = e;
         return null;
       });
-      if (!a?.answer) {
+      if (!a?.answer || !readsLikeAnswer(r, a.answer)) {
         if (a?.needs_input) merge([{ ...r, note: `add yourself: ${a.needs_input}` }]);
         return;
       }
@@ -246,7 +253,15 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       await fill([row]);
     });
     if (failed) warn(describeError(cause, `Wera couldn't draft ${failed} answer${failed === 1 ? '' : 's'}; write ${failed === 1 ? 'it' : 'them'} on the form, or use the Wera button in the box`), cause);
-  }, [api, fill, jobId, merge, posting, settings.aiQuestions, warn]);
+  }, [api, draftAnyway, fill, jobId, merge, noAiHere, posting, settings.aiQuestions, warn]);
+
+  /** The user read that the employer asks for no AI, and wants Wera's drafts all the same. */
+  const draftDespitePolicy = useCallback(async () => {
+    setDraftAnyway(true);
+    setPhase('thinking');
+    await draftAndFill(latest.current, true).catch((e: unknown) => setError(describeError(e, "Couldn't draft these answers")));
+    setPhase('filled');
+  }, [draftAndFill]);
 
   /**
    * A form that asks for a cover letter when this job has none yet: Wera
@@ -256,7 +271,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
    */
   const letterAndFill = useCallback(async (list: Row[]) => {
     const want = list.filter(needsLetter);
-    if (!want.length || files.current.letter || !settings.aiQuestions) return;
+    if (!want.length || files.current.letter || !settings.aiQuestions || (noAiHere && !draftAnyway)) return;
     const forJob = await ensureJob();
     if (forJob == null) {
       merge(want.map((r) => ({ ...r, note: 'save the job from its posting, then write its letter in the panel' })));
@@ -274,7 +289,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     const rows = want.map((r): Row => ({ ...r, value: LETTER, source: 'ai', note: 'Wera wrote this letter for this job: read it', checked: true, drafted: true }));
     merge(rows);
     await fill(rows);
-  }, [api, ensureJob, fill, merge, settings.aiQuestions, warn]);
+  }, [api, draftAnyway, ensureJob, fill, merge, noAiHere, settings.aiQuestions, warn]);
 
   /** Remembers the page's answers for the next form (details are learned by the page itself, on Next or Submit). */
   const learn = useCallback(async (list: Row[]) => {
@@ -448,5 +463,5 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
   }, [api, ensureJob]);
 
   const busy = phase === 'reading' || phase === 'filling' || phase === 'thinking' || phase === 'continuing';
-  return { phase, plan, rows, error, warnings, notice, resume, letter, flow, thinking, busy, autofill, fillOne, continueOn, writeLetter, learn, setNotice };
+  return { phase, plan, rows, error, warnings, notice, resume, letter, flow, thinking, busy, noAiHere: noAiHere && !draftAnyway, autofill, fillOne, continueOn, writeLetter, learn, setNotice, draftDespitePolicy };
 }

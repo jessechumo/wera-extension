@@ -1,5 +1,6 @@
+import { scrub, type Trap } from '../shared/traps';
 import type { JobDraft } from '../shared/types';
-import { htmlToText } from './text';
+import { blockText, htmlToText } from './text';
 
 type Json = Record<string, unknown>;
 
@@ -97,7 +98,17 @@ export function readJobPosting(doc: Document, url: string): JobDraft | null {
     department: '',
     salary: salary(job),
     industry: '',
-    description: htmlToText(str(job.description)),
+    description: scrub(htmlToText(str(job.description))).clean,
     source: 'page-data',
   };
+}
+
+/** What the page's job data says to AI tools (taken out of the description Wera reads). */
+export function postingTraps(doc: Document): Trap[] {
+  const job = jsonLdObjects(doc).find(isJobPosting);
+  if (!job) return [];
+  const hidden: string[] = [];
+  const html = str(job.description);
+  const shown = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body;
+  return [...scrub(blockText(shown, hidden)).traps, ...scrub(hidden.join('\n')).traps];
 }

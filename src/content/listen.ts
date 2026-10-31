@@ -6,7 +6,8 @@ import type { ContentRequest, PageInfo } from '../shared/types';
 import { collectFields } from './fields';
 import { peekOptions } from './fill';
 import { log } from '../shared/log';
-import { readJobPosting } from './jsonld';
+import { scrub, uniqueTraps } from '../shared/traps';
+import { postingTraps, readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
 import { ownApplicationForm, pageKind } from './detect';
 import { siteFor } from './sites';
@@ -24,11 +25,15 @@ declare global {
 function readPage(): PageInfo {
   const url = location.href;
   const site = siteFor(document);
+  // What a person cannot read is not read; what it says to AI tools is noted, for the user to see.
+  const hidden: string[] = [];
+  const { clean: text, traps } = scrub(mainText(document, 24000, hidden));
   return {
     url,
     title: document.title,
-    text: mainText(document),
+    text,
     draft: readJobPosting(document, url),
+    traps: uniqueTraps([...traps, ...scrub(hidden.join('\n')).traps, ...postingTraps(document)]),
     // This frame's own form: a careers page around an embedded one leaves it to that frame.
     hasForm: ownApplicationForm(document),
     submitted: looksSubmitted(bodyText(document)),

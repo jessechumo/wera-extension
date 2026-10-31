@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FieldPlan } from '../shared/types';
-import { needsDraft, needsLetter, needsSuggestion, rowsFor, type Row } from './rows';
+import { needsDraft, needsLetter, needsSuggestion, readsLikeAnswer, rowsFor, type Row } from './rows';
 
 const row = (over: Partial<Row>): Row => ({
   id: 'w1', label: 'Field', purpose: null, kind: 'text', options: [], required: false, current: '', value: '', source: null, group: 'other', checked: false, ...over,
@@ -41,5 +41,27 @@ describe('which rows Wera fills, asks the AI about, or drafts', () => {
     // A letter Wera has, or one already on the page, needs nothing.
     expect(needsLetter(letter({ value: '\u0000letter' }))).toBe(false);
     expect(needsLetter(letter({ current: 'Letter.pdf' }))).toBe(false);
+  });
+});
+
+describe('traps', () => {
+  const open = (over: Partial<Row>) => row({ label: 'Why do you want to join us?', purpose: 'question', kind: 'textarea', required: true, group: 'questions', ...over });
+
+  it('never sends a trap to the AI, nor drafts it', () => {
+    expect(needsDraft(open({}))).toBe(true);
+    expect(needsDraft(open({ trap: 'asks_about_ai' }))).toBe(false);
+    expect(needsSuggestion(open({ kind: 'text', group: 'other', purpose: null, trap: 'human_check' }))).toBe(false);
+    expect(needsSuggestion(open({ kind: 'text', group: 'other', purpose: null }))).toBe(true);
+  });
+
+  it('drafts nothing where the form asks for the applicant\'s own words', () => {
+    expect(needsDraft(open({ ownWords: true }))).toBe(false);
+  });
+
+  it('takes a bare number for no answer to an open question', () => {
+    expect(readsLikeAnswer(open({}), '0')).toBe(false);
+    expect(readsLikeAnswer(open({}), ' 42. ')).toBe(false);
+    expect(readsLikeAnswer(open({}), 'Two weeks')).toBe(true);
+    expect(readsLikeAnswer(open({ kind: 'text', purpose: 'years_experience' }), '5')).toBe(true);
   });
 });

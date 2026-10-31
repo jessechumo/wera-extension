@@ -23,7 +23,7 @@ function field(r: Row) {
   return {
     label: short(r.label, 120), kind: r.kind, purpose: r.purpose, group: r.group, required: r.required || undefined,
     options: r.options.length || undefined, current: hide(r.current) || undefined, value: hide(r.value) || undefined,
-    source: r.source ?? undefined, status: r.status, result: hide(r.result) || undefined, note: r.note || undefined,
+    source: r.source ?? undefined, status: r.status, result: hide(r.result) || undefined, note: r.note || undefined, trap: r.trap,
   };
 }
 
@@ -40,6 +40,7 @@ export async function diagnostics(input: DiagnosticsInput): Promise<string> {
     phase: input.phase, error: input.error || undefined, warnings: input.warnings.length ? input.warnings : undefined,
     next: input.plan?.next ? { label: input.plan.next.label, final: input.plan.next.final } : null,
     fields: input.rows.map(field),
+    traps: input.plan?.traps,
     log: { panel: lines(log.entries()), frames: frameLogs.map((f) => ({ frame: f.frameId, url: short(f.url, 120), lines: lines(f.entries) })) },
   }, null, 1);
 }
