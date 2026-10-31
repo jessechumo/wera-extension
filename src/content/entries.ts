@@ -6,6 +6,7 @@
 // schools, shaped the way the field takes it.
 import type { EntryPurpose, FieldPurpose, Profile } from '../shared/types';
 import type { Field } from './fields';
+import { OR } from './values';
 
 export type Section = 'experience' | 'education';
 
@@ -181,8 +182,8 @@ export function entryValue(f: Field, placed: Placed, p: Profile): string {
   switch (placed.purpose) {
     case 'edu_school': return e.school;
     case 'edu_degree':
-      // A dropdown of levels takes the level; a text box the degree as written.
-      return f.kind === 'text' || f.kind === 'textarea' ? (e.degree || LEVEL_WORDS[e.level ?? ''] || '') : (LEVEL_WORDS[e.level ?? ''] || e.degree || '');
+      // A text box takes the degree as written; a dropdown that too, else the level.
+      return f.kind === 'text' || f.kind === 'textarea' ? (e.degree || LEVEL_WORDS[e.level ?? ''] || '') : [e.degree, LEVEL_WORDS[e.level ?? '']].filter(Boolean).join(OR);
     case 'edu_major': return e.major ?? '';
     case 'edu_gpa': return e.gpa ?? '';
     case 'edu_start': return shapeDate(f, e.start);

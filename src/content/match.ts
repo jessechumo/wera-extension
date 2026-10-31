@@ -50,6 +50,36 @@ const LEVELS: [string, RegExp][] = [
   ['high_school', /high school|secondary|ged|diploma/],
 ];
 
+// Degrees of one level are different degrees: a PhD is no M.D., a Master of Science no M.B.A.
+const DEGREE_KINDS: [string, RegExp][] = [
+  ['medicine', /\bm\.? ?d\b|\bmedicine\b/],
+  ['pharmacy', /pharm/],
+  ['law', /\bj\.? ?d\b|\bjuris\b|\bll\.?m\b|\blaw\b/],
+  ['philosophy', /\bph\.? ?d\b|\bd\.?phil\b|\bphilosophy\b/],
+  ['education', /\bed\.? ?d\b|\bm\.?ed\b|\bof education\b/],
+  ['business', /\bm\.?b\.?a\b|\bb\.?b\.?a\b|\bbusiness\b/],
+  ['nursing', /\bmsn\b|\bbsn\b|\badn\b|\bnursing\b/],
+  ['fine arts', /\bm\.?f\.?a\b|\bb\.?f\.?a\b|\bfine arts\b/],
+  ['public health', /\bm\.?p\.?h\b|\bpublic health\b/],
+  ['engineering', /\bm\.?eng\b|\bb\.?eng\b|\bb\.?tech\b|\bof engineering\b/],
+  ['science', /\b[mb]\.? ?s\.?c?\b|\bof science\b/],
+  ['arts', /\b[mb]\.? ?a\b|\bof arts\b/],
+];
+
+const degreeKind = (text: string) => DEGREE_KINDS.find(([, re]) => re.test(text.toLowerCase().replace(/[’']/g, '')))?.[0] ?? '';
+
+/**
+ * The option that is this degree, among options of its level: the same
+ * degree, else one that says only the level. A value that names no degree
+ * takes a list's only one, but does not pick among several.
+ */
+function sameDegree(options: Option[], value: string): Option | null {
+  const kind = degreeKind(value);
+  const plain = options.find((o) => !degreeKind(o.label));
+  if (kind) return options.find((o) => degreeKind(o.label) === kind) ?? plain ?? null;
+  return plain ?? (options.length === 1 ? options[0]! : null);
+}
+
 /** A degree's level ("B.S. in Biology" is bachelor), '' when unclear. */
 export function degreeLevel(text: string): string {
   const t = text.toLowerCase().replace(/[’']/g, '');
@@ -155,8 +185,8 @@ function meaningOption(real: Option[], value: string, purpose: FieldPurpose | nu
   if (purpose === 'degree' || purpose === 'edu_degree') {
     const level = degreeLevel(value) || ({ "high school": 'high_school' } as Record<string, string>)[v] || '';
     if (level) {
-      const hit = answers.find((o) => degreeLevel(o.label) === level);
-      if (hit) return hit;
+      const sameLevel = answers.filter((o) => degreeLevel(o.label) === level);
+      if (sameLevel.length) return sameDegree(sameLevel, value);
     }
   }
   const month = monthOf(value);
