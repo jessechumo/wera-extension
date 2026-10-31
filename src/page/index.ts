@@ -3,7 +3,7 @@
 // forms, and adds Wera's answer button to open questions. When the site
 // then says "thank you for applying", it tells the background, which
 // marks the job applied. Nothing leaves the page unless Wera is on it.
-import { isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/detect';
+import { findApply, isNotJobSite, jobSummary, pageKind, type PageKind } from '../content/detect';
 import { readJobPosting } from '../content/jsonld';
 import { ENTRY_PURPOSES } from '../content/entries';
 import { listen } from '../content/listen';
@@ -13,7 +13,7 @@ import { extensionAlive, sendSafe } from '../shared/alive';
 import { detailPurpose } from '../shared/details';
 import { answersToLearn, type LearnedAnswer } from '../shared/learn';
 import type { JobConfirmed, JobRequest, SubmitReply } from '../shared/jobs';
-import { SETTINGS_KEY } from '../shared/settings';
+import { HIDDEN_SITES, SETTINGS_KEY, siteKey } from '../shared/settings';
 import type { FieldPurpose, JobDraft } from '../shared/types';
 import { startAssist } from './assist';
 
@@ -27,6 +27,8 @@ export interface PageHandle {
   draft: JobDraft | null;
   /** The site confirmed an application while the panel was not there yet. */
   submitted: SubmitReply | null;
+  /** The page has an Apply button to press (it may render after the page). */
+  canApply: boolean;
   /** Called with the page's kind whenever it changes (a single-page job board moved on). */
   subscribe: (fn: (h: PageHandle) => void) => () => void;
 }
@@ -63,10 +65,11 @@ export function formAnswers(doc: Document, company: string, snap = snapshot(doc)
   return answersToLearn(snap.map((s) => ({ id: s.id, label: s.label, group: groupOf(s.purpose) })), snap, [], company);
 }
 
-/** Whether the panel may show on this page: turned on, and not the user's own Wera. */
+/** Whether the panel may show on this page: turned on, on this site too, and not the user's own Wera. */
 async function allowed(doc: Document): Promise<boolean> {
-  const got = await chrome.storage.local.get([SETTINGS_KEY, 'wera.session']).catch((): Record<string, unknown> => ({}));
+  const got = await chrome.storage.local.get([SETTINGS_KEY, HIDDEN_SITES, 'wera.session']).catch((): Record<string, unknown> => ({}));
   if ((got[SETTINGS_KEY] as { launcher?: boolean } | undefined)?.launcher === false) return false;
+  if ((got[HIDDEN_SITES] as Record<string, number> | undefined)?.[siteKey(doc)]) return false;
   return (got['wera.session'] as { server?: string } | undefined)?.server !== doc.location.origin;
 }
 
@@ -79,7 +82,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   const top = doc.defaultView === doc.defaultView?.top;
   const subscribers = new Set<(h: PageHandle) => void>();
   const handle: PageHandle = {
-    kind: null, title: '', company: '', draft: null, submitted: null,
+    kind: null, title: '', company: '', draft: null, submitted: null, canApply: false,
     subscribe: (fn) => {
       subscribers.add(fn);
       return () => subscribers.delete(fn);
@@ -95,10 +98,14 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   let looks = 0;
   let looksFor = '';
   let asked = false;
+  // Looks in a row that found no job page: each costs the page some time, so they come less and less often.
+  let idle = 0;
 
+  // The page's text as laid out costs the page a layout: only when its raw text says it at all.
+  const saysSubmitted = () => looksSubmitted(doc.body?.textContent ?? '') && looksSubmitted(bodyText(doc));
   const checkSubmitted = () => {
     const key = doc.location.href;
-    if (submittedFor === key || isNotJobSite(key) || !(looksSubmitted(bodyText(doc)) || submittedAddress(key))) return;
+    if (submittedFor === key || isNotJobSite(key) || !(submittedAddress(key) || saysSubmitted())) return;
     submittedFor = key;
     void ask<SubmitReply>({ type: 'wera:job-submitted', url: key }).then((r) => {
       // A form embedded in a frame: the background tells the top frame (see onConfirmed).
@@ -120,6 +127,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     timer = 0;
     if (doc.hidden) return;
     const kind = pageKind(doc);
+    idle = kind ? 0 : idle + 1;
     if (kind === 'form') sawForm = true;
     if (looksFor !== doc.location.href) {
       looksFor = doc.location.href;
@@ -127,7 +135,8 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
     }
     // A form in a frame (an ATS embedded in a careers page) shows its own "thank you".
     if (sawForm || (top && !kind && looks++ < 8)) checkSubmitted();
-    const key = `${doc.location.href}|${kind}`;
+    const canApply = kind === 'posting' && !!findApply(doc);
+    const key = `${doc.location.href}|${kind}|${canApply}`;
     if (key === shownFor) return;
     shownFor = key;
     if (!top) {
@@ -139,7 +148,7 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
       return;
     }
     const { title, company } = jobSummary(doc);
-    Object.assign(handle, { kind, title, company, draft: readJobPosting(doc, doc.location.href) });
+    Object.assign(handle, { kind, title, company, draft: readJobPosting(doc, doc.location.href), canApply });
     subscribers.forEach((fn) => fn(handle));
     if (kind && !asked && (await allowed(doc))) {
       asked = true;
@@ -150,8 +159,10 @@ export function watchForJobs(doc: Document, delay = 1200): () => void {
   const schedule = () => {
     if (!extensionAlive()) return stop();
     if (timer) return;
-    // The first look comes at once; later ones wait for the page to settle.
-    timer = window.setTimeout(() => void check().catch(() => {}), first ? Math.min(delay, 150) : delay);
+    // Another address is another page (a single-page site moved on): look at it as soon as it settles.
+    if (doc.location.href !== looksFor) idle = 0;
+    // The first look comes at once; later ones wait for the page to settle, longer while it shows no job.
+    timer = window.setTimeout(() => void check().catch(() => {}), first ? Math.min(delay, 150) : delay * Math.min(2 ** Math.floor(idle / 3), 16));
     first = false;
   };
   // Moving an application on (Next, Submit): Wera keeps the details it lacked, self-identification included.

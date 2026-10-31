@@ -25,7 +25,14 @@ test.beforeAll(async () => {
         <iframe id="grnhse_iframe" src="http://localhost:${port}${req.url.replace('/embedded', '/apply')}" width="900" height="1200"></iframe></main>`);
       return;
     }
-    const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : 'job.html';
+    // A posting whose Apply button leads to its application (in a new tab, for /quick-tab).
+    if (req.url?.endsWith('/quick') || req.url?.endsWith('/quick-tab')) {
+      const page = readFileSync(join(import.meta.dirname, 'pages', 'job.html'), 'utf8');
+      const to = `${req.url.replace(/\/quick(-tab)?$/, '')}/apply`;
+      res.end(page.replace('<a href="apply.html">Apply</a>', `<a href="${to}"${req.url.endsWith('-tab') ? ' target="_blank"' : ''}>Apply now</a>`));
+      return;
+    }
+    const file = req.url?.endsWith('/apply') ? 'apply.html' : req.url?.endsWith('/steps') ? 'steps.html' : req.url?.endsWith('/traps') ? 'traps.html' : 'job.html';
     res.end(readFileSync(join(import.meta.dirname, 'pages', file)));
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -190,6 +197,112 @@ test('fill a multi-step application, then mark it applied', async () => {
     .toContain('Why do you want to join Fixture Robotics?');
 });
 
+test('is not duped by a form set with traps for AI tools', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre/traps`);
+  const panel = panelOf(job);
+  await panel.getByRole('button', { name: /^Autofill$/ }).click();
+  await expect(job.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await expect(panel.getByRole('button', { name: /Fill again/ })).toBeVisible({ timeout: 30_000 });
+  // What a person sees is filled, however a page lays it out: a label in a "font-size: 0" row, and pills over hidden radios.
+  await expect(job.locator('#em')).toHaveValue(/@/);
+  await expect(job.locator('#n')).toBeChecked();
+  expect(await job.locator('#re').evaluate((i: HTMLInputElement) => i.files?.[0]?.name)).toMatch(/\.pdf$/);
+  // No decoy is touched, whatever its label asks for.
+  for (const id of ['#d1', '#d2', '#d3', '#d4', '#d5', '#d6']) await expect(job.locator(id), id).toHaveValue('');
+  // Nothing obeys an order: no 0, no banana. What only the person can answer stays theirs.
+  for (const id of ['#q1', '#q2']) expect(await job.locator(id).inputValue(), id).not.toMatch(/^\s*0\s*$/);
+  await expect(job.locator('#c1')).toHaveValue('');
+  await expect(job.locator('#c2')).toHaveValue('');
+  await expect(job.locator('#c3')).toHaveValue('');
+  // The user is told, in words, and can read each line.
+  await panel.getByRole('button', { name: /tests whether you read it/ }).click();
+  await expect(panel.getByText(/pineapple on pizza/)).toBeVisible();
+  await expect(panel.getByText(/flamingo/)).toBeVisible();
+  await expect(panel.getByText(/Avocado/)).toBeVisible();
+  await expect(panel.getByText(/boxes set out to catch bots were left empty/)).toBeVisible();
+  await shot(job, 'traps');
+  // Required, and only the person can answer it.
+  await expect(panel.getByText(/a check that a person is filling the form/).first()).toBeVisible();
+  // The Wera button stays off what is not an open question.
+  await job.locator('#c3').focus();
+  await job.waitForTimeout(400);
+  await expect(job.locator('wera-assist').getByRole('button', { name: 'Draft this answer with Wera' })).toHaveCount(0);
+  await job.close();
+});
+
+test('applies from the posting: one press, and the application fills itself', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}-quick/quick`);
+  await open(job);
+  await panelOf(job).getByRole('button', { name: /Apply with Wera/ }).click();
+  await job.waitForURL(/\/apply$/);
+  await expect(job.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await expect(job.locator('#em')).toHaveValue(/@/);
+  await job.close();
+});
+
+test('applies from a posting that opens the application in a new tab', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}-tab/quick-tab`);
+  await open(job);
+  const [tab] = await Promise.all([context.waitForEvent('page'), panelOf(job).getByRole('button', { name: /Apply with Wera/ }).click()]);
+  await tab.waitForLoadState();
+  await expect(tab.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await tab.close();
+  await job.close();
+});
+
+test('keeps filling when the site\'s own Next button shows the next step', async () => {
+  const job = await context.newPage();
+  await job.goto(`${site}/jobs/${run}/sre/steps`);
+  const panel = panelOf(job);
+  await panel.getByRole('button', { name: /^Autofill$/ }).click();
+  await expect(job.locator('#fn')).not.toHaveValue('', { timeout: 15_000 });
+  await expect(panel.getByRole('button', { name: /Continue to the next page/ })).toBeVisible({ timeout: 20_000 });
+  // The user presses the page's own button, not Wera's.
+  await job.locator('#next').click();
+  await expect(job.locator('#sp')).not.toHaveValue('', { timeout: 15_000 });
+  await job.close();
+});
+
+test('applying from the dashboard fills the application when it opens', async () => {
+  const conn = await fetch(`${API}/api/ext/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'chrome-extension://e2e' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: 'e2e handoff' }),
+  });
+  const { token } = (await conn.json()) as { token: string };
+  const found = await fetch(`${API}/api/ext/jobs/lookup?url=${encodeURIComponent(`${site}/jobs/${run}/sre`)}`, { headers: { Authorization: `Bearer ${token}` } });
+  const { job: saved } = (await found.json()) as { job: { id: number } };
+  await fetch(`${API}/api/ext/tokens/current`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  const form = `${site}/jobs/${run}/sre/apply`;
+  await context.route(`${API}/e2e-apply`, (route) =>
+    route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Wera</title><a id="go" href="${form}" target="_blank" rel="noreferrer">Apply on the company's site</a>` }));
+  const dash = await context.newPage();
+  await dash.goto(`${API}/e2e-apply`);
+  await expect.poll(() => dash.evaluate(() => document.documentElement.dataset.weraExtension ?? '')).not.toBe('');
+  await dash.evaluate(([id, url]) => window.postMessage({ source: 'wera-dashboard', type: 'open-job', jobId: id, url }, location.origin), [saved.id, form] as const);
+  const [tab] = await Promise.all([context.waitForEvent('page'), dash.click('#go')]);
+  await tab.waitForLoadState();
+  // No button pressed on the form: the application fills itself.
+  await expect(tab.locator('#fn')).not.toHaveValue('', { timeout: 20_000 });
+  await tab.close();
+  await dash.close();
+});
+
+test('the page makes room for the panel on an application', async () => {
+  const job = await context.newPage();
+  await job.setViewportSize({ width: 1280, height: 800 });
+  await job.goto(`${site}/jobs/${run}/sre/apply`);
+  await expect(panelOf(job).getByRole('dialog', { name: 'Wera' })).toBeVisible({ timeout: 10_000 });
+  await expect.poll(() => job.evaluate(() => document.documentElement.style.marginRight)).toBe('396px');
+  const form = await job.locator('#f').boundingBox();
+  const panel = await panelOf(job).getByRole('dialog', { name: 'Wera' }).boundingBox();
+  expect(form!.x + form!.width).toBeLessThanOrEqual(panel!.x);
+  await job.close();
+});
+
 test('stays off a mail inbox full of job emails and "thank you for applying"', async () => {
   await context.route('https://mail.google.com/**', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Inbox - Gmail</title>
     <input aria-label="Search mail"><table><tr><td>Thank you for applying to Fixture Robotics</td></tr><tr><td>Your application has been received</td></tr></table>
@@ -199,6 +312,22 @@ test('stays off a mail inbox full of job emails and "thank you for applying"', a
   await mail.waitForTimeout(3000);
   await expect(panelOf(mail)).toHaveCount(0);
   await mail.close();
+});
+
+test('stays off a shop: a product with a coupon, and a checkout with a promo code', async () => {
+  await context.route('https://www.amazon.com/**', (route) => route.fulfill({ contentType: 'text/html', body: route.request().url().includes('/gp/buy/')
+    ? `<!doctype html><title>Checkout</title><h1>Checkout</h1><form><label for="a">Full name</label><input id="a"><label for="m">Email</label><input id="m" type="email">
+      <label for="p">Phone</label><input id="p" type="tel"><label for="s">Street address</label><input id="s"><label for="c">City</label><input id="c">
+      <label for="z">ZIP code</label><input id="z"><label for="o">Promo code</label><input id="o"><button type="button">Apply</button></form>`
+    : `<!doctype html><title>Wireless Earbuds</title><h1>Wireless Earbuds</h1><button>Apply</button><a href="/cart">Apply now</a><h2>Benefits</h2><h2>Requirements</h2>
+      <p>Qualifications for free delivery</p><h2>About the team</h2><p>Compensation for late delivery</p>` }));
+  for (const url of ['https://www.amazon.com/dp/B0D1XD1ZV3?ref=position_1_job', 'https://www.amazon.com/gp/buy/spc/handlers/display.html']) {
+    const shop = await context.newPage();
+    await shop.goto(url);
+    await shop.waitForTimeout(2500);
+    await expect(panelOf(shop)).toHaveCount(0);
+    await shop.close();
+  }
 });
 
 test('fill an application embedded from another site, and again after a reload', async () => {

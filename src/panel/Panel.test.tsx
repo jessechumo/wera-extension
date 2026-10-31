@@ -1,10 +1,14 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, configure, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PageHandle } from '../page';
 import type { WeraJob } from '../shared/api';
 import type { ApplyRequest, FieldPlan, FillItem, FillResult, JobDraft, PageInfo, PagePlan } from '../shared/types';
 import { App, type Show } from './index';
+
+// A fill reads the page again as it settles.
+configure({ asyncUtilTimeout: 5000 });
+vi.setConfig({ testTimeout: 20_000 });
 
 const draft: JobDraft = { url: 'https://jobs.example/acme/1', company: 'Acme', title: 'SRE', location: 'Austin, TX', work_mode: '', employment_type: '',
   department: '', salary: '', industry: '', description: 'Keep things up.', source: 'page-data' };
@@ -17,6 +21,29 @@ const field = (id: string, label: string, over: Partial<FieldPlan> = {}): FieldP
 });
 
 type Fn = (...a: never[]) => unknown;
+
+/** A form that keeps what goes into it, and shows it the next time it is read. */
+function formPage(plan: PagePlan, onApply: (req: ApplyRequest) => void = () => {}) {
+  const shows = new Map<string, string>();
+  return {
+    shows,
+    scan: () => ({ ...plan, fields: plan.fields.map((f) => ({ ...f, current: shows.get(f.id) ?? f.current })) }),
+    apply: (req: ApplyRequest) => {
+      onApply(req);
+      req.items.forEach((i) => shows.set(i.id, i.value));
+      return req.items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }));
+    },
+  };
+}
+
+/** A fill has finished: a test that ends sooner leaves it running into the next test's page. */
+const finished = () => screen.findByRole('button', { name: /Fill again/ });
+
+/** Just the frames' side of formPage. */
+function formPageFrames(plan: PagePlan, onApply?: (req: ApplyRequest) => void): Record<string, Fn> {
+  const { scan, apply } = formPage(plan, onApply);
+  return { scan, apply };
+}
 
 /** The background as the panel talks to it: Wera's API and the page's frames, faked. */
 function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?: Partial<PageInfo>; api?: Record<string, Fn>; frames?: Record<string, Fn> } = {}) {
@@ -85,11 +112,11 @@ function fakeBackground(opts: { signedIn?: boolean; job?: WeraJob | null; info?:
   });
   /** A message from the background to the panel (a frame's event, a job change). */
   const emit = (m: unknown) => act(() => listeners.forEach((f) => f(m)));
-  return { calls, store, emit };
+  return { calls, store, session, emit };
 }
 
-const handle = (kind: 'form' | 'posting'): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, subscribe: () => () => {} });
-const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, collapsedHere: false, opens: 0, toggles: 0, fills: 0, ...over });
+const handle = (kind: 'form' | 'posting' | null): PageHandle => ({ kind, title: 'SRE', company: 'Acme', draft, submitted: null, canApply: false, subscribe: () => () => {} });
+const show = (over: Partial<Show> = {}): Show => ({ tabId: 5, initial: true, collapsedHere: false, opens: 0, toggles: 0, fills: 0, formFrames: 0, ...over });
 
 afterEach(() => {
   cleanup(); // before the fake chrome goes: unmounting unhooks its listeners
@@ -130,6 +157,29 @@ describe('the Wera panel', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('stays when a frame holds the form, even if it answered after the page was read', async () => {
+    let hasForm = false;
+    const { calls } = fakeBackground({ frames: { read: () => ({ url: draft.url, title: 'Careers', text: '', draft: null, hasForm }) } });
+    const { rerender } = render(<App handle={handle(null)} show={show({ formFrames: 1 })} />);
+    expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
+    hasForm = true;
+    const reads = calls.filter((c) => c.name === 'read').length;
+    rerender(<App handle={handle(null)} show={show({ formFrames: 2 })} />);
+    await waitFor(() => expect(calls.filter((c) => c.name === 'read').length).toBeGreaterThan(reads));
+    await screen.findByRole('button', { name: /^Autofill$/ });
+  });
+
+  it('goes at once when the user turns Wera off on this site, and comes back from the toolbar', async () => {
+    const { store } = fakeBackground({ job });
+    const { rerender } = render(<App handle={handle('posting')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: new RegExp(`Show Wera on ${location.hostname}`) }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(store['wera.hiddenSites']).toHaveProperty(location.hostname));
+    rerender(<App handle={handle('posting')} show={show({ toggles: 1 })} />);
+    expect(await screen.findByRole('dialog', { name: 'Wera' })).toBeInTheDocument();
+  });
+
   it('autofills: what Wera knows at once, then the AI\'s sure answers and drafts, and lists only what needs the user', async () => {
     const plan: PagePlan = {
       fields: [
@@ -142,15 +192,10 @@ describe('the Wera panel', () => {
       next: { id: 'n1', label: 'Submit application', final: true }, errors: 0, site: 'Greenhouse',
     };
     const applied: FillItem[][] = [];
+    const { scan, apply } = formPage(plan, ({ items }) => applied.push(items.map(({ id, value }) => ({ id, value }))));
     const { calls } = fakeBackground({
       job, info: { hasForm: true },
-      frames: {
-        scan: () => plan,
-        apply: ({ items }: ApplyRequest) => {
-          applied.push(items.map(({ id, value }) => ({ id, value })));
-          return items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }));
-        },
-      },
+      frames: { scan, apply },
       api: {
         suggest: () => ({ answers: [{ id: 'w2', value: '4', confidence: 'high', why: 'resume' }, { id: 'w3', value: 'None', confidence: 'low', why: 'a guess' }] }),
         answer: () => ({ answer: 'Because Acme keeps robots running.' }),
@@ -184,13 +229,7 @@ describe('the Wera panel', () => {
     const applied: ApplyRequest[] = [];
     const { calls } = fakeBackground({
       job, info: { hasForm: true },
-      frames: {
-        scan: () => plan,
-        apply: (req: ApplyRequest) => {
-          applied.push(req);
-          return req.items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: 'Cover_Letter.pdf', required: false }));
-        },
-      },
+      frames: { ...formPageFrames(plan, (req) => applied.push(req)) },
       api: {
         writeCoverLetter: () => ({ body: 'Dear Acme, I keep robots running.' }),
         coverLetterPdf: () => ({ name: 'Cover_Letter.pdf', base64: 'JVBERi0=' }),
@@ -202,13 +241,208 @@ describe('the Wera panel', () => {
     expect(calls.find((c) => c.name === 'writeCoverLetter')?.args[0]).toBe(job.id);
     expect(applied.find((r) => r.items.some((i) => i.id === 'c1'))?.letterFile).toMatchObject({ name: 'Cover_Letter.pdf' });
     expect(await screen.findByText(/Wera wrote this letter for this job/)).toBeInTheDocument();
+    await finished();
+  });
+
+  it('attaches the files first: many systems read a resume and fill the form themselves', async () => {
+    const plan: PagePlan = {
+      fields: [
+        field('n', 'Full name', { purpose: 'full_name', value: 'Ada Byrne', source: 'details', group: 'details' }),
+        field('r', 'Resume', { purpose: 'resume', kind: 'file', value: '__resume__', source: 'resume', group: 'documents' }),
+      ],
+      next: null, errors: 0,
+    };
+    const applied: string[] = [];
+    fakeBackground({ job, info: { hasForm: true }, frames: formPageFrames(plan, ({ items }) => applied.push(...items.map((i) => i.id))) });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(applied).toEqual(['r', 'n']));
+    await finished();
+  });
+
+  it('fills again what the page emptied, and says so when it will not stay', async () => {
+    const plan: PagePlan = {
+      fields: [
+        field('a', 'Phone', { purpose: 'phone', value: '512 555 0142', source: 'details', group: 'details' }),
+        field('b', 'City', { purpose: 'city', value: 'Austin', source: 'details', group: 'details' }),
+      ],
+      next: null, errors: 0,
+    };
+    const applied: string[] = [];
+    const form = formPage(plan, ({ items }) => applied.push(...items.map((i) => i.id)));
+    // A page that re-renders: the phone is emptied once, the city every time.
+    let wipes = 0;
+    const scan = () => {
+      if (applied.length) form.shows.set('b', '');
+      if (applied.length && wipes++ === 0) form.shows.set('a', '');
+      return form.scan();
+    };
+    fakeBackground({ job, info: { hasForm: true }, frames: { scan, apply: form.apply } });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    expect(await screen.findByText(/the page keeps clearing this/)).toBeInTheDocument();
+    expect(applied.filter((i) => i === 'b')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /City/ })).toBeInTheDocument();
+  });
+
+  it('fills a question that appears only once the AI has answered another', async () => {
+    const first = field('w8', 'Do you have a favorite language?', { group: 'other', kind: 'select', options: ['Yes', 'No'] });
+    const follow = field('w9', 'Which language do you prefer?', { group: 'other' });
+    const plan: PagePlan = { fields: [first], next: null, errors: 0 };
+    const form = formPage(plan);
+    const { calls } = fakeBackground({
+      job, info: { hasForm: true },
+      frames: { apply: form.apply, scan: () => (form.shows.has('w8') ? { ...form.scan(), fields: [...form.scan().fields, follow] } : form.scan()) },
+      api: {
+        suggest: (fields: { id: string }[]) => ({ answers: fields.map((f) => ({ id: f.id, value: f.id === 'w8' ? 'Yes' : 'Go', confidence: 'high', why: 'resume' })) }),
+      },
+    });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(form.shows.get('w9')).toBe('Go'));
+    expect(calls.filter((c) => c.name === 'suggest')).toHaveLength(2);
+    await finished();
+  });
+
+  it('saves a job from a page with no job data, to write its letter', async () => {
+    const plan: PagePlan = {
+      fields: [field('c1', 'Cover Letter', { purpose: 'cover_letter', kind: 'file', group: 'documents', required: true, note: 'no cover letter for this job yet' })],
+      next: null, errors: 0,
+    };
+    const text = 'About the role. '.repeat(20);
+    const { calls } = fakeBackground({
+      info: { hasForm: true, draft: null, text },
+      frames: formPageFrames(plan),
+      api: {
+        extract: () => ({ ...draft, is_job_posting: true, title: 'Staff SRE', company: 'Globex' }),
+        writeCoverLetter: () => ({ body: 'Dear Globex, I keep robots running.' }),
+        coverLetterPdf: () => ({ name: 'Cover_Letter.pdf', base64: 'JVBERi0=' }),
+      },
+    });
+    render(<App handle={{ ...handle('form'), draft: null }} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await waitFor(() => expect(calls.find((c) => c.name === 'addJob')?.args[0]).toMatchObject({ title: 'Staff SRE', company: 'Globex' }));
+    await waitFor(() => expect(calls.some((c) => c.name === 'writeCoverLetter')).toBe(true));
+    await finished();
+  });
+
+  it('keeps filling when the site\'s own Next shows another step', async () => {
+    const one: PagePlan = { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', source: 'details', group: 'details' })], next: { id: 'n1', label: 'Next', final: false }, errors: 0 };
+    const two: PagePlan = { fields: [field('w2', 'City', { purpose: 'city', value: 'Austin', source: 'details', group: 'details' })], next: { id: 'n2', label: 'Submit', final: true }, errors: 0 };
+    let step = one;
+    const applied: string[] = [];
+    const { emit } = fakeBackground({
+      job, info: { hasForm: true },
+      frames: {
+        scan: () => ({ ...step, fields: step.fields.map((f) => ({ ...f, current: applied.includes(f.id) ? f.value : '' })) }),
+        apply: ({ items }: ApplyRequest) => {
+          applied.push(...items.map((i) => i.id));
+          return items.map((i): FillResult => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }));
+        },
+      },
+    });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await screen.findByRole('button', { name: /Continue to the next page/ });
+    // A choice revealing a few fields is the same step: nothing starts over.
+    emit({ type: 'wera:frame-event', frameId: 0, event: { type: 'wera:form-changed', fields: 2, step: false } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(applied.filter((i) => i === 'w1')).toHaveLength(1);
+    step = two;
+    emit({ type: 'wera:frame-event', frameId: 0, event: { type: 'wera:form-changed', fields: 1, step: true } });
+    await waitFor(() => expect(applied).toContain('w2'));
+    await finished();
+  });
+
+  it('applies from the posting: saves the job, presses Apply, and fills what opens', async () => {
+    const { calls, session } = fakeBackground({ info: { hasForm: false, apply: 'Apply now' }, frames: { 'press-apply': () => ({ ok: true }) } });
+    render(<App handle={handle('posting')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /Apply with Wera/ }));
+    await screen.findByText(/Opening the application/);
+    expect(calls.some((c) => c.name === 'addJob')).toBe(true);
+    expect(calls.some((c) => c.name === 'press-apply')).toBe(true);
+    expect(session['wera.applying']).toHaveProperty('5');
+  });
+
+  it('fills on arrival when the user asked from the posting, once', async () => {
+    const plan: PagePlan = { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', source: 'details', group: 'details' })], next: null, errors: 0 };
+    const applied: string[] = [];
+    const { session } = fakeBackground({ job, info: { hasForm: true }, frames: formPageFrames(plan, ({ items }) => applied.push(...items.map((i) => i.id))) });
+    session['wera.applying'] = { 5: Date.now() };
+    render(<App handle={handle('form')} show={show()} />);
+    await waitFor(() => expect(applied).toEqual(['w1']));
+    await finished();
+    expect(session['wera.applying']).toEqual({});
+  });
+
+  it('says plainly when it cannot press Apply', async () => {
+    fakeBackground({ job, info: { hasForm: false, apply: 'Apply' }, frames: { 'press-apply': () => ({ ok: false }) } });
+    render(<App handle={handle('posting')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /Apply with Wera/ }));
+    expect(await screen.findByText(/Press it yourself/)).toBeInTheDocument();
+  });
+
+  it('shows why a job fits: the reason, the resume\'s keywords, sponsorship and H-1B filings', async () => {
+    const scored = { ...job, reason: 'Strong SRE match, light on Terraform.', sponsorship: 'yes' as const };
+    fakeBackground({
+      job: scored,
+      api: {
+        jobKeywords: () => ({ keywords: ['Go', 'Kubernetes', 'Terraform'], coverage: { matched: ['Go', 'Kubernetes'], missing: ['Terraform'], percent: 67 }, resume_id: 3 }),
+        h1b: () => ({ matched: true, filings: 12, new_hires: 3, wage_median: null, similar: [], similar_low: null, similar_high: null, level: '' }),
+      },
+    });
+    render(<App handle={handle('posting')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /has 67% of this job's keywords/ }));
+    expect(screen.getByText('Strong SRE match, light on Terraform.')).toBeInTheDocument();
+    expect(screen.getByText('Terraform')).toBeInTheDocument();
+    expect(screen.getByText(/offers visa sponsorship/)).toBeInTheDocument();
+    expect(await screen.findByText(/filed 12 H-1B petitions/)).toBeInTheDocument();
+  });
+
+  it('warns when the tracker says the job was applied to', async () => {
+    fakeBackground({ job: { ...job, application_status: 'applied' }, info: { hasForm: true } });
+    render(<App handle={handle('form')} show={show()} />);
+    expect(await screen.findByText(/already applied to this job/)).toBeInTheDocument();
+  });
+
+  it('tailors the resume in one click, and swaps it into a filled form', async () => {
+    const plan: PagePlan = { fields: [field('r', 'Resume', { purpose: 'resume', kind: 'file', value: '__resume__', source: 'resume', group: 'documents' })], next: null, errors: 0 };
+    const sent: ApplyRequest[] = [];
+    let tailored = false;
+    const { calls } = fakeBackground({
+      job, info: { hasForm: true },
+      frames: formPageFrames(plan, (req) => sent.push(req)),
+      api: {
+        tailorResume: () => {
+          tailored = true;
+          return { resume: {}, coverage_before: {} };
+        },
+        resumeFile: () => (tailored ? { name: 'Ada_Tailored.pdf', base64: 'JVBERi0=', kind: 'tailored' } : { name: 'Ada.pdf', base64: 'JVBERi0=', kind: 'base' }),
+      },
+    });
+    render(<App handle={handle('form')} show={show()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Autofill$/ }));
+    await finished();
+    await userEvent.click(screen.getByRole('button', { name: /Tailor/ }));
+    await waitFor(() => expect(sent.at(-1)?.resume?.name).toBe('Ada_Tailored.pdf'));
+    expect(calls.find((c) => c.name === 'tailorResume')?.args[0]).toBe(job.id);
+    expect(await screen.findByText(/tailored for/)).toBeInTheDocument();
+  });
+
+  it('makes room on the page while open on an application, and gives it back', async () => {
+    fakeBackground({ job, info: { hasForm: true } });
+    render(<App handle={handle('form')} show={show()} />);
+    await screen.findByRole('dialog', { name: 'Wera' });
+    await waitFor(() => expect(document.documentElement.style.marginRight).toBe('396px'));
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse the Wera panel' }));
+    await waitFor(() => expect(document.documentElement.style.marginRight).toBe(''));
   });
 
   it('moves a multi-page application on, and says what Workday wants first', async () => {
     const plan: PagePlan = { fields: [field('w1', 'First name', { purpose: 'first_name', value: 'Ada', group: 'details' })], next: { id: 'n1', label: 'Save and Continue', final: false }, errors: 0, site: 'Workday', step: { name: 'My Information', index: 1, total: 5 } };
     const { calls } = fakeBackground({
       job, info: { hasForm: true, gate: 'Sign in to your Workday account for this company, then press Autofill on the application.' },
-      frames: { scan: () => plan, apply: ({ items }: ApplyRequest) => items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false })), next: () => ({ ok: true }) },
+      frames: { ...formPageFrames(plan), next: () => ({ ok: true }) },
       api: { suggest: () => ({ answers: [] }) },
     });
     render(<App handle={handle('form')} show={show()} />);
@@ -231,7 +465,7 @@ describe('the Wera panel', () => {
     const applied: FillItem[] = [];
     fakeBackground({
       job, info: { hasForm: true },
-      frames: { scan: () => plan, apply: ({ items }: ApplyRequest) => (applied.push(...items), items.map((i) => ({ id: i.id, label: '', purpose: null, status: 'filled', value: i.value, required: false }))) },
+      frames: formPageFrames(plan, ({ items }) => applied.push(...items)),
       api: {
         resumeFile: () => {
           throw new Error('502 Bad Gateway');

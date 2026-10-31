@@ -281,11 +281,14 @@ export function looksSuggesting(el: HTMLInputElement): boolean {
 async function pickSuggestion(el: HTMLInputElement, value: string, purpose: FieldPurpose | null): Promise<string | null> {
   focusField(el);
   // Search by the place's first part ("Dallas" for "Dallas, TX"), then pick the full match.
-  typeSearch(el, value.split(',')[0]!.trim());
+  const search = value.split(',')[0]!.trim();
+  typeSearch(el, search);
   arrowDown(el);
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 40; i++) {
     await wait(100);
     const found = suggestionsNear(el);
+    // A slow site may have missed the first search: ask once more.
+    if (!found.length && i === 20) typeSearch(el, search);
     if (!found.length) continue;
     const hit = (matchOption(found, value, purpose) ?? found.find((o) => norm(o.label).startsWith(norm(value.split(',')[0]!)))) as (Option & { node: HTMLElement }) | null;
     // The list may still be filling in: keep looking until time runs out.

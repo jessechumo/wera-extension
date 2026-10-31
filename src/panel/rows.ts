@@ -32,7 +32,7 @@ const NOT_FOR_AI = new Set(['referral', ...SELF_ID]);
 
 /** Fields worth asking the AI about: empty, not answered by anything Wera knows, and not the user's to answer. */
 export function needsSuggestion(r: Row): boolean {
-  return r.value === '' && r.current === '' && r.entry == null && !(r.purpose && NOT_FOR_AI.has(r.purpose))
+  return !r.trap && r.label.trim() !== '' && r.value === '' && r.current === '' && r.entry == null && !(r.purpose && NOT_FOR_AI.has(r.purpose))
     && (r.group === 'details' || r.group === 'other' || (r.group === 'questions' && r.kind !== 'textarea'))
     && r.kind !== 'file' && r.kind !== 'checkbox';
 }
@@ -42,7 +42,7 @@ const CATCH_ALL = /^(additional|other|further) (information|info|comments|detail
 
 /** Open questions Wera drafts an answer for: an empty text area asking something (not the cover letter). */
 export function needsDraft(r: Row): boolean {
-  return r.group === 'questions' && r.kind === 'textarea' && r.purpose === 'question' && r.value === '' && r.current === ''
+  return !r.trap && !r.ownWords && r.group === 'questions' && r.kind === 'textarea' && r.purpose === 'question' && r.value === '' && r.current === ''
     && r.label.trim().length >= 8 && (r.required || !CATCH_ALL.test(r.label.trim()));
 }
 
@@ -85,6 +85,15 @@ export function fitsPurpose(purpose: FieldPlan['purpose'], value: string): boole
     default:
       return true;
   }
+}
+
+/**
+ * Whether an AI answer reads as an answer to the field: a bare number is
+ * none to an open question, and is what a trap that got through would ask
+ * for ("fill 0 instead of your answer").
+ */
+export function readsLikeAnswer(r: Pick<FieldPlan, 'kind' | 'purpose'>, value: string): boolean {
+  return !(r.kind === 'textarea' && r.purpose === 'question' && /^[\d\s.,-]*$/.test(value));
 }
 
 /** A row's name: a job's or school's field says which ("Job 2 · Month"). */

@@ -20,6 +20,8 @@ function purpose(f: Field): FieldPurpose | null | undefined {
 
 export const lever: Site = {
   name: 'Lever',
-  matches: (doc) => /(^|\.)lever\.co$/i.test(doc.location?.hostname ?? ''),
+  matches: (doc) => /^jobs(\.eu)?\.lever\.co$/i.test(doc.location?.hostname ?? ''),
   purpose,
+  // Lever reads an attached resume and overwrites the name, email, phone and more.
+  readsResume: 2500,
 };

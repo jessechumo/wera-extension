@@ -12,7 +12,7 @@ const ID_ATTR = 'data-wera-next';
 const NEXT = /^(next|continue|save (and|&) (continue|next)|save and proceed|proceed|next step|next page|continue to (the )?next (step|page)|go to next|review( (application|and submit))?)\b/i;
 const FINAL = /\b(submit|send (my )?application|apply( now)?|finish|complete (my )?application|confirm and submit)\b/i;
 // Never a way forward: going back, saving for later, leaving, signing in.
-const NOT = /\b(back|previous|prev|cancel|save (as )?draft|save for later|sign (in|up)|log ?in|create account|upload|add (another|more)|remove|delete|edit)\b/i;
+const NOT = /\b(back|previous|prev|cancel|save (as )?draft|save for later|sign (in|up)|log ?in|create account|upload|add (another|more)|remove|delete|edit|with (indeed|linkedin|google|seek|xing|resume))\b/i;
 
 const CANDIDATES = 'button, input[type="submit"], input[type="button"], [role="button"], a[data-automation-id]';
 

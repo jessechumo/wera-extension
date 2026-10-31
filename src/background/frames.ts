@@ -6,6 +6,7 @@
 // installed or updated get it injected first.
 import type { LogEntry } from '../shared/log';
 import type { FrameOps } from '../shared/rpc';
+import { uniqueTraps } from '../shared/traps';
 import type { ApplyRequest, ContentRequest, FieldSnapshot, FillItem, FillResult, PageInfo, PagePlan, ScanRequest } from '../shared/types';
 import { originOf } from '../shared/url';
 
@@ -62,6 +63,7 @@ export async function readPage(tabId: number): Promise<PageInfo> {
     hasForm: top.hasForm || others.some((p) => p.hasForm),
     submitted: !!top.submitted || others.some((p) => p.submitted),
     frameOrigins: (top.frameOrigins ?? []).filter((o) => !reached.has(o)),
+    traps: uniqueTraps(replies.flatMap((r) => r.value.traps ?? [])),
   };
 }
 
@@ -89,6 +91,7 @@ export async function scan(tabId: number, req: ScanRequest): Promise<PagePlan> {
   for (const { frameId, value } of replies) {
     plan.fields.push(...value.fields.map((f) => ({ ...f, id: frameField(frameId, f.id) })));
     plan.errors += value.errors;
+    if (value.traps?.length) plan.traps = uniqueTraps([...(plan.traps ?? []), ...value.traps]);
     if (value.adders?.length) plan.adders = [...(plan.adders ?? []), ...value.adders.map((a) => ({ ...a, frameId }))];
     // The way forward (and the site, its step, what it wants first) is in the frame with the most fields: the form, not a header.
     if (value.fields.length > nextFields) {
@@ -135,6 +138,11 @@ export async function pressNext(tabId: number, nextId: string): Promise<{ ok: bo
   return sendTo<{ ok: boolean; label?: string; final?: boolean }>(tabId, f.frameId, { type: 'wera:next' }).catch(() => ({ ok: false }));
 }
 
+/** Presses the Apply button on the posting (the top frame's page). */
+export function pressApply(tabId: number): Promise<{ ok: boolean }> {
+  return sendTo<{ ok: boolean }>(tabId, 0, { type: 'wera:press-apply' }).catch(() => ({ ok: false }));
+}
+
 export async function highlight(tabId: number, id: string): Promise<void> {
   const f = parseField(id);
   await sendTo(tabId, f.frameId, { type: 'wera:highlight', id: f.id }).catch(() => {});
@@ -169,6 +177,7 @@ export const run: { [K in keyof FrameOps]: (tabId: number, ...args: FrameOps[K][
   'add-entries': addEntries,
   snapshot,
   next: pressNext,
+  'press-apply': pressApply,
   highlight,
   options,
   log: logs,

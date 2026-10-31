@@ -4,11 +4,12 @@
 import { extensionAlive, sendSafe } from '../shared/alive';
 import type { ContentRequest, PageInfo } from '../shared/types';
 import { collectFields } from './fields';
-import { peekOptions } from './fill';
+import { peekOptions, press } from './fill';
 import { log } from '../shared/log';
-import { readJobPosting } from './jsonld';
+import { scrub, uniqueTraps } from '../shared/traps';
+import { postingTraps, readJobPosting } from './jsonld';
 import { formFrameOrigins } from './frames';
-import { ownApplicationForm, pageKind } from './detect';
+import { findApply, ownApplicationForm, pageKind } from './detect';
 import { siteFor } from './sites';
 import { pressNext } from './next';
 import { addEntries, applyItems, highlight, planForm, snapshot } from './plan';
@@ -24,16 +25,21 @@ declare global {
 function readPage(): PageInfo {
   const url = location.href;
   const site = siteFor(document);
+  // What a person cannot read is not read; what it says to AI tools is noted, for the user to see.
+  const hidden: string[] = [];
+  const { clean: text, traps } = scrub(mainText(document, 24000, hidden));
   return {
     url,
     title: document.title,
-    text: mainText(document),
+    text,
     draft: readJobPosting(document, url),
+    traps: uniqueTraps([...traps, ...scrub(hidden.join('\n')).traps, ...postingTraps(document)]),
     // This frame's own form: a careers page around an embedded one leaves it to that frame.
     hasForm: ownApplicationForm(document),
     submitted: looksSubmitted(bodyText(document)),
     frameOrigins: formFrameOrigins(document),
     jobLike: pageKind(document) !== null,
+    apply: findApply(document)?.textContent?.trim().slice(0, 40) || undefined,
     docId: window.__weraDocId,
     site: site?.name,
     step: site?.step?.(document) ?? undefined,
@@ -95,6 +101,12 @@ export function listen() {
       case 'wera:next':
         reply(pressNext(document));
         return false;
+      case 'wera:press-apply': {
+        const b = findApply(document);
+        if (b) press(b);
+        reply({ ok: !!b });
+        return false;
+      }
       case 'wera:highlight':
         reply({ ok: highlight(document, msg.id) });
         return false;

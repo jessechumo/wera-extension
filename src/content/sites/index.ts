@@ -31,6 +31,8 @@ export interface Site {
   gate?(doc: Document): string | null;
   /** Time between fields: some sites need it to keep up (ms). */
   pace?: number;
+  /** Time a site takes to read an attached resume and fill the form from it (ms). */
+  readsResume?: number;
 }
 
 const SITES: Site[] = [workday, greenhouse, lever, ashby];
