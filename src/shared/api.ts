@@ -262,11 +262,12 @@ export class WeraApi {
     return this.call<WeraJob>(`/api/jobs/${id}`);
   }
 
-  extract(url: string, title: string, text: string) {
-    return this.call<JobDraft & { is_job_posting: boolean }>('/api/ext/extract', {
+  async extract(url: string, title: string, text: string) {
+    const d = await this.call<JobDraft & { is_job_posting: boolean }>('/api/ext/extract', {
       method: 'POST',
       body: JSON.stringify({ url, title, text }),
     });
+    return { ...d, url: d.url || url };
   }
 
   addJob(d: JobDraft) {
