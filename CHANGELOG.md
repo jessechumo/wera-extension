@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.8.0...wera-extension-v0.9.0) (2026-10-28)
+
+
+### Features
+
+* remember answers on submit, write cover letters, never reuse another company's answer ([#58](https://github.com/jessechumo/wera-extension/issues/58)) ([45e0bed](https://github.com/jessechumo/wera-extension/commit/45e0bed15bbeabd88751b2e9aaa69e671da56c2f))
+
+## [0.8.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.7.0...wera-extension-v0.8.0) (2026-10-28)
+
+
+### Features
+
+* stay off non-job pages; alert after applying, then close the tab ([#55](https://github.com/jessechumo/wera-extension/issues/55)) ([8028de7](https://github.com/jessechumo/wera-extension/commit/8028de740d035031b4a8ea6f411b4fd5880b3f4b))
+
+## [0.7.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.6.0...wera-extension-v0.7.0) (2026-10-24)
+
+
+### Features
+
+* fill what Wera already knows, clear errors, diagnostics and a cleaner codebase ([#52](https://github.com/jessechumo/wera-extension/issues/52)) ([1f9acb2](https://github.com/jessechumo/wera-extension/commit/1f9acb2a3d7c262e1b13398a4d94d0ed1b9da587))
+
+
+### Bug Fixes
+
+* **deps:** bump lucide-react ([#50](https://github.com/jessechumo/wera-extension/issues/50)) ([cf35227](https://github.com/jessechumo/wera-extension/commit/cf35227dc2b0d2572e126304c372cd532f5176bc))
+
 ## [0.6.0](https://github.com/jessechumo/wera-extension/compare/wera-extension-v0.5.2...wera-extension-v0.6.0) (2026-10-22)
 
 
