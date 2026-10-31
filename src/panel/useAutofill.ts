@@ -15,7 +15,7 @@ import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FillResult, JobDraft, PagePlan, Profile, ScanRequest } from '../shared/types';
 import { answersToLearn } from '../shared/learn';
-import { chunk, fitsPurpose, isGuess, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, RESUME, rowsFor, type Row } from './rows';
+import { chunk, fitsPurpose, followUpOf, isFollowUp, isGuess, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, RESUME, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
 
 export { needsYou, type Row } from './rows';
@@ -220,7 +220,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     let failed = 0;
     let cause: unknown = null;
     await Promise.all(chunk(fresh, 8).map(async (batch) => {
-      const fields: SuggestField[] = batch.map((r) => ({ id: r.id, label: r.label, kind: r.kind, options: r.options.length ? r.options : undefined, required: r.required || undefined, max_length: r.maxLength }));
+      const fields: SuggestField[] = batch.map((r) => ({ id: r.id, label: r.asked ?? r.label, kind: r.kind, options: r.options.length ? r.options : undefined, required: r.required || undefined, max_length: r.maxLength }));
       const got = await api.suggest(fields, jobId, posting).then((x) => x.answers).catch((e: unknown) => {
         failed += batch.length;
         cause = e;
@@ -258,7 +258,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     let cause: unknown = null;
     await pool(toDraft, 3, async (r) => {
       const words = r.maxLength ? Math.max(25, Math.min(300, Math.floor(r.maxLength / 7))) : 150;
-      const a = await api.answer(r.label, jobId, words, posting).catch((e: unknown) => {
+      const a = await api.answer(r.asked ?? r.label, jobId, words, posting).catch((e: unknown) => {
         failed++;
         cause = e;
         return null;
@@ -281,6 +281,30 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     await draftAndFill(latest.current, true).catch((e: unknown) => setError(describeError(e, "Couldn't draft these answers")));
     setPhase('filled');
   }, [draftAndFill]);
+
+  /**
+   * "If yes, please explain", once the question before it has its answer:
+   * asked of the AI with that answer when it applies, "N/A" when it does
+   * not and the form insists, and left for the user until then. first is
+   * the page's fields in page order.
+   */
+  const followUps = useCallback(async (first: Row[]) => {
+    const now = new Map(latest.current.map((r) => [r.id, r]));
+    const rows = first.map((r) => now.get(r.id) ?? r);
+    const ask: Row[] = [];
+    const moot: Row[] = [];
+    const waiting: Row[] = [];
+    rows.forEach((r, i) => {
+      const f = followUpOf(rows, i);
+      if (!f || r.value !== '' || r.current !== '' || r.trap) return;
+      if (f.applies) ask.push({ ...r, asked: `${f.question.label} ${f.said}. ${r.label}` });
+      else if (f.applies === null) waiting.push({ ...r, note: `depends on "${f.question.label.slice(0, 60)}": answer that first` });
+      else if (r.required && (r.kind === 'text' || r.kind === 'textarea')) moot.push({ ...r, value: 'N/A', source: 'details', note: `does not apply: you answered "${f.said}"`, checked: true });
+    });
+    merge([...waiting, ...moot]);
+    await fill(moot);
+    await Promise.all([suggestAndFill(ask), draftAndFill(ask)]);
+  }, [draftAndFill, fill, merge, suggestAndFill]);
 
   /**
    * A form that asks for a cover letter when this job has none yet: Wera
@@ -403,7 +427,12 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       const all = [...got.rows, ...(await revealed(now, got.rows))];
       setPhase('thinking');
       setThinking(all.filter(needsSuggestion).length + all.filter(needsDraft).length + (all.some(needsLetter) && settings.aiQuestions ? 1 : 0));
-      await Promise.all([suggestAndFill(all), draftAndFill(all), letterAndFill(all)]);
+      // Follow-ups wait for the answers they follow. Fields the page revealed
+      // are left out: they were added last, not beside their question.
+      const paged = new Set(got.rows.map((r) => r.id));
+      const firsts = all.filter((r) => !(paged.has(r.id) && isFollowUp(r)));
+      await Promise.all([suggestAndFill(firsts), draftAndFill(firsts), letterAndFill(all)]);
+      await followUps(got.rows);
       for (let round = 0; round < 2; round++) {
         now = await rescan();
         const more = await revealed(now, latest.current);
@@ -423,7 +452,7 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
       setRows((rs) => rs.map((r) => (r.status === 'filling' ? { ...r, status: undefined } : r)));
       setPhase('idle');
     }
-  }, [read, fill, rescan, revealed, repair, suggestAndFill, draftAndFill, letterAndFill, settings.aiQuestions, ensureJob, count, page]);
+  }, [read, fill, rescan, revealed, repair, suggestAndFill, draftAndFill, followUps, letterAndFill, settings.aiQuestions, ensureJob, count, page]);
 
   /** Fills one value the user approved (an AI guess, or a choice they made in the panel). */
   const fillOne = useCallback(async (r: Row, value: string) => {
