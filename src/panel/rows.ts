@@ -56,6 +56,9 @@ export function needsLetter(r: Row): boolean {
     && (r.required || /cover\s*letter|motivation(al)?\s*letter|letter of (motivation|interest)/i.test(r.label));
 }
 
+/** An AI answer Wera did not trust enough to enter by itself. */
+export const isGuess = (r: Row) => r.source === 'ai' && !!r.value && !r.checked && r.status !== 'filled';
+
 /**
  * What still needs the user once Wera is done: required fields left
  * empty or that did not take, self-identification not in their profile,
@@ -66,7 +69,7 @@ export function needsYou(rows: Row[]): Row[] {
     if (r.status === 'filled' && r.drafted) return true;
     if (r.status === 'filled' || r.status === 'already') return false;
     if (r.status === 'review') return true;
-    if (r.source === 'ai' && r.value && !r.checked) return true;
+    if (isGuess(r)) return true;
     return r.group === 'consent' || r.group === 'self_id' || (r.required && r.current === '');
   });
 }

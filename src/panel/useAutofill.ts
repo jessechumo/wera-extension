@@ -15,7 +15,7 @@ import { frames } from '../shared/rpc';
 import type { Settings } from '../shared/settings';
 import type { Applicant, FillResult, JobDraft, PagePlan, Profile, ScanRequest } from '../shared/types';
 import { answersToLearn } from '../shared/learn';
-import { chunk, fitsPurpose, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, RESUME, rowsFor, type Row } from './rows';
+import { chunk, fitsPurpose, isGuess, LETTER, needsDraft, needsLetter, needsSuggestion, pool, readsLikeAnswer, RESUME, rowsFor, type Row } from './rows';
 import type { PanelEvent, PanelPageState } from './usePanelPage';
 
 export { needsYou, type Row } from './rows';
@@ -432,6 +432,13 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
     await fill([row]).catch((e: unknown) => setError(describeError(e, `Couldn't fill "${r.label}"`)));
   }, [fill, merge]);
 
+  /** Enters every answer Wera only guessed, for a user who has read them. */
+  const acceptGuesses = useCallback(async () => {
+    const list = latest.current.filter(isGuess).map((r): Row => ({ ...r, checked: true }));
+    merge(list);
+    await fill(list).catch((e: unknown) => setError(describeError(e, "Couldn't fill Wera's guesses")));
+  }, [fill, merge]);
+
   /** Approve & continue: learn, press Next, then fill the next page when it shows. */
   const continueOn = useCallback(async () => {
     if (!plan?.next) return;
@@ -549,5 +556,5 @@ export function useAutofill(api: WeraApi, page: PanelPageState, settings: Settin
   }, [api, ensureJob, fill]);
 
   const busy = phase === 'reading' || phase === 'filling' || phase === 'thinking' || phase === 'continuing';
-  return { phase, plan, rows, error, warnings, notice, resume, letter, flow, thinking, busy, noAiHere: noAiHere && !draftAnyway, autofill, fillOne, continueOn, writeLetter, tailor, learn, setNotice, draftDespitePolicy };
+  return { phase, plan, rows, error, warnings, notice, resume, letter, flow, thinking, busy, noAiHere: noAiHere && !draftAnyway, autofill, fillOne, acceptGuesses, continueOn, writeLetter, tailor, learn, setNotice, draftDespitePolicy };
 }
