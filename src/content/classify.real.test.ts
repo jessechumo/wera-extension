@@ -40,6 +40,15 @@ function proposed(label: string, kind: Kind, options: string[], opts = {}): stri
 }
 
 describe('what real forms ask', () => {
+  it('reads a question through the abbreviations in it', () => {
+    const asks = 'Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)?';
+    expect(at(asks, 'radio', YES_NO)).toBe('needs_sponsorship');
+    expect(proposed(asks, 'radio', YES_NO)).toBe('No');
+    expect(at('Do you now or will you ever need sponsorship (i.e. a work visa)?', 'radio', YES_NO)).toBe('needs_sponsorship');
+    expect(at('Are you legally authorized to work in the U.S. for any employer?', 'radio', YES_NO)).toBe('authorized_to_work');
+    expect(proposed('Are you legally authorized to work in the U.S. for any employer?', 'radio', YES_NO)).toBe('Yes');
+  });
+
   it('leaves to the AI what asks more than the detail it mentions', () => {
     for (const [label, kind, options] of [
       ['How many years of primary or urgent care experience do you have post residency?', 'radio', ['0-2', '3-5', '6+']],

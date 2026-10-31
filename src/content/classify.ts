@@ -132,9 +132,12 @@ export function classify(f: Field): FieldPurpose | null {
 const YES_NO_WORD = /^(are|do|does|did|have|has|had|will|would|is|can|could|were|was|should|may)\b/;
 const YES_NO_CHOICE = /^(yes|no|n\/a|maybe|not sure|prefer not|decline)\b/i;
 
+// Dots that end no sentence: "(e.g. H-1B)", "in the U.S. today".
+const ABBREVIATED = /\b(?:e\.g|i\.e|etc|vs|u\.s\.a|u\.s|u\.k)\./gi;
+
 /** The sentence of a label that asks: its question when it has one ("Based in Austin. Are you nearby?"), else all of it. */
 function asked(label: string): string {
-  const question = label.match(/[^.?!:]*\?/g)?.map((q) => q.trim()).find((q) => q.split(/\s+/).length >= 2);
+  const question = label.replace(ABBREVIATED, (m) => m.replace(/\./g, '')).match(/[^.?!:]*\?/g)?.map((q) => q.trim()).find((q) => q.split(/\s+/).length >= 2);
   return question ?? label;
 }
 
